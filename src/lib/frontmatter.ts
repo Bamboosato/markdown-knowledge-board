@@ -3,6 +3,7 @@ import yaml from "js-yaml";
 import type { Note } from "./types";
 
 type FrontmatterParseResult = {
+  id?: string;
   title?: string;
   tags?: string[];
   updatedAt?: number;
@@ -56,6 +57,10 @@ export function parseMarkdownWithFrontmatter(
 
   const data =
     parsed.data && typeof parsed.data === "object" ? parsed.data : {};
+  const id =
+    typeof (data as { id?: unknown }).id === "string"
+      ? (data as { id: string }).id
+      : undefined;
   const title =
     typeof (data as { title?: unknown }).title === "string"
       ? (data as { title: string }).title
@@ -68,6 +73,7 @@ export function parseMarkdownWithFrontmatter(
   const updatedAt = toNumberTimestamp((data as { updatedAt?: unknown }).updatedAt);
 
   return {
+    id,
     title,
     tags,
     updatedAt,
@@ -76,19 +82,17 @@ export function parseMarkdownWithFrontmatter(
 }
 
 export function toMarkdownWithFrontmatter(note: Note): string {
-  const lines: string[] = [FRONTMATTER_DELIMITER];
+  const frontmatter: Record<string, unknown> = {
+    id: note.id,
+    updatedAt: new Date(note.updatedAt).toISOString(),
+  };
   const trimmedTitle = note.title.trim();
   if (trimmedTitle.length > 0) {
-    lines.push(`title: ${note.title}`);
+    frontmatter.title = note.title;
   }
   if (note.tags.length > 0) {
-    lines.push("tags:");
-    for (const tag of note.tags) {
-      lines.push(`  - ${tag}`);
-    }
+    frontmatter.tags = note.tags;
   }
-  lines.push(`updatedAt: ${new Date(note.updatedAt).toISOString()}`);
-  lines.push(FRONTMATTER_DELIMITER);
 
   const body = note.body ?? "";
   const startsWithHeading = /^#\s+/.test(body);
@@ -96,5 +100,13 @@ export function toMarkdownWithFrontmatter(note: Note): string {
   const needsHeading = !startsWithHeading;
   const bodyPrefix = needsHeading ? `${headingLine}\n\n` : "";
   const bodyText = body ? `${body}` : "";
-  return `${lines.join("\n")}\n${bodyPrefix}${bodyText}`;
+  const frontmatterText = yaml
+    .dump(frontmatter, {
+      lineWidth: -1,
+      noRefs: true,
+      sortKeys: false,
+    })
+    .trimEnd();
+
+  return `${FRONTMATTER_DELIMITER}\n${frontmatterText}\n${FRONTMATTER_DELIMITER}\n${bodyPrefix}${bodyText}`;
 }

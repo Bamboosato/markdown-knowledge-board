@@ -126,6 +126,12 @@
   border-color: #333333;
 }
 
+.import-button.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .file-input {
   display: none;
 }
@@ -287,9 +293,41 @@
 }
 
 .mdPreview .taskCheckbox {
+  appearance: none;
+  width: 1.8rem;
+  height: 1.8rem;
+  flex: 0 0 1.8rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #b8b8b8;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1d1d1d;
   cursor: pointer;
   margin-right: 0.5rem;
+  padding: 0;
   user-select: none;
+}
+
+.mdPreview .taskCheckbox:hover:not(:disabled) {
+  border-color: #1d1d1d;
+}
+
+.mdPreview .taskCheckbox:focus-visible {
+  outline: 3px solid #7fb3ff;
+  outline-offset: 2px;
+}
+
+.mdPreview .taskCheckbox[aria-checked="true"] {
+  background: #1d1d1d;
+  border-color: #1d1d1d;
+  color: #ffffff;
+}
+
+.mdPreview .taskCheckbox:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .mdPreview .taskText {
@@ -613,7 +651,8 @@
   background: rgba(0, 0, 0, 0.36);
 }
 
-.unsaved-dialog {
+.unsaved-dialog,
+.result-dialog {
   width: min(100%, 440px);
   border-radius: 10px;
   border: 1px solid #d0d0d0;
@@ -622,7 +661,8 @@
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
 }
 
-.unsaved-dialog h2 {
+.unsaved-dialog h2,
+.result-dialog h2 {
   margin: 0 0 8px;
   font-size: 1.15rem;
 }
@@ -630,6 +670,85 @@
 .unsaved-dialog p {
   margin: 0 0 18px;
   color: #444;
+}
+
+.result-message {
+  margin: 0 0 14px;
+  color: #444;
+  line-height: 1.5;
+}
+
+.result-summary {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 18px;
+}
+
+.result-summary div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+}
+
+.result-summary dt {
+  color: #666;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.result-summary dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.failure-details {
+  margin: 0 0 18px;
+}
+
+.failure-details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.failure-details ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.undo-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  background: #1d1d1d;
+  color: #ffffff;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.2);
+  transform: translateX(-50%);
+}
+
+.undo-button {
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
+.undo-button:focus-visible {
+  outline: 3px solid #7fb3ff;
+  outline-offset: 2px;
 }
 
 @media (max-width: 900px) {
@@ -686,7 +805,7 @@
   .editor-actions {
     align-items: stretch;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
   }
 
@@ -731,8 +850,16 @@
     padding: 12px;
   }
 
-  .unsaved-dialog {
+  .unsaved-dialog,
+  .result-dialog {
     width: 100%;
+  }
+
+  .undo-toast {
+    align-items: stretch;
+    bottom: 12px;
+    justify-content: space-between;
+    width: calc(100vw - 24px);
   }
 }
 
