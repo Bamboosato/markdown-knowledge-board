@@ -32,7 +32,11 @@ function createId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
   }
-  return `note-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `note-${getCurrentTimestamp()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getCurrentTimestamp(): number {
+  return Date.now();
 }
 
 function formatDate(timestamp: number): string {
@@ -54,6 +58,35 @@ function normalizeTag(tag: string): string {
   return tag.trim().toLowerCase();
 }
 
+function createBackupMessage(lastBackupAt: string | null, now: number): string | null {
+  if (!lastBackupAt) {
+    return "バックアップがまだ作成されていません。";
+  }
+
+  const lastDate = new Date(lastBackupAt);
+  if (Number.isNaN(lastDate.getTime())) {
+    return null;
+  }
+
+  const diffMs = now - lastDate.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays < 7) {
+    return null;
+  }
+
+  return `最終バックアップ: ${diffDays}日前 (${lastDate.toLocaleString()})`;
+}
+
+function getInitialBackupMessage(): string | null {
+  if (typeof localStorage === "undefined") {
+    return null;
+  }
+  return createBackupMessage(
+    localStorage.getItem("lastBackupAt"),
+    getCurrentTimestamp()
+  );
+}
+
 function App() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -68,10 +101,13 @@ function App() {
   const [dbError, setDbError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [tagFilter, setTagFilter] = useState("");
-  const [backupMessage, setBackupMessage] = useState<string | null>(null);
+  const [backupMessage, setBackupMessage] = useState<string | null>(
+    getInitialBackupMessage
+  );
   const [activeTab, setActiveTab] = useState<"edit" | "preview">("edit");
+  const draftLines = useMemo(() => draftBody.split("\n"), [draftBody]);
   const taskLineIndexes = useMemo(
-    () => getTaskLineIndexes(draftBody),
+    () => new Set(getTaskLineIndexes(draftBody)),
     [draftBody]
   );
 
@@ -85,21 +121,6 @@ function App() {
       }
     };
     load();
-    const storedBackup = localStorage.getItem("lastBackupAt");
-    if (storedBackup) {
-      const lastDate = new Date(storedBackup);
-      if (!Number.isNaN(lastDate.getTime())) {
-        const diffMs = Date.now() - lastDate.getTime();
-        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-        if (diffDays >= 7) {
-          setBackupMessage(
-            `最終バックアップ: ${diffDays}日前 (${lastDate.toLocaleString()})`
-          );
-        }
-      }
-    } else {
-      setBackupMessage("バックアップがまだ作成されていません。");
-    }
     return () => {
       active = false;
     };
@@ -144,7 +165,7 @@ function App() {
 
   const markDirty = () => {
     setIsDirty(true);
-    setDraftUpdatedAt(Date.now());
+    setDraftUpdatedAt(getCurrentTimestamp());
     isDirtyRef.current = true;
   };
 
@@ -234,7 +255,7 @@ function App() {
         title,
         body: parsed.body ?? content,
         tags: parsed.tags ?? [],
-        updatedAt: parsed.updatedAt ?? Date.now(),
+        updatedAt: parsed.updatedAt ?? getCurrentTimestamp(),
       };
       await saveNote(note);
       imported.push(note);
@@ -251,11 +272,11 @@ function App() {
 
   const handleNewNote = () => {
     const note: Note = {
-      id: crypto.randomUUID(),
+      id: createId(),
       title: "",
       body: "",
       tags: [],
-      updatedAt: Date.now(),
+      updatedAt: getCurrentTimestamp(),
     };
     setNotes((prev) =>
       [note, ...prev].sort((a, b) => b.updatedAt - a.updatedAt)
@@ -302,7 +323,7 @@ function App() {
     }
     setDraftTags((prev) => [...prev, trimmed]);
     setIsDirty(true);
-    setDraftUpdatedAt(Date.now());
+    setDraftUpdatedAt(getCurrentTimestamp());
     isDirtyRef.current = true;
   };
 
@@ -327,7 +348,7 @@ function App() {
       prev.filter((item) => normalizeTag(item) !== normalized)
     );
     setIsDirty(true);
-    setDraftUpdatedAt(Date.now());
+    setDraftUpdatedAt(getCurrentTimestamp());
     isDirtyRef.current = true;
   };
 
@@ -340,7 +361,7 @@ function App() {
       return;
     }
 
-    const now = Date.now();
+    const now = getCurrentTimestamp();
     const note: Note = {
       id: selectedId ?? createId(),
       title: trimmedTitle || "Untitled",
@@ -797,9 +818,11 @@ function App() {
                       const lineIndex =
                         typeof startLine === "number" ? startLine - 1 : NaN;
 
-                      const lines = draftBody.split("\n");
-                      const lineText = Number.isFinite(lineIndex)
-                        ? lines[lineIndex] ?? ""
+                      const isTaskLine =
+                        Number.isFinite(lineIndex) &&
+                        taskLineIndexes.has(lineIndex);
+                      const lineText = isTaskLine
+                        ? draftLines[lineIndex] ?? ""
                         : "";
                       const checked = /^\s*[-*]\s*\[x\]\s+/i.test(lineText);
 

@@ -1,9 +1,10 @@
+const taskMarkerPattern = /^(\s*[-*]\s*)\[( |x|X)\]\s+/;
+
 export function getTaskLineIndexes(body: string): number[] {
   const lines = body.split("\n");
   const indexes: number[] = [];
-  const regex = /^\s*[-*]\s*\[( |x|X)\]\s+/;
   for (let i = 0; i < lines.length; i++) {
-    if (regex.test(lines[i])) {
+    if (taskMarkerPattern.test(lines[i])) {
       indexes.push(i);
     }
   }
@@ -16,16 +17,12 @@ export function toggleTaskAtLine(body: string, lineIndex: number): string {
     return body;
   }
   const line = lines[lineIndex];
-  if (!/^\s*[-*]\s*\[( |x|X)\]\s+/.test(line)) {
-    return body;
-  }
-  const match = /^(\s*[-*]\s*)\[( |x|X)\]\s+/.exec(line);
+  const match = taskMarkerPattern.exec(line);
   if (!match) {
     return body;
   }
-  const nextChecked = match[2].toLowerCase() !== "x";
   lines[lineIndex] = line.replace(
-    /^(\s*[-*]\s*)\[( |x|X)\]\s+/,
+    taskMarkerPattern,
     (_m, p1: string, mark: string) => {
       const next = mark.toLowerCase() === "x" ? " " : "x";
       return `${p1}[${next}] `;
