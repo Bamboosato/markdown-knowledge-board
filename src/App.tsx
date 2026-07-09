@@ -20,6 +20,68 @@ type UnsavedDialogState = {
   actionLabel: string;
 };
 
+type ImportFailure = {
+  fileName: string;
+  reason: string;
+};
+
+type OperationDialogState =
+  | {
+      kind: "backup";
+      status: "complete" | "ready";
+      fileName: string;
+      noteCount: number;
+      resolvedAt: string;
+    }
+  | {
+      kind: "import";
+      added: number;
+      updated: number;
+      skipped: number;
+      failed: number;
+      failures: ImportFailure[];
+    };
+
+type PendingDeleteState = {
+  note: Note;
+  restoreIndex: number;
+  wasSelected: boolean;
+  wasDraft: boolean;
+};
+
+type BackupDocument = {
+  app: "markdown-knowledge-board";
+  version: 1;
+  createdAt: string;
+  noteCount: number;
+  notes: Array<{
+    id: string;
+    title: string;
+    tags: string[];
+    updatedAt: number;
+    markdown: string;
+  }>;
+};
+
+type FilePickerWritable = {
+  write(data: Blob): Promise<void>;
+  close(): Promise<void>;
+};
+
+type SaveFilePickerHandle = {
+  createWritable(): Promise<FilePickerWritable>;
+};
+
+type ShowSaveFilePicker = (options?: {
+  suggestedName?: string;
+  types?: Array<{
+    description: string;
+    accept: Record<string, string[]>;
+  }>;
+}) => Promise<SaveFilePickerHandle>;
+
+const UNDO_DELETE_TIMEOUT_MS = 8000;
+
 function extractTitle(content: string, fallback: string): string {
   const lines = content.split(/\r?\n/);
   for (const line of lines) {
@@ -68,6 +130,184 @@ function normalizeTag(tag: string): string {
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function sanitizeDownloadName(name: string): string {
+  return name.replace(/[\\/:*?"<>|]/g, "_");
+}
+
+function formatTimestampForFilename(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+async function saveBackupBlob(
+  blob: Blob,
+  fileName: string
+): Promise<"complete" | "ready" | "canceled"> {
+  const picker = (window as Window & { showSaveFilePicker?: ShowSaveFilePicker })
+    .showSaveFilePicker;
+
+  if (!picker) {
+    downloadBlob(blob, fileName);
+    return "ready";
+  }
+
+  try {
+    const handle = await picker.call(window, {
+      suggestedName: fileName,
+      types: [
+        {
+          description: "Markdown Knowledge Board backup",
+          accept: {
+            "application/json": [".json"],
+          },
+        },
+      ],
+    });
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return "complete";
+  } catch (error) {
+    if (isAbortError(error)) {
+      return "canceled";
+    }
+    throw error;
+  }
+}
+
+function createBackupDocument(notes: Note[], createdAt: string): BackupDocument {
+  return {
+    app: "markdown-knowledge-board",
+    version: 1,
+    createdAt,
+    noteCount: notes.length,
+    notes: notes.map((note) => ({
+      id: note.id,
+      title: note.title,
+      tags: note.tags,
+      updatedAt: note.updatedAt,
+      markdown: toMarkdownWithFrontmatter(note),
+    })),
+  };
+}
+
+function createNoteFromMarkdown(
+  content: string,
+  fileName: string,
+  overrides?: Partial<Pick<Note, "id" | "title" | "tags" | "updatedAt">>
+): Note {
+  if (content.trim().length === 0) {
+    throw new Error("File is empty.");
+  }
+
+  const parsed = parseMarkdownWithFrontmatter(content);
+  const fallbackTitle = filenameToTitle(fileName);
+  const body = parsed.body ?? content;
+  const title =
+    overrides?.title ??
+    parsed.title ??
+    extractTitle(body, fallbackTitle);
+
+  return {
+    id: overrides?.id ?? parsed.id ?? createId(),
+    title: title.trim() || "Untitled",
+    body,
+    tags: overrides?.tags ?? parsed.tags ?? [],
+    updatedAt:
+      overrides?.updatedAt ?? parsed.updatedAt ?? getCurrentTimestamp(),
+  };
+}
+
+function parseBackupNotes(content: string, fileName: string): Note[] {
+  const parsed: unknown = JSON.parse(content);
+  if (!isRecord(parsed)) {
+    throw new Error("Backup file must be a JSON object.");
+  }
+  if (parsed.app !== "markdown-knowledge-board" || parsed.version !== 1) {
+    throw new Error("Unsupported backup format.");
+  }
+  if (!Array.isArray(parsed.notes)) {
+    throw new Error("Backup file does not contain a notes array.");
+  }
+
+  return parsed.notes.map((item, index) => {
+    if (!isRecord(item)) {
+      throw new Error(`Backup note ${index + 1} is invalid.`);
+    }
+    if (typeof item.markdown !== "string") {
+      throw new Error(`Backup note ${index + 1} is missing Markdown content.`);
+    }
+
+    const id = typeof item.id === "string" ? item.id : undefined;
+    const title = typeof item.title === "string" ? item.title : undefined;
+    const tags =
+      Array.isArray(item.tags) && item.tags.every((tag) => typeof tag === "string")
+        ? item.tags
+        : undefined;
+    const updatedAt =
+      typeof item.updatedAt === "number" && Number.isFinite(item.updatedAt)
+        ? item.updatedAt
+        : undefined;
+
+    return createNoteFromMarkdown(item.markdown, `${fileName}#${index + 1}`, {
+      id,
+      title,
+      tags,
+      updatedAt,
+    });
+  });
+}
+
+function parseImportFileContent(content: string, fileName: string): Note[] {
+  if (/\.json$/i.test(fileName)) {
+    return parseBackupNotes(content, fileName);
+  }
+  if (!/\.md$/i.test(fileName)) {
+    throw new Error("Only .md Markdown files and .json backups can be imported.");
+  }
+  return [createNoteFromMarkdown(content, fileName)];
+}
+
+function getTaskLabelText(lineText: string): string {
+  const text = lineText.replace(/^\s*[-*]\s*\[[ x]\]\s+/i, "").trim();
+  return text || "Task";
+}
+
+function areStringArraysEqual(left: string[], right: string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
+
+function areNotesEquivalent(left: Note, right: Note): boolean {
+  return (
+    left.id === right.id &&
+    left.title === right.title &&
+    left.body === right.body &&
+    left.updatedAt === right.updatedAt &&
+    areStringArraysEqual(left.tags, right.tags)
+  );
 }
 
 function createBackupMessage(lastBackupAt: string | null, now: number): string | null {
@@ -124,6 +364,16 @@ function App() {
   const [backupMessage, setBackupMessage] = useState<string | null>(
     getInitialBackupMessage
   );
+  const [operationDialog, setOperationDialog] =
+    useState<OperationDialogState | null>(null);
+  const [isBackupBusy, setIsBackupBusy] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<PendingDeleteState | null>(
+    null
+  );
+  const pendingDeleteRef = useRef<PendingDeleteState | null>(null);
+  const deleteUndoTimerRef = useRef<number | null>(null);
+  const [initialDraft, setInitialDraft] = useState<Note | null>(null);
   const [activeTab, setActiveTab] = useState<"edit" | "preview">("edit");
   const draftLines = useMemo(() => draftBody.split("\n"), [draftBody]);
   const taskLineIndexes = useMemo(
@@ -161,6 +411,14 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (deleteUndoTimerRef.current !== null) {
+        window.clearTimeout(deleteUndoTimerRef.current);
+      }
+    };
+  }, []);
+
   const selectedNote = selectedId
     ? notes.find((note) => note.id === selectedId)
     : undefined;
@@ -177,6 +435,7 @@ function App() {
       isDirtyRef.current = false;
       setSaveStatus("idle");
       setLastSaveError(null);
+      setInitialDraft(null);
       return;
     }
     setDraftTitle(note.title);
@@ -188,6 +447,7 @@ function App() {
     isDirtyRef.current = false;
     setSaveStatus("saved");
     setLastSaveError(null);
+    setInitialDraft(null);
   };
 
   const markDirty = () => {
@@ -217,6 +477,113 @@ function App() {
       textarea.scrollTop = prevScrollTop;
       textarea.scrollLeft = prevScrollLeft;
     });
+  };
+
+  const getDraftSnapshot = (): Note => ({
+    id: selectedId ?? createId(),
+    title: draftTitle.trim() || "Untitled",
+    body: draftBody,
+    tags: getEffectiveTags(),
+    updatedAt: draftUpdatedAt || getCurrentTimestamp(),
+  });
+
+  const findImportMatchIndex = (candidate: Note, currentNotes: Note[]) => {
+    const idMatch = currentNotes.findIndex((note) => note.id === candidate.id);
+    if (idMatch >= 0) {
+      return idMatch;
+    }
+
+    const normalizedTitle = candidate.title.trim().toLowerCase();
+    return currentNotes.findIndex(
+      (note) =>
+        note.title.trim().toLowerCase() === normalizedTitle &&
+        note.updatedAt === candidate.updatedAt
+    );
+  };
+
+  const clearDeleteUndoTimer = () => {
+    if (deleteUndoTimerRef.current !== null) {
+      window.clearTimeout(deleteUndoTimerRef.current);
+      deleteUndoTimerRef.current = null;
+    }
+  };
+
+  const finalizePendingDelete = async () => {
+    const pending = pendingDeleteRef.current;
+    if (!pending) {
+      return;
+    }
+
+    clearDeleteUndoTimer();
+    pendingDeleteRef.current = null;
+    setPendingDelete(null);
+
+    if (pending.wasDraft) {
+      return;
+    }
+
+    try {
+      await deleteNote(pending.note.id);
+      setDbError(dbInitError);
+    } catch (error) {
+      setDbError(getErrorMessage(error, "Failed to delete the note."));
+    }
+  };
+
+  const schedulePendingDelete = (pending: PendingDeleteState) => {
+    clearDeleteUndoTimer();
+    pendingDeleteRef.current = pending;
+    setPendingDelete(pending);
+    deleteUndoTimerRef.current = window.setTimeout(() => {
+      void finalizePendingDelete();
+    }, UNDO_DELETE_TIMEOUT_MS);
+  };
+
+  const handleUndoDelete = async () => {
+    const pending = pendingDeleteRef.current;
+    if (!pending) {
+      return;
+    }
+
+    clearDeleteUndoTimer();
+    pendingDeleteRef.current = null;
+    setPendingDelete(null);
+
+    if (pending.wasDraft) {
+      setSelectedId(pending.note.id);
+      setDraftTitle(pending.note.title);
+      setDraftTags(pending.note.tags);
+      setTagInput("");
+      setDraftBody(pending.note.body);
+      setDraftUpdatedAt(pending.note.updatedAt);
+      setIsDirty(true);
+      isDirtyRef.current = true;
+      setSaveStatus("draft");
+      setLastSaveError(null);
+      setInitialDraft(pending.note);
+      setMobileView("editor");
+      setActiveTab("edit");
+      return;
+    }
+
+    try {
+      await saveNote(pending.note);
+      setDbError(dbInitError);
+      setNotes((prev) => {
+        const without = prev.filter((note) => note.id !== pending.note.id);
+        const next = [...without];
+        const index = Math.min(Math.max(pending.restoreIndex, 0), next.length);
+        next.splice(index, 0, pending.note);
+        return next;
+      });
+      if (pending.wasSelected) {
+        setSelectedId(pending.note.id);
+        resetDraft(pending.note);
+        setMobileView("editor");
+      }
+    } catch (error) {
+      setDbError(getErrorMessage(error, "Failed to restore the note."));
+    }
   };
 
   const handleWrap = (
@@ -280,40 +647,85 @@ function App() {
     }
 
     const imported: Note[] = [];
+    const failures: ImportFailure[] = [];
+    let added = 0;
+    let updated = 0;
+    let skipped = 0;
+    let workingNotes = notes.slice();
+
+    setIsImporting(true);
+
     try {
       for (const file of files) {
-        const content = await file.text();
-        const parsed = parseMarkdownWithFrontmatter(content);
-        const fallbackTitle = filenameToTitle(file.name);
-        const title =
-          parsed.title ?? extractTitle(parsed.body ?? content, fallbackTitle);
-        const note: Note = {
-          id: createId(),
-          title,
-          body: parsed.body ?? content,
-          tags: parsed.tags ?? [],
-          updatedAt: parsed.updatedAt ?? getCurrentTimestamp(),
-        };
-        await saveNote(note);
-        imported.push(note);
+        try {
+          const content = await file.text();
+          const candidates = parseImportFileContent(content, file.name);
+
+          for (const candidate of candidates) {
+            const matchIndex = findImportMatchIndex(candidate, workingNotes);
+            if (matchIndex >= 0) {
+              const existing = workingNotes[matchIndex];
+              const nextNote = { ...candidate, id: existing.id };
+              if (areNotesEquivalent(existing, nextNote)) {
+                skipped += 1;
+                continue;
+              }
+
+              await saveNote(nextNote);
+              workingNotes = workingNotes.map((note, index) =>
+                index === matchIndex ? nextNote : note
+              );
+              imported.push(nextNote);
+              updated += 1;
+              continue;
+            }
+
+            await saveNote(candidate);
+            workingNotes = [candidate, ...workingNotes];
+            imported.push(candidate);
+            added += 1;
+          }
+        } catch (error) {
+          failures.push({
+            fileName: file.name,
+            reason: getErrorMessage(error, "Failed to import this file."),
+          });
+        }
       }
 
-      if (imported.length > 0) {
+      if (imported.length > 0 || skipped > 0) {
         setNotes((prev) =>
-          [...imported, ...prev].sort((a, b) => b.updatedAt - a.updatedAt)
+          [
+            ...workingNotes.filter((note) =>
+              prev.some((item) => item.id === note.id)
+            ),
+            ...workingNotes.filter(
+              (note) => !prev.some((item) => item.id === note.id)
+            ),
+          ].sort((a, b) => b.updatedAt - a.updatedAt)
         );
       }
-      setDbError(dbInitError);
-    } catch (error) {
-      if (imported.length > 0) {
-        setNotes((prev) =>
-          [...imported, ...prev].sort((a, b) => b.updatedAt - a.updatedAt)
-        );
-      }
-      setDbError(getErrorMessage(error, "Failed to import Markdown files."));
+
+      setOperationDialog({
+        kind: "import",
+        added,
+        updated,
+        skipped,
+        failed: failures.length,
+        failures,
+      });
+
+      setDbError(
+        failures.length > 0
+          ? `Import completed with ${failures.length} failed file${
+              failures.length === 1 ? "" : "s"
+            }.`
+          : dbInitError
+      );
+    } finally {
+      setIsImporting(false);
+      input.value = "";
     }
-
-    input.value = "";
   };
 
   const handleNewNote = async () => {
@@ -338,6 +750,7 @@ function App() {
     isDirtyRef.current = true;
     setSaveStatus("draft");
     setLastSaveError(null);
+    setInitialDraft(note);
     setMobileView("editor");
     setActiveTab("edit");
   };
@@ -470,6 +883,7 @@ function App() {
       setSaveStatus("saved");
       setLastSaveError(null);
       isDirtyRef.current = false;
+      setInitialDraft(null);
       return true;
     } catch (error) {
       const message = getErrorMessage(error, "Failed to save the note.");
@@ -501,6 +915,55 @@ function App() {
     setMobileView("notes");
   };
 
+  const hasPendingTagInput = tagInput.trim().length > 0;
+  const hasDraftChanges = isDirty || hasPendingTagInput;
+  const isDraftDifferentFromInitial =
+    isDraftNote && initialDraft
+      ? draftTitle !== initialDraft.title ||
+        draftBody !== initialDraft.body ||
+        !areStringArraysEqual(draftTags, initialDraft.tags) ||
+        hasPendingTagInput
+      : false;
+  const canRevertDraft =
+    selectedId !== null &&
+    (selectedNote ? hasDraftChanges : isDraftDifferentFromInitial);
+
+  const handleRevertDraft = () => {
+    if (!canRevertDraft) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      selectedNote
+        ? "Revert unsaved changes to the last loaded version?"
+        : "Revert this draft to its initial state?"
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    if (selectedNote) {
+      resetDraft(selectedNote);
+      return;
+    }
+
+    if (isDraftNote && initialDraft) {
+      setSelectedId(initialDraft.id);
+      setDraftTitle(initialDraft.title);
+      setDraftTags(initialDraft.tags);
+      setTagInput("");
+      setDraftBody(initialDraft.body);
+      setDraftUpdatedAt(initialDraft.updatedAt);
+      setIsDirty(true);
+      isDirtyRef.current = true;
+      setSaveStatus("draft");
+      setLastSaveError(null);
+      return;
+    }
+
+    resetDraft();
+  };
+
   const statusText =
     saveStatus === "saving"
       ? "Status: Saving"
@@ -530,70 +993,105 @@ function App() {
   });
 
   const handleDelete = async () => {
-    if (!selectedNote) {
+    const targetNote =
+      selectedNote && !isDirtyRef.current && tagInput.trim().length === 0
+        ? selectedNote
+        : selectedId
+        ? getDraftSnapshot()
+        : null;
+
+    if (!targetNote) {
       return;
     }
+
     const confirmed = window.confirm(
-      `Delete "${selectedNote.title || "Untitled"}"?`
+      `Delete "${targetNote.title || "Untitled"}"?`
     );
     if (!confirmed) {
       return;
     }
-    try {
-      await deleteNote(selectedNote.id);
-      setNotes((prev) => prev.filter((note) => note.id !== selectedNote.id));
+
+    await finalizePendingDelete();
+
+    const restoreIndex = Math.max(
+      notes.findIndex((note) => note.id === targetNote.id),
+      0
+    );
+    const wasDraft = !selectedNote;
+    const wasSelected = selectedId === targetNote.id;
+
+    if (!wasDraft) {
+      setNotes((prev) => prev.filter((note) => note.id !== targetNote.id));
+    }
+    if (wasSelected) {
       setSelectedId(null);
       resetDraft();
       setMobileView("notes");
-      setDbError(dbInitError);
-    } catch (error) {
-      setDbError(getErrorMessage(error, "Failed to delete the note."));
     }
+    setDbError(dbInitError);
+    schedulePendingDelete({
+      note: targetNote,
+      restoreIndex,
+      wasSelected,
+      wasDraft,
+    });
   };
 
   const downloadMarkdown = (note: Note) => {
     const title = note.title || "Untitled";
     const content = toMarkdownWithFrontmatter(note);
     const blob = new Blob([content], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${title.replace(/[\\/:*?"<>|]/g, "_")}.md`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `${sanitizeDownloadName(title)}.md`);
   };
-
-  const getDraftExportNote = (): Note => ({
-    id: selectedId ?? createId(),
-    title: draftTitle.trim() || "Untitled",
-    body: draftBody,
-    tags: getEffectiveTags(),
-    updatedAt: draftUpdatedAt || getCurrentTimestamp(),
-  });
 
   const handleExport = () => {
     if (!selectedNote && !isDraftNote) {
       return;
     }
-    downloadMarkdown(getDraftExportNote());
+    downloadMarkdown(getDraftSnapshot());
   };
 
   const handleDownloadDraft = () => {
-    downloadMarkdown(getDraftExportNote());
+    downloadMarkdown(getDraftSnapshot());
   };
 
-  const handleBackupAll = () => {
-    if (notes.length === 0) {
+  const handleBackupAll = async () => {
+    if (isBackupBusy) {
       return;
     }
-    for (const note of notes) {
-      downloadMarkdown(note);
+
+    setIsBackupBusy(true);
+    setOperationDialog(null);
+
+    try {
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const backup = createBackupDocument(notes, nowIso);
+      const fileName = `markdown-knowledge-board-backup-${formatTimestampForFilename(
+        now
+      )}.json`;
+      const blob = new Blob([JSON.stringify(backup, null, 2)], {
+        type: "application/json",
+      });
+
+      const status = await saveBackupBlob(blob, fileName);
+      if (status === "canceled") {
+        return;
+      }
+      localStorage.setItem("lastBackupAt", nowIso);
+      setBackupMessage(null);
+      setOperationDialog({
+        kind: "backup",
+        status,
+        fileName,
+        noteCount: notes.length,
+        resolvedAt: now.toLocaleString(),
+      });
+    } catch (error) {
+      setDbError(getErrorMessage(error, "Failed to create a backup."));
+    } finally {
+      setIsBackupBusy(false);
     }
-    const nowIso = new Date().toISOString();
-    localStorage.setItem("lastBackupAt", nowIso);
-    setBackupMessage(null);
   };
 
   return (
@@ -613,9 +1111,9 @@ function App() {
             className="backup-button"
             type="button"
             onClick={handleBackupAll}
-            disabled={notes.length === 0}
+            disabled={isBackupBusy}
           >
-            Backup All Notes
+            {isBackupBusy ? "Creating Backup" : "Backup All Notes"}
           </button>
         </div>
         <div className="sidebar-section">
@@ -646,15 +1144,20 @@ function App() {
         </div>
         <div className="sidebar-section">
           <div className="section-title">Import</div>
-          <label className="import-button" htmlFor="import-md">
-            Import Markdown
+          <label
+            className={`import-button${isImporting ? " disabled" : ""}`}
+            htmlFor="import-md"
+            aria-disabled={isImporting}
+          >
+            {isImporting ? "Importing" : "Import Markdown / Backup"}
           </label>
           <input
             id="import-md"
             className="file-input"
             type="file"
-            accept=".md,text/markdown"
+            accept=".md,.json,text/markdown,application/json"
             multiple
+            disabled={isImporting}
             onChange={handleImport}
           />
         </div>
@@ -717,6 +1220,14 @@ function App() {
             <button
               className="secondary-button"
               type="button"
+              onClick={handleRevertDraft}
+              disabled={!canRevertDraft}
+            >
+              Revert
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
               onClick={handleExport}
               disabled={!selectedNote && !isDraftNote}
             >
@@ -726,7 +1237,7 @@ function App() {
               className="danger-button"
               type="button"
               onClick={handleDelete}
-              disabled={!selectedNote}
+              disabled={!selectedNote && !isDraftNote}
             >
               Delete
             </button>
@@ -989,8 +1500,15 @@ function App() {
 
                       return (
                         <li className={className}>
-                          <span
+                          <button
+                            type="button"
                             className="taskCheckbox"
+                            role="checkbox"
+                            aria-checked={checked}
+                            aria-label={`${
+                              checked ? "Mark task incomplete" : "Mark task complete"
+                            }: ${getTaskLabelText(lineText)}`}
+                            disabled={!Number.isFinite(lineIndex)}
                             onClick={() => {
                               if (!Number.isFinite(lineIndex)) {
                                 return;
@@ -1002,7 +1520,7 @@ function App() {
                             }}
                           >
                             {checked ? "☑" : "☐"}
-                          </span>
+                          </button>
                           {children}
                         </li>
                       );
@@ -1053,6 +1571,105 @@ function App() {
               </button>
             </div>
           </div>
+        </div>
+        ) : null}
+      {operationDialog ? (
+        <div className="modal-backdrop">
+          <div
+            className="result-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="operation-result-title"
+          >
+            {operationDialog.kind === "backup" ? (
+              <>
+                <h2 id="operation-result-title">
+                  {operationDialog.status === "complete"
+                    ? "Backup Complete"
+                    : "Backup Ready"}
+                </h2>
+                {operationDialog.status === "ready" ? (
+                  <p className="result-message">
+                    The backup file was prepared and the browser download was
+                    started. Confirm the save in your browser if prompted.
+                  </p>
+                ) : null}
+                <dl className="result-summary">
+                  <div>
+                    <dt>File</dt>
+                    <dd>{operationDialog.fileName}</dd>
+                  </div>
+                  <div>
+                    <dt>Notes</dt>
+                    <dd>{operationDialog.noteCount}</dd>
+                  </div>
+                  <div>
+                    <dt>
+                      {operationDialog.status === "complete"
+                        ? "Completed"
+                        : "Prepared"}
+                    </dt>
+                    <dd>{operationDialog.resolvedAt}</dd>
+                  </div>
+                </dl>
+              </>
+            ) : (
+              <>
+                <h2 id="operation-result-title">Import Complete</h2>
+                <dl className="result-summary">
+                  <div>
+                    <dt>Added</dt>
+                    <dd>{operationDialog.added}</dd>
+                  </div>
+                  <div>
+                    <dt>Updated</dt>
+                    <dd>{operationDialog.updated}</dd>
+                  </div>
+                  <div>
+                    <dt>Skipped</dt>
+                    <dd>{operationDialog.skipped}</dd>
+                  </div>
+                  <div>
+                    <dt>Failed</dt>
+                    <dd>{operationDialog.failed}</dd>
+                  </div>
+                </dl>
+                {operationDialog.failures.length > 0 ? (
+                  <details className="failure-details">
+                    <summary>Failed files</summary>
+                    <ul>
+                      {operationDialog.failures.map((failure) => (
+                        <li key={`${failure.fileName}-${failure.reason}`}>
+                          <strong>{failure.fileName}</strong>: {failure.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
+              </>
+            )}
+            <div className="dialog-actions">
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => setOperationDialog(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {pendingDelete ? (
+        <div className="undo-toast" role="status" aria-live="polite">
+          <span>Note deleted</span>
+          <button
+            className="undo-button"
+            type="button"
+            onClick={handleUndoDelete}
+          >
+            Undo
+          </button>
         </div>
       ) : null}
     </div>

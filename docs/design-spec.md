@@ -145,15 +145,15 @@ sidebar には以下を配置する。
 - `+ New Note`
   - 新規ノートを作成し、編集状態にする。
 - `Backup All Notes`
-  - 全ノートを Markdown ファイルとして出力する。
-  - ノートが 0 件の場合は disabled。
+  - 全ノートを単一 JSON バックアップとして出力する。
+  - ノートが 0 件の場合も空バックアップを出力し、結果を表示する。
 - Search
   - title/body の部分一致検索。
 - Tag filter
   - カンマ区切りでタグ条件を入力する。
   - 入力された全タグを含むノートだけを表示する。
 - Import
-  - `.md` または `text/markdown` ファイルを複数選択して取り込む。
+  - `.md` Markdown ファイルまたは `.json` バックアップファイルを複数選択して取り込む。
 - Notes
   - フィルタ後のノート一覧を表示する。
   - 0 件の場合は `No notes yet.` または `No matches.` を表示する。
@@ -165,6 +165,7 @@ editor header には以下を配置する。
 - アプリタイトル: `Markdown Knowledge Board`
 - 保存状態表示
 - `Save`
+- `Revert`
 - `Export`
 - `Delete`
 
@@ -276,38 +277,56 @@ Title、Tags、Body、Markdown toolbar の操作により draft state を更新�
 8. `isDirty = false` にする。
 9. `draftTags` を保存後タグに更新し、`tagInput` を空にする。
 
-### 7.7 削除
+### 7.7 Revert
+
+`Revert` は編集中の未保存変更を、現在のノートを読み込んだ時点の内容へ戻す。
+
+1. 未保存変更または未確定タグ入力がなければ disabled。
+2. 押下時に `window.confirm` で確認する。
+3. 保存済みノートの場合、`selectedNote` の title / tags / body / updatedAt を draft state に戻す。
+4. 新規 draft の場合、draft 作成時の初期状態へ戻す。
+5. 保存済みノートは `Status: Saved` に戻り、新規 draft は `Status: Draft` のまま残る。
+6. `tagInput`、保存エラー表示、dirty 状態を復元結果に合わせてリセットする。
+
+### 7.8 削除
 
 `Delete` を押すと以下を行う。
 
-1. 選択中ノートがなければ何もしない。
+1. 選択中ノートまたは未保存 draft がなければ何もしない。
 2. `window.confirm` で削除確認する。
-3. OK の場合は IndexedDB から削除する。
-4. `notes` から対象ノートを取り除く。
-5. 選択状態と draft state をリセットする。
+3. OK の場合は `notes` から対象ノートを取り除く。
+4. 選択状態と draft state をリセットする。
+5. `Note deleted` 通知と `Undo` 操作を 8 秒間表示する。
+6. Undo した場合は対象ノートを元の一覧位置とエディタへ復元する。
+7. Undo 期限を過ぎた場合は IndexedDB から削除を確定する。
 
-### 7.8 インポート
+### 7.9 インポート
 
-`Import Markdown` から複数 Markdown ファイルを選択できる。
+`Import Markdown / Backup` から複数 Markdown ファイルまたは JSON バックアップファイルを選択できる。
 
 各ファイルについて以下を行う。
 
 1. file text を読む。
-2. YAML frontmatter を parse する。
-3. title は frontmatter の `title`、本文中の H1、ファイル名の順で決定する。
-4. body は frontmatter 除去後の本文を使う。frontmatter がなければファイル全文を使う。
-5. tags は frontmatter の `tags` が文字列配列の場合のみ復元する。
-6. updatedAt は frontmatter の `updatedAt` を number または parse 可能な date string として復元する。なければ現在時刻。
-7. IndexedDB に保存する。
-8. 取り込んだノートを `notes` に追加し、`updatedAt` 降順に並べる。
+2. `.json` の場合はバックアップ形式を検証し、含まれる各ノートの Markdown を parse する。
+3. `.md` の場合は YAML frontmatter を parse する。
+4. `id` は frontmatter またはバックアップメタデータから復元し、なければ新規作成する。
+5. title は frontmatter の `title`、本文中の H1、ファイル名の順で決定する。
+6. body は frontmatter 除去後の本文を使う。frontmatter がなければファイル全文を使う。
+7. tags は frontmatter の `tags` が文字列配列の場合のみ復元する。
+8. updatedAt は frontmatter の `updatedAt` を number または parse 可能な date string として復元する。なければ現在時刻。
+9. 重複判定は `id` を優先し、次に現行データモデルで扱える `title + updatedAt` の一致を見る。
+10. 同一内容なら skipped、差分があれば updated、重複がなければ added として IndexedDB に保存する。
+11. import 結果ダイアログで added / updated / skipped / failed を表示する。
+12. 失敗したファイルはファイル名と理由を表示し、成功分は保存する。
 
-### 7.9 エクスポート
+### 7.10 エクスポート
 
 `Export` は選択中ノートを Markdown ファイルとして出力する。
 
 出力内容:
 
 - YAML frontmatter
+  - `id`
   - `title`
   - `tags`
   - `updatedAt`
@@ -316,16 +335,31 @@ Title、Tags、Body、Markdown toolbar の操作により draft state を更新�
 
 ファイル名は title を使い、Windows で使えない文字は `_` に置換する。
 
-### 7.10 全ノートバックアップ
+### 7.11 全ノートバックアップ
 
-`Backup All Notes` は全ノートに対して Markdown export と同じ内容を個別ファイルとして連続ダウンロードする。
+`Backup All Notes` は全ノートを単一 JSON ファイルとしてダウンロードする。
+
+出力内容:
+
+- `app`: `markdown-knowledge-board`
+- `version`: `1`
+- `createdAt`: バックアップ作成日時
+- `noteCount`: ノート件数
+- `notes[]`
+  - `id`
+  - `title`
+  - `tags`
+  - `updatedAt`
+  - `markdown`: Markdown export と同じ frontmatter 付き本文
 
 実行後:
 
-- `localStorage.lastBackupAt` に現在時刻の ISO 文字列を保存する。
-- `backupMessage` を消す。
+- 保存完了を検知できた場合は `Backup Complete` を表示し、ファイル名、件数、完了時刻を表示する。
+- 保存ダイアログがキャンセルされた場合は結果ダイアログを表示せず、`localStorage.lastBackupAt` は更新しない。
+- 保存完了を検知できないブラウザ fallback では `Backup Ready` を表示し、ファイル生成と browser download 開始までを通知する。
+- `Backup Complete` または `Backup Ready` の場合のみ `localStorage.lastBackupAt` に現在時刻の ISO 文字列を保存し、`backupMessage` を消す。
 
-### 7.11 Markdown toolbar
+### 7.12 Markdown toolbar
 
 toolbar 操作は textarea の selection/cursor を基準に本文を変更する。
 
@@ -338,16 +372,20 @@ toolbar 操作は textarea の selection/cursor を基準に本文を変更す�
 
 `handleWrap` は選択範囲がない場合は何もしない。
 
-### 7.12 Preview タスクチェック
+### 7.13 Preview タスクチェック
 
 Preview では `remark-gfm` により task list を表示する。
 
 実装仕様:
 
 - `input` は `ReactMarkdown` の component override で表示しない。
-- `li.task-list-item` に対して独自の `taskCheckbox` を表示する。
+- `li.task-list-item` に対して `button.taskCheckbox` を表示する。
+- `taskCheckbox` は `role="checkbox"`、`aria-checked`、操作内容を含む `aria-label` を持つ。
+- Space / Enter / click で同じ切り替え処理を実行する。
+- フォーカス時は可視アウトラインを表示する。
 - AST position の開始行から本文の行番号を求める。
 - `toggleTaskAtLine` により `- [ ]` と `- [x]` を切り替える。
+- 切り替え後は本文を更新し、保存状態を `Unsaved changes` にする。
 - 同一テキストが複数あっても行番号ベースで対象を決定する。
 
 ## 8. Frontmatter 仕様
@@ -361,6 +399,7 @@ Markdown が `---` で始まり、2 つ目の `---` が存在する場合、そ�
 - `title`: string の場合のみ採用
 - `tags`: string 配列の場合のみ採用
 - `updatedAt`: number または parse 可能な date string の場合のみ採用
+- `id`: string の場合のみ採用
 
 frontmatter が存在しない、または閉じ delimiter が存在しない場合は、全文を body として扱う。
 
@@ -372,6 +411,7 @@ export 時は常に frontmatter を出力する。
 
 ```markdown
 ---
+id: note-example
 title: Example
 tags:
   - memo
@@ -400,6 +440,11 @@ Body text
 | `searchQuery` | 検索語 |
 | `tagFilter` | タグフィルタ入力 |
 | `backupMessage` | バックアップ通知 |
+| `operationDialog` | Backup / Import 結果ダイアログ。Backup は `complete` / `ready` を持つ |
+| `isBackupBusy` | Backup 処理中 |
+| `isImporting` | Import 処理中 |
+| `pendingDelete` | Undo 可能な削除対象 |
+| `initialDraft` | 新規 draft の Revert 復元元 |
 | `activeTab` | `edit` または `preview` |
 
 `isDirtyRef` はノート選択時の非同期保存確認に使う。
@@ -418,12 +463,13 @@ title/body/tags がすべて空の場合、保存処理は何もしない。
 
 ### 10.3 import 異常
 
-現状、YAML parse エラーやファイル単位の import 失敗を UI に明示する仕様はない。
-例外が発生した場合は処理が中断する可能性がある。
+YAML parse エラー、空ファイル、非対応拡張子、バックアップ形式不正はファイル単位で failed として扱う。
+成功分は保存し、結果ダイアログで failed 件数とファイル名、理由を表示する。
 
 ### 10.4 export/backup 異常
 
-現状、download 成功/失敗の検知や結果通知はない。
+Backup は単一 JSON を作成する。File System Access API で保存完了を検知できる場合は `Backup Complete`、ユーザーキャンセルは通知なし、検知できない download fallback は `Backup Ready` を表示する。
+`Backup Ready` は保存完了を保証せず、ブラウザの保存プロンプト確認が必要であることを示す。
 
 ## 11. レスポンシブ仕様
 
