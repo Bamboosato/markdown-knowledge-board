@@ -12,6 +12,14 @@ import {
 import { insertLink, toggleLinePrefix, wrapSelection } from "./lib/markdownEdit";
 import { getTaskLineIndexes, toggleTaskAtLine } from "./lib/markdownTasks";
 
+type SaveStatus = "idle" | "draft" | "unsaved" | "saving" | "saved" | "error";
+type MobileView = "notes" | "editor";
+type UnsavedChoice = "save" | "discard" | "cancel";
+
+type UnsavedDialogState = {
+  actionLabel: string;
+};
+
 function extractTitle(content: string, fallback: string): string {
   const lines = content.split(/\r?\n/);
   for (const line of lines) {
@@ -58,9 +66,13 @@ function normalizeTag(tag: string): string {
   return tag.trim().toLowerCase();
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 function createBackupMessage(lastBackupAt: string | null, now: number): string | null {
   if (!lastBackupAt) {
-    return "バックアップがまだ作成されていません。";
+    return "No backup has been created yet.";
   }
 
   const lastDate = new Date(lastBackupAt);
@@ -74,7 +86,7 @@ function createBackupMessage(lastBackupAt: string | null, now: number): string |
     return null;
   }
 
-  return `最終バックアップ: ${diffDays}日前 (${lastDate.toLocaleString()})`;
+  return `Last backup: ${diffDays} days ago (${lastDate.toLocaleString()})`;
 }
 
 function getInitialBackupMessage(): string | null {
@@ -97,6 +109,14 @@ function App() {
   const [draftUpdatedAt, setDraftUpdatedAt] = useState<number>(0);
   const [isDirty, setIsDirty] = useState(false);
   const isDirtyRef = useRef(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [lastSaveError, setLastSaveError] = useState<string | null>(null);
+  const [mobileView, setMobileView] = useState<MobileView>("notes");
+  const [unsavedDialog, setUnsavedDialog] =
+    useState<UnsavedDialogState | null>(null);
+  const unsavedChoiceResolverRef = useRef<((choice: UnsavedChoice) => void) | null>(
+    null
+  );
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
   const [dbError, setDbError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -126,9 +146,25 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirtyRef.current) {
+        return;
+      }
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, []);
+
   const selectedNote = selectedId
     ? notes.find((note) => note.id === selectedId)
     : undefined;
+  const isDraftNote = selectedId !== null && !selectedNote;
 
   const resetDraft = (note?: Note) => {
     if (!note) {
@@ -139,6 +175,8 @@ function App() {
       setDraftUpdatedAt(0);
       setIsDirty(false);
       isDirtyRef.current = false;
+      setSaveStatus("idle");
+      setLastSaveError(null);
       return;
     }
     setDraftTitle(note.title);
@@ -148,25 +186,16 @@ function App() {
     setDraftUpdatedAt(note.updatedAt);
     setIsDirty(false);
     isDirtyRef.current = false;
-  };
-
-  const handleSelectNote = async (note: Note) => {
-    if (isDirtyRef.current || tagInput.trim().length > 0) {
-      const shouldSave = window.confirm("変更を保存しますか？");
-      if (shouldSave) {
-        await handleSave();
-      } else {
-        return;
-      }
-    }
-    setSelectedId(note.id);
-    resetDraft(note);
+    setSaveStatus("saved");
+    setLastSaveError(null);
   };
 
   const markDirty = () => {
     setIsDirty(true);
     setDraftUpdatedAt(getCurrentTimestamp());
     isDirtyRef.current = true;
+    setLastSaveError(null);
+    setSaveStatus((current) => (current === "draft" ? "draft" : "unsaved"));
   };
 
   const applyEdit = (
@@ -238,39 +267,60 @@ function App() {
   const handleImport = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
-    const { files } = event.target;
-    if (!files || files.length === 0) {
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
+    if (files.length === 0) {
+      return;
+    }
+
+    const canContinue = await confirmUnsavedTransition("import Markdown files");
+    if (!canContinue) {
+      input.value = "";
       return;
     }
 
     const imported: Note[] = [];
-    for (const file of Array.from(files)) {
-      const content = await file.text();
-      const parsed = parseMarkdownWithFrontmatter(content);
-      const fallbackTitle = filenameToTitle(file.name);
-      const title =
-        parsed.title ?? extractTitle(parsed.body ?? content, fallbackTitle);
-      const note: Note = {
-        id: createId(),
-        title,
-        body: parsed.body ?? content,
-        tags: parsed.tags ?? [],
-        updatedAt: parsed.updatedAt ?? getCurrentTimestamp(),
-      };
-      await saveNote(note);
-      imported.push(note);
+    try {
+      for (const file of files) {
+        const content = await file.text();
+        const parsed = parseMarkdownWithFrontmatter(content);
+        const fallbackTitle = filenameToTitle(file.name);
+        const title =
+          parsed.title ?? extractTitle(parsed.body ?? content, fallbackTitle);
+        const note: Note = {
+          id: createId(),
+          title,
+          body: parsed.body ?? content,
+          tags: parsed.tags ?? [],
+          updatedAt: parsed.updatedAt ?? getCurrentTimestamp(),
+        };
+        await saveNote(note);
+        imported.push(note);
+      }
+
+      if (imported.length > 0) {
+        setNotes((prev) =>
+          [...imported, ...prev].sort((a, b) => b.updatedAt - a.updatedAt)
+        );
+      }
+      setDbError(dbInitError);
+    } catch (error) {
+      if (imported.length > 0) {
+        setNotes((prev) =>
+          [...imported, ...prev].sort((a, b) => b.updatedAt - a.updatedAt)
+        );
+      }
+      setDbError(getErrorMessage(error, "Failed to import Markdown files."));
     }
 
-    if (imported.length > 0) {
-      setNotes((prev) =>
-        [...imported, ...prev].sort((a, b) => b.updatedAt - a.updatedAt)
-      );
-    }
-
-    event.target.value = "";
+    input.value = "";
   };
 
-  const handleNewNote = () => {
+  const handleNewNote = async () => {
+    const canContinue = await confirmUnsavedTransition("create a new note");
+    if (!canContinue) {
+      return;
+    }
     const note: Note = {
       id: createId(),
       title: "",
@@ -278,9 +328,6 @@ function App() {
       tags: [],
       updatedAt: getCurrentTimestamp(),
     };
-    setNotes((prev) =>
-      [note, ...prev].sort((a, b) => b.updatedAt - a.updatedAt)
-    );
     setSelectedId(note.id);
     setDraftTitle(note.title);
     setDraftTags([]);
@@ -289,6 +336,10 @@ function App() {
     setDraftUpdatedAt(note.updatedAt);
     setIsDirty(true);
     isDirtyRef.current = true;
+    setSaveStatus("draft");
+    setLastSaveError(null);
+    setMobileView("editor");
+    setActiveTab("edit");
   };
 
   const candidateTags = useMemo(() => {
@@ -352,14 +403,45 @@ function App() {
     isDirtyRef.current = true;
   };
 
-  const handleSave = async () => {
-    const trimmedTitle = draftTitle.trim();
-    const trimmedBody = draftBody.trim();
-    const trimmedTags = getEffectiveTags();
+  function resolveUnsavedChoice(choice: UnsavedChoice) {
+    unsavedChoiceResolverRef.current?.(choice);
+    unsavedChoiceResolverRef.current = null;
+    setUnsavedDialog(null);
+  }
 
-    if (!trimmedTitle && !trimmedBody && trimmedTags.length === 0) {
-      return;
+  function requestUnsavedChoice(actionLabel: string): Promise<UnsavedChoice> {
+    return new Promise((resolve) => {
+      unsavedChoiceResolverRef.current = resolve;
+      setUnsavedDialog({ actionLabel });
+    });
+  }
+
+  async function confirmUnsavedTransition(actionLabel: string): Promise<boolean> {
+    if (!isDirtyRef.current && tagInput.trim().length === 0) {
+      return true;
     }
+
+    const choice = await requestUnsavedChoice(actionLabel);
+    if (choice === "cancel") {
+      return false;
+    }
+
+    if (choice === "discard") {
+      if (selectedNote) {
+        resetDraft(selectedNote);
+      } else {
+        setSelectedId(null);
+        resetDraft();
+      }
+      return true;
+    }
+
+    return handleSave();
+  }
+
+  async function handleSave(): Promise<boolean> {
+    const trimmedTitle = draftTitle.trim();
+    const trimmedTags = getEffectiveTags();
 
     const now = getCurrentTimestamp();
     const note: Note = {
@@ -370,27 +452,67 @@ function App() {
       updatedAt: now,
     };
 
-    await saveNote(note);
-    setDbError(dbInitError);
-    setNotes((prev) => {
-      const without = prev.filter((item) => item.id !== note.id);
-      return [note, ...without].sort((a, b) => b.updatedAt - a.updatedAt);
-    });
+    setSaveStatus("saving");
+    setLastSaveError(null);
+
+    try {
+      await saveNote(note);
+      setDbError(dbInitError);
+      setNotes((prev) => {
+        const without = prev.filter((item) => item.id !== note.id);
+        return [note, ...without].sort((a, b) => b.updatedAt - a.updatedAt);
+      });
+      setSelectedId(note.id);
+      setIsDirty(false);
+      setDraftUpdatedAt(now);
+      setDraftTags(trimmedTags);
+      setTagInput("");
+      setSaveStatus("saved");
+      setLastSaveError(null);
+      isDirtyRef.current = false;
+      return true;
+    } catch (error) {
+      const message = getErrorMessage(error, "Failed to save the note.");
+      setDbError(message);
+      setSaveStatus("error");
+      setLastSaveError(message);
+      setIsDirty(true);
+      isDirtyRef.current = true;
+      return false;
+    }
+  }
+
+  const handleSelectNote = async (note: Note) => {
+    const canContinue = await confirmUnsavedTransition("open another note");
+    if (!canContinue) {
+      return;
+    }
     setSelectedId(note.id);
-    setIsDirty(false);
-    setDraftUpdatedAt(now);
-    setDraftTags(trimmedTags);
-    setTagInput("");
-    isDirtyRef.current = false;
+    resetDraft(note);
+    setMobileView("editor");
+    setActiveTab("edit");
   };
 
-  const statusText = dbError
-    ? "Status: IndexedDB error"
-    : isDirty
-    ? "Status: Unsaved changes"
-    : selectedId
-    ? "Status: Saved"
-    : "Status: No note";
+  const handleShowNotes = async () => {
+    const canContinue = await confirmUnsavedTransition("return to Notes");
+    if (!canContinue) {
+      return;
+    }
+    setMobileView("notes");
+  };
+
+  const statusText =
+    saveStatus === "saving"
+      ? "Status: Saving"
+      : saveStatus === "error"
+      ? "Status: Save failed"
+      : isDraftNote
+      ? "Status: Draft"
+      : isDirty
+      ? "Status: Unsaved changes"
+      : selectedId
+      ? "Status: Saved"
+      : "Status: No note";
 
   const filteredNotes = notes.filter((note) => {
     const query = searchQuery.trim().toLowerCase();
@@ -417,26 +539,21 @@ function App() {
     if (!confirmed) {
       return;
     }
-    await deleteNote(selectedNote.id);
-    setNotes((prev) => prev.filter((note) => note.id !== selectedNote.id));
-    setSelectedId(null);
-    resetDraft();
+    try {
+      await deleteNote(selectedNote.id);
+      setNotes((prev) => prev.filter((note) => note.id !== selectedNote.id));
+      setSelectedId(null);
+      resetDraft();
+      setMobileView("notes");
+      setDbError(dbInitError);
+    } catch (error) {
+      setDbError(getErrorMessage(error, "Failed to delete the note."));
+    }
   };
 
-  const handleExport = () => {
-    if (!selectedNote) {
-      return;
-    }
-    const effectiveTags = getEffectiveTags();
-    const exportNote: Note = {
-      id: selectedNote.id,
-      title: draftTitle,
-      body: draftBody,
-      tags: effectiveTags,
-      updatedAt: draftUpdatedAt || selectedNote.updatedAt,
-    };
-    const title = exportNote.title || "Untitled";
-    const content = toMarkdownWithFrontmatter(exportNote);
+  const downloadMarkdown = (note: Note) => {
+    const title = note.title || "Untitled";
+    const content = toMarkdownWithFrontmatter(note);
     const blob = new Blob([content], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -448,22 +565,31 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
+  const getDraftExportNote = (): Note => ({
+    id: selectedId ?? createId(),
+    title: draftTitle.trim() || "Untitled",
+    body: draftBody,
+    tags: getEffectiveTags(),
+    updatedAt: draftUpdatedAt || getCurrentTimestamp(),
+  });
+
+  const handleExport = () => {
+    if (!selectedNote && !isDraftNote) {
+      return;
+    }
+    downloadMarkdown(getDraftExportNote());
+  };
+
+  const handleDownloadDraft = () => {
+    downloadMarkdown(getDraftExportNote());
+  };
+
   const handleBackupAll = () => {
     if (notes.length === 0) {
       return;
     }
     for (const note of notes) {
-      const title = note.title || "Untitled";
-      const content = toMarkdownWithFrontmatter(note);
-      const blob = new Blob([content], { type: "text/markdown" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${title.replace(/[\\/:*?"<>|]/g, "_")}.md`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
+      downloadMarkdown(note);
     }
     const nowIso = new Date().toISOString();
     localStorage.setItem("lastBackupAt", nowIso);
@@ -471,7 +597,7 @@ function App() {
   };
 
   return (
-    <div className="app">
+    <div className={`app mobile-${mobileView}`}>
       <aside className="sidebar">
         <div className="sidebar-section">
           <button
@@ -568,22 +694,31 @@ function App() {
           <div className="backup-banner">{backupMessage}</div>
         ) : null}
         <div className="editor-header">
-          <h1 className="app-title">Markdown Knowledge Board</h1>
+          <div className="editor-title-row">
+            <button
+              className="mobile-back-button secondary-button"
+              type="button"
+              onClick={handleShowNotes}
+            >
+              Notes
+            </button>
+            <h1 className="app-title">Markdown Knowledge Board</h1>
+          </div>
           <div className="editor-actions">
             <div className="save-status">{statusText}</div>
             <button
               className="primary-button"
               type="button"
               onClick={handleSave}
-              disabled={!!dbError}
+              disabled={saveStatus === "saving"}
             >
-              Save
+              {saveStatus === "saving" ? "Saving" : "Save"}
             </button>
             <button
               className="secondary-button"
               type="button"
               onClick={handleExport}
-              disabled={!selectedId}
+              disabled={!selectedNote && !isDraftNote}
             >
               Export
             </button>
@@ -591,13 +726,39 @@ function App() {
               className="danger-button"
               type="button"
               onClick={handleDelete}
-              disabled={!selectedId}
+              disabled={!selectedNote}
             >
               Delete
             </button>
           </div>
         </div>
-        {dbError ? <div className="db-error">{dbError}</div> : null}
+        {lastSaveError ? (
+          <div className="db-error save-error-panel">
+            <div>
+              <strong>Save failed.</strong>
+              <div>{lastSaveError}</div>
+            </div>
+            <div className="error-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={handleSave}
+                disabled={saveStatus === "saving"}
+              >
+                Retry
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={handleDownloadDraft}
+              >
+                Download Markdown
+              </button>
+            </div>
+          </div>
+        ) : dbError ? (
+          <div className="db-error">{dbError}</div>
+        ) : null}
         <div className="editor-tabs">
           <button
             type="button"
@@ -798,7 +959,7 @@ function App() {
           <div className="preview-panel editor-body">
             <div className="preview-label">Preview</div>
             {draftBody.trim().length === 0 ? (
-              <div className="preview-empty">プレビューする内容がありません</div>
+              <div className="preview-empty">Nothing to preview.</div>
             ) : (
               <div className="mdPreview mdPreview-scroll">
                 <ReactMarkdown
@@ -855,6 +1016,45 @@ function App() {
           </div>
         )}
       </main>
+      {unsavedDialog ? (
+        <div className="modal-backdrop">
+          <div
+            className="unsaved-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="unsaved-dialog-title"
+          >
+            <h2 id="unsaved-dialog-title">Unsaved Changes</h2>
+            <p>
+              Save or discard your changes before you{" "}
+              {unsavedDialog.actionLabel}.
+            </p>
+            <div className="dialog-actions">
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => resolveUnsavedChoice("save")}
+              >
+                Save and Continue
+              </button>
+              <button
+                className="danger-button"
+                type="button"
+                onClick={() => resolveUnsavedChoice("discard")}
+              >
+                Discard and Continue
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => resolveUnsavedChoice("cancel")}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

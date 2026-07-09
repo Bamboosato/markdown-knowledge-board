@@ -38,6 +38,10 @@ async function getDb(): Promise<IDBPDatabase<MarkdownDbSchema> | undefined> {
   }
 }
 
+function createDbUnavailableError(): Error {
+  return new Error(dbInitError ?? "IndexedDB is unavailable.");
+}
+
 export async function getAllNotes(): Promise<Note[]> {
   const db = await getDb();
   if (!db) {
@@ -57,7 +61,7 @@ export async function getNote(id: string): Promise<Note | undefined> {
 export async function saveNote(note: Note): Promise<void> {
   const db = await getDb();
   if (!db) {
-    return;
+    throw createDbUnavailableError();
   }
   await db.put(STORE_NAME, note);
 }
@@ -65,7 +69,7 @@ export async function saveNote(note: Note): Promise<void> {
 export async function deleteNote(id: string): Promise<void> {
   const db = await getDb();
   if (!db) {
-    return;
+    throw createDbUnavailableError();
   }
   await db.delete(STORE_NAME, id);
 }
