@@ -632,36 +632,132 @@ Markdown ノートをプレゼンテーションとして表示するモード�
 
 #### 改善方針
 
-Marp 記法を含む Markdown をスライドとして表示する専用モードを追加する。通常 Preview と Slide Preview を切り替えられるようにし、ノート用途とプレゼン用途を混同しない。
+Marp 記法を含む Markdown をスライドとして表示する専用モードを追加する。通常 Preview と Slides を切り替えられるようにし、ノート用途とプレゼン用途を混同しない。
+
+初期仕様では閲覧体験の拡張に限定し、スライド生成結果や現在のスライド番号はノート本文へ保存しない。一方で Marp の有効状態、size、theme、page number 表示はノートのメタデータとして YAML frontmatter に統合して保存する。
+
+#### 対象範囲
+
+- 対象は YAML frontmatter の `marp: true` を持つノートとする。
+- Marp 設定は Body には表示せず、Edit 画面の Slides 設定 UI から編集する。
+- YAML frontmatter は app metadata と Marp metadata を統合して扱う。
+- Import / Export / Backup では Marp metadata を frontmatter に含めて roundtrip する。
+- 外部 Marp Markdown の frontmatter に `marp`、`theme`、`size`、`paginate` が含まれる場合は、可能な範囲でノートの Marp 設定として取り込む。
+- 既存互換として、本文先頭の HTML comment directive に `marp: true` がある Markdown を import した場合は、後続実装で frontmatter metadata へ変換することを検討する。
+- Slides は Preview と同じ draft body と draft Marp 設定を表示対象にする。Markdown toolbar、本文保存処理は変更しない。
+- PDF / PPTX export、presenter mode、speaker notes UI、custom theme 管理、fullscreen presentation は A2 初期仕様の対象外とする。
+- Mermaid 図の Slides 内レンダリングは A2 初期仕様では対象外とし、`mermaid` code block として表示する。Slides 内 Mermaid 図化は後続拡張で扱う。
+
+Export / Backup で出力する frontmatter 例:
+
+```markdown
+---
+id: note-example
+title: Example
+tags:
+  - slides
+updatedAt: 2026-07-10T00:00:00.000Z
+marp: true
+theme: default
+size: 16:9
+paginate: true
+---
+# Slide 1
+```
+
+#### 設定仕様案
+
+- Marp renderer は Slides 表示が必要になった時のみ lazy load する。
+- 依存ライブラリは `@marp-team/marp-core` とし、Markdown から HTML / CSS を生成して表示する。
+- renderer に渡す Markdown は、draft Marp 設定から内部的に YAML frontmatter を組み立て、draft body と結合して生成する。
+- renderer 設定 UI は Edit 画面に表示する。
+- Marp On/Off は toggle とする。
+- Size は select とし、初期候補は `16:9`、`4:3` とする。
+- Theme は select とし、初期候補は `default`、`gaia`、`uncover` とする。
+- Page numbers は toggle とし、frontmatter の `paginate` として保存する。
+- 初期値は Marp Off、size `16:9`、theme `default`、paginate `true` とする。
+- Marp Off の場合、size / theme / paginate は UI 上 disabled または補助設定として表示する。
+- custom theme CSS の追加・保存は対象外とする。
+- slide viewport の縦横比は size に合わせ、`16:9` では `16 / 9`、`4:3` では `4 / 3` に切り替える。
+- render 結果は app DOM へ直接混ぜず、`iframe srcdoc` で隔離して表示する。
+- iframe には `sandbox` を設定し、script 実行を許可しない。
+- render は本文変更から 300ms debounce して実行する。
+- 同一 draft body で Slides を再表示する場合は、可能な範囲で直前の render 結果を再利用する。
+- 初期の安全上限として、本文が 100KB を超える場合は自動 render せず、`Slide deck is too large to render automatically.` を表示する。
 
 #### 機能仕様案
 
-- frontmatter または本文内の Marp 指定を検出した場合に Slide Preview を有効化する。
+- draft Marp 設定の On/Off が On の場合に Slides を有効化する。
+- Marp On/Off、size、theme、paginate を変更した場合は未保存変更として扱う。
 - `---` によるスライド区切りを解釈する。
-- スライド表示では 1 枚表示、前後移動、全体枚数表示を提供する。
-- スライドテーマは初期段階では標準テーマのみ対応する。
-- 通常の Markdown Preview と Slide Preview を切り替えられる。
+- Slides 表示では 1 枚表示、前後移動、先頭・最後移動、全体枚数表示を提供する。
+- 通常の Markdown Preview と Slides を切り替えられる。
+- Slides 表示へ切り替えた時点で slide index は 1 枚目に初期化する。
+- ノート切替、本文変更、Marp render 再実行時は slide index を有効な範囲へ丸める。
+- `ArrowLeft` / `ArrowRight` で前後移動、`Home` / `End` で先頭・最後へ移動できる。
+- Slides の表示、移動、render error はノートの dirty 状態を変更しない。
+- Marp Off のノートで Slides を開いた場合は、`Slides unavailable for this note.` と表示し、Edit 画面の Marp toggle を On にする導線を案内する。
+- render 中は `Rendering slides...` を表示する。
+- render に失敗した場合は `Unable to render slides.` とエラー概要を表示し、通常 Preview / Edit へ戻れるようにする。
 
 #### 画面仕様案
 
-- エディタ上部に `Preview` / `Slides` の表示切替を追加する。
-- Slides では前へ、次へ、先頭へ、最後へ移動できる。
+- エディタ上部の表示切替を `Edit` / `Preview` / `Slides` にする。
+- Edit 画面の metadata area に Slides 設定を表示する。
+- Slides 設定には `Marp` toggle、`Size` select、`Theme` select、`Page numbers` toggle を配置する。
+- Marp 設定は Body textarea の中には表示しない。
+- Slides では `First`、`Previous`、`Next`、`Last` ボタンで移動できる。
 - 現在のスライド番号を `3 / 12` のように表示する。
+- 1 枚のスライドは選択中の size に応じたステージとして表示し、横幅に合わせて縮小する。
+- PC では Slides 操作バーをスライド上部に固定し、スライド本体の表示領域を確保する。
 - モバイルではスライド全体を縮小して収め、必要に応じて縦スクロールする。
+- 横長コードや画像でページ全体の横スクロールが発生しないよう、スライド viewport 内に収める。
+- Marp Off、render error、too large は通常 Preview と区別できる案内 panel として表示する。
+
+#### アクセシビリティ仕様案
+
+- `Edit` / `Preview` / `Slides` 切替は button として実装し、現在選択中の mode を視覚と `aria-pressed` または同等の状態で示す。
+- Slides 操作ボタンは keyboard focus と disabled 状態を明示する。
+- 現在位置は `Slide 3 of 12` のように screen reader で理解できる文言を持つ。
+- スライド viewport には `aria-label="Slide preview"` を付与する。
+- iframe を使う場合、`title` を設定する。
+- Marp Off、render error、too large の案内は screen reader で把握できるようにする。
+
+#### エラー・境界仕様案
+
+- Marp Off の場合は render せず、Slides unavailable 状態を表示する。
+- 不正な Marp metadata は採用せず、既定値に fallback する。
+- 未対応 theme / size が import された場合は既定値に fallback する。
+- renderer の lazy load 失敗時は `Unable to load slide renderer.` を表示し、Preview 全体は継続表示する。
+- render 中に本文が変わった場合、古い render 結果を後から反映しない。
+- 本文が 100KB を超える場合は自動 render しない。
+- slide count が 0 件相当の場合は `No slides to display.` を表示する。
+- slide index が範囲外になった場合は、最も近い有効な slide index に補正する。
+- iframe 内で script が実行されないことを前提にし、ユーザー入力由来の HTML が app 本体 DOM に影響しないようにする。
+- 外部画像 URL はブラウザが読み込む可能性があるため、プライバシー観点の警告または制御は後続検討とする。
 
 #### 受け入れ条件
 
 - Marp 対応 Markdown がスライド単位で表示される。
 - 通常 Preview と Slides を切り替えても編集内容が失われない。
 - スライド移動がキーボードで操作できる。
-- Marp 指定がないノートでは Slides を無効または案内付きで表示する。
+- Marp Off のノートでは案内付きで表示される。
+- Body textarea に Marp frontmatter や HTML comment directive が自動表示されない。
+- Marp On/Off、size、theme、page numbers を UI から変更でき、保存後に Export / Backup の frontmatter に反映される。
+- スライド移動、表示切替、render error でノートが未保存状態にならない。
+- render 失敗時も Edit / Preview へ戻れる。
+- モバイルでもスライドと操作ボタンが重ならない。
 
 #### 検証観点
 
+- 機能観点: Marp toggle、size select、theme select、page numbers toggle、`---` 区切り、前後移動、先頭・最後移動、Preview との切替を確認する。
+- 非機能観点: lazy load、300ms debounce、100KB 上限、多数スライドで UI が固まり続けないこと、iframe 隔離を確認する。
+- データ観点: Marp metadata を含むノートの保存、再読み込み、Import / Export / Backup で frontmatter が roundtrip し、Body が変形しないことを確認する。
+- UI 観点: Body に Marp metadata が表示されないこと、Slides 設定 UI、スライド番号、移動ボタン、disabled 表示、モバイル縮小表示、focus 表示を確認する。
 - 正常系: 1 枚、複数枚、画像付き、コードブロック付きのスライドを確認する。
-- 境界値: スライド 0 枚相当、1 枚のみ、50 枚以上を確認する。
-- UI 観点: スライド番号、移動ボタン、モバイル縮小表示を確認する。
-- 状態遷移: 編集中、未保存、保存失敗状態での表示切替を確認する。
+- 異常系: Marp Off、不正 Marp metadata、未対応 theme / size、renderer load 失敗、render 失敗、100KB 超本文を確認する。
+- 境界値: スライド 0 枚相当、1 枚のみ、50 枚以上、長い見出し、横長コード、16:9 / 4:3 切替を確認する。
+- 状態遷移: Edit / Preview / Slides 切替、本文変更後の再 render、Marp 設定変更後の再 render、ノート切替時の slide index reset、未保存状態での表示切替を確認する。
 
 ### A3. PDF 出力
 

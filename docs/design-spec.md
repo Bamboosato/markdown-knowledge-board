@@ -458,6 +458,77 @@ Preview では fenced code block の言語が `mermaid` の場合に Mermaid 図
 - レンダリングは block 単位で独立して扱い、1 つの失敗で Preview 全体を破綻させない。
 - Mermaid 表示状態、Code / Diagram 切替、render error はノートの dirty 状態を変更しない。
 
+### 7.16 Slides 表示
+
+Slides は Marp 対応 Markdown をプレゼンテーションとして閲覧する表示モードである。Slides 表示は表示専用であり、スライド生成結果や現在のスライド番号は保存しない。Marp On/Off、size、theme、page number 表示はノート metadata として YAML frontmatter に統合して保存する。
+
+表示モード:
+
+- エディタの表示 mode は `Edit` / `Preview` / `Slides` の 3 種類とする。
+- `Edit` は Title / Tags / Markdown toolbar / textarea を表示する。
+- `Preview` は通常 Markdown Preview を表示する。
+- `Slides` は Marp slide deck を 1 枚ずつ表示する。
+- 表示 mode の変更だけでは dirty 状態を変更しない。
+
+Marp 有効条件:
+
+- YAML frontmatter の `marp: true` がある場合に Slides を有効扱いにする。
+- Marp 設定は Body には表示せず、Edit 画面の Slides 設定 UI で編集する。
+- YAML frontmatter は app metadata と Marp metadata を統合して扱う。
+- Marp Off の場合、Slides では `Slides unavailable for this note.` を表示する。
+
+実装仕様:
+
+- Marp renderer は Slides 表示が必要になった時のみ lazy load する。
+- 依存ライブラリは `@marp-team/marp-core` とする。
+- renderer に渡す Markdown は draft body へ Marp metadata を含む YAML frontmatter を内部的に付与して生成する。
+- renderer は内部生成した Markdown から slide deck の HTML / CSS を生成する。
+- render 結果は app DOM へ直接挿入せず、`iframe srcdoc` で表示する。
+- iframe には `sandbox` と `title` を設定し、script 実行を許可しない。
+- Marp On/Off は `marp` として frontmatter に保存する。
+- theme は `theme` として frontmatter に保存し、初期候補は `default` / `gaia` / `uncover` とする。
+- size は `size` として frontmatter に保存し、初期候補は `16:9` / `4:3` とする。
+- page number 表示は `paginate` として frontmatter に保存する。
+- custom theme CSS の登録、保存、管理は初期仕様の対象外とする。
+- 本文変更後の render は 300ms debounce する。
+- 100KB を超える本文は自動 render せず、`Slide deck is too large to render automatically.` を表示する。
+- render 中は `Rendering slides...` を表示する。
+- renderer load 失敗時は `Unable to load slide renderer.` を表示する。
+- render 失敗時は `Unable to render slides.` とエラー概要を表示する。
+
+スライド操作:
+
+- Slides は 1 枚表示を基本にする。
+- `First` / `Previous` / `Next` / `Last` 操作を提供する。
+- 現在位置を `3 / 12` の形式で表示する。
+- `ArrowLeft` / `ArrowRight` で前後移動する。
+- `Home` / `End` で先頭・最後へ移動する。
+- 表示 mode を Slides に切り替えた時点で slide index は 1 枚目に初期化する。
+- ノート切替、本文変更、再 render により slide count が変わった場合、slide index を有効範囲に補正する。
+- スライド移動、render error、Slides unavailable 状態は dirty 状態を変更しない。
+
+画面仕様:
+
+- `Edit` / `Preview` / `Slides` 切替は editor 上部に表示する。
+- Edit の metadata area に Slides 設定 UI を表示する。
+- Slides 設定 UI は `Marp` toggle、`Size` select、`Theme` select、`Page numbers` toggle を持つ。
+- Marp Off の場合、Size / Theme / Page numbers は disabled または補助設定として表示する。
+- Body textarea には Marp frontmatter を表示しない。
+- Slides では操作バーと slide viewport を表示する。
+- slide viewport は Marp size に合わせたステージとして表示し、`16:9` は `16 / 9`、`4:3` は `4 / 3` にする。
+- slide viewport は利用可能な横幅に合わせて縮小する。
+- PC では操作バーを slide viewport の上に置き、本文表示領域を圧迫しすぎない。
+- モバイルでは操作バーが折り返しても slide viewport と重ならない。
+- 横長コードや画像でページ全体の横スクロールを発生させない。
+
+アクセシビリティ:
+
+- 表示 mode 切替は button として実装し、現在 mode を視覚と `aria-pressed` または同等の状態で示す。
+- Slides 操作ボタンは focus 表示と disabled 状態を持つ。
+- 現在位置は `Slide 3 of 12` のように支援技術で理解できる文言を持つ。
+- slide viewport には `aria-label="Slide preview"` を付与する。
+- iframe には内容を説明する `title` を付与する。
+
 ## 8. Frontmatter 仕様
 
 ### 8.1 parse
@@ -470,8 +541,13 @@ Markdown が `---` で始まり、2 つ目の `---` が存在する場合、そ�
 - `tags`: string 配列の場合のみ採用
 - `updatedAt`: number または parse 可能な date string の場合のみ採用
 - `id`: string の場合のみ採用
+- `marp`: boolean の場合のみ採用。Marp slide mode の On/Off
+- `theme`: `default` / `gaia` / `uncover` の場合のみ採用
+- `size`: `16:9` / `4:3` の場合のみ採用
+- `paginate`: boolean の場合のみ採用。Marp page number 表示
 
 frontmatter が存在しない、または閉じ delimiter が存在しない場合は、全文を body として扱う。
+未対応の Marp theme / size や型不一致の Marp fields は採用せず、既定値に fallback する。
 
 ### 8.2 export
 
@@ -486,11 +562,17 @@ title: Example
 tags:
   - memo
 updatedAt: 2026-07-09T00:00:00.000Z
+marp: true
+theme: default
+size: 16:9
+paginate: true
 ---
 # Example
 
 Body text
 ```
+
+Marp Off の場合、`marp` は `false` として出力するか、Marp fields を省略してよい。初期実装では frontmatter の簡潔さを優先し、Marp Off のノートでは `marp` / `theme` / `size` / `paginate` を省略する。
 
 ## 9. 状態管理
 
@@ -506,6 +588,10 @@ Body text
 | `isTagSuggestOpen` | タグ候補ドロップダウン表示有無 |
 | `activeTagSuggestionIndex` | キーボード操作中のタグ候補位置 |
 | `draftBody` | 編集中本文 |
+| `draftMarpEnabled` | 編集中ノートの Marp On/Off |
+| `draftMarpSize` | 編集中ノートの Marp size。`16:9` または `4:3` |
+| `draftMarpTheme` | 編集中ノートの Marp theme。`default` / `gaia` / `uncover` |
+| `draftMarpPaginate` | 編集中ノートの Marp page number 表示 |
 | `draftUpdatedAt` | 編集中更新日時 |
 | `isDirty` | 未保存変更有無 |
 | `dbError` | IndexedDB 初期化エラー |
@@ -523,9 +609,13 @@ Body text
 | `isImporting` | Import 処理中 |
 | `pendingDelete` | Undo 可能な削除対象 |
 | `initialDraft` | 新規 draft の Revert 復元元 |
-| `activeTab` | `edit` または `preview` |
+| `activeTab` | 表示 mode。A2 実装後は `edit` / `preview` / `slides` |
+| `slideIndex` | A2 実装後の Slides 現在位置。0-based index |
 
 `isDirtyRef` はノート選択時の非同期保存確認に使う。
+`MarpSlides` component は Slides render 状態として loading / rendered / unavailable / error / empty / too-large を局所 state に保持する。
+
+Marp 設定を変更した場合は本文編集と同じく dirty 状態にする。保存時は `Note` の Marp metadata として保持し、Export / Backup では YAML frontmatter に出力する。
 
 ## 10. エラー/異常系仕様
 
