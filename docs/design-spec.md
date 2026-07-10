@@ -147,16 +147,40 @@ sidebar には以下を配置する。
 - `Backup All Notes`
   - 全ノートを単一 JSON バックアップとして出力する。
   - ノートが 0 件の場合も空バックアップを出力し、結果を表示する。
-- Search
-  - title/body の部分一致検索。
-- Tag filter
-  - カンマ区切りでタグ条件を入力する。
-  - 入力された全タグを含むノートだけを表示する。
 - Import
   - `.md` Markdown ファイルまたは `.json` バックアップファイルを複数選択して取り込む。
 - Notes
+  - `Filter` ボタンを表示する。
+  - Search または Tag filter が有効な場合、`Filter (n)` として有効条件数を表示する。
+  - Search または Tag filter が有効な場合、`Clear` ボタンを表示し、modal を開かずに全条件を解除できる。
+  - 件数は条件なしでは `n notes`、条件ありでは `filtered of total notes` と表示する。
   - フィルタ後のノート一覧を表示する。
-  - 0 件の場合は `No notes yet.` または `No matches.` を表示する。
+  - ノート自体が 0 件の場合は `No notes yet.` を表示する。
+  - フィルタ結果が 0 件の場合は `No notes match your filters.` と `Clear Filters` を表示する。
+
+### 6.2.1 Filter modal
+
+`Filter` ボタン押下で Search / Tags 条件を設定する modal dialog を表示する。
+
+- Search
+  - title/body の部分一致検索。
+- Tags
+  - 選択済みタグをチップとして表示する。
+  - 各タグチップの `×` で個別解除できる。
+  - 入力欄フォーカス時に既存ノート由来のタグ候補をドロップダウン表示する。
+  - 候補は入力文字で絞り込み、選択済みタグを除外する。
+  - 候補表示は最大 8 件とする。
+  - 候補はタグ名昇順で表示し、大小文字は区別せず並べる。
+  - 候補はクリック、ArrowUp / ArrowDown、Enter で選択できる。
+  - Escape、入力欄外フォーカス、入力欄/候補以外のタップで候補を閉じる。
+  - 候補がない場合、候補ドロップダウンは表示しない。
+- 条件の適用
+  - modal を開いた時点で、現在の適用済み条件を一時条件へコピーする。
+  - modal 入力中は modal 内の件数だけ更新し、Note 一覧にはまだ反映しない。
+  - `Apply Filters` で一時条件を Note 一覧へ反映して modal を閉じる。
+  - `Cancel`、背景クリック、Esc で一時条件を破棄して modal を閉じる。
+  - `Clear Filters` は modal 内の一時 Search / Tags 条件を空にする。
+  - Search と Tags は AND 条件で絞り込む。
 
 ### 6.3 Editor header
 
@@ -186,30 +210,51 @@ editor header には以下を配置する。
   - ノートタイトル入力。
 - Tags
   - タグチップ表示。
+  - タグ未選択時は追加文言を表示せず、入力欄 placeholder のみで空状態を表現する。
   - 入力欄で Enter を押すとタグ追加。
-  - 既存ノート由来のタグ候補を表示。
+  - 入力欄フォーカス時に既存ノート由来のタグ候補をドロップダウン表示する。
+  - 候補は選択済みタグを除外し、入力文字で絞り込む。
+  - 候補表示は最大 8 件とする。
+  - 候補はクリック、ArrowUp / ArrowDown、Enter で選択できる。
+  - Escape または入力欄外フォーカスで候補を閉じる。
+- Title / Tags
+  - 入力内容を読み取りやすくするため縦2行に配置する。
+  - 各行はラベルと入力欄を横並びにして、Body 上部の占有高さを抑える。
+  - 編集画面の表示ラベルをタップしても入力欄へフォーカスさせない。
+  - 入力欄へのフォーカスは入力欄自体をタップした場合のみ行う。
 - Body
   - Markdown 本文入力。
+  - Body ラベルをタップしても本文入力欄へフォーカスさせない。
 - Markdown toolbar
-  - `Bold`
-  - `Italic`
-  - `Strike`
-  - `Code`
-  - `H1`
-  - `H2`
-  - `Bullet`
-  - `Task`
-  - `Quote`
-  - `Link`
+  - Body 見出し行に常時表示する。
+  - PC 幅では Body ラベルの右側に配置し、左端を Title / Tags の入力欄左端に揃える。
+  - モバイル幅では Body ラベルの下側に配置し、左端を Title / Tags の入力欄左端に揃える。
+  - モバイル幅では入力欄列の範囲内に収まるよう、ボタン幅と間隔をさらに抑える。
+  - モバイルなどページスクロールが発生する環境では Body 見出し行ごと sticky として追従する。
+  - 表示は省スペースな記号/略号とし、操作名は `aria-label` と `title` で保持する。
+  - `B`: Bold
+  - `I`: Italic
+  - `S`: Strike
+  - `<>`: Code
+  - `H1`: H1
+  - `H2`: H2
+  - `-`: Bullet
+  - `[ ]`: Task
+  - `>`: Quote
+  - `[]`: Link
 
 ### 6.5 Edit / Preview
 
 `activeTab` により `Edit` と `Preview` を切り替える。
 
 - `Edit`
+  - Title / Tags を表示する。
   - Markdown toolbar と textarea を表示する。
 - `Preview`
+  - Preview 表示領域を広げるため、Title / Tags は表示しない。
   - `ReactMarkdown` で `draftBody` を表示する。
+  - `mermaid` fenced code block は Mermaid 図として表示する。
+  - Mermaid 図は `Diagram` / `Code` を切り替えられる。
   - 本文が空の場合は `プレビューする内容がありません` を表示する。
 
 ## 7. 機能仕様
@@ -362,6 +407,8 @@ Title、Tags、Body、Markdown toolbar の操作により draft state を更新�
 ### 7.12 Markdown toolbar
 
 toolbar 操作は textarea の selection/cursor を基準に本文を変更する。
+toolbar の表示ラベルは短縮し、スクリーンリーダーや tooltip では各操作名を維持する。
+toolbar は Body の編集補助であるため、Body 見出し行内に配置する。
 
 - `wrapSelection`
   - 選択範囲に prefix/suffix を付与または解除する。
@@ -370,9 +417,13 @@ toolbar 操作は textarea の selection/cursor を基準に本文を変更す�
 - `insertLink`
   - 選択範囲または placeholder から Markdown link を挿入する。
 
-`handleWrap` は選択範囲がない場合は何もしない。
+Phase 3 時点では Markdown toolbar の無選択時挙動明確化は保留とする。現時点では `handleWrap` は選択範囲がない場合は何もしない。Bold / Italic / Strike / Code の無選択時プレースホルダー挿入、または disabled 表示は後続改善で扱う。
 
-### 7.13 Preview タスクチェック
+### 7.13 UI 文言
+
+アプリ画面に表示される UI 文言は英語で統一する。対象はボタン、ラベル、通知、確認ダイアログ、空状態、エラー文言とする。仕様書本文、テスト名、開発者向けコメントや内部識別子は対象外とする。
+
+### 7.14 Preview タスクチェック
 
 Preview では `remark-gfm` により task list を表示する。
 
@@ -387,6 +438,25 @@ Preview では `remark-gfm` により task list を表示する。
 - `toggleTaskAtLine` により `- [ ]` と `- [x]` を切り替える。
 - 切り替え後は本文を更新し、保存状態を `Unsaved changes` にする。
 - 同一テキストが複数あっても行番号ベースで対象を決定する。
+
+### 7.15 Preview Mermaid 表示
+
+Preview では fenced code block の言語が `mermaid` の場合に Mermaid 図として表示する。Mermaid 表示は Preview 専用であり、保存形式、Import / Export / Backup の Markdown データ構造は変更しない。
+
+実装仕様:
+
+- `mermaid` dependency を dynamic import し、Mermaid block が存在する場合のみ renderer を読み込む。
+- Mermaid renderer は `startOnLoad: false`、`theme: "default"`、`securityLevel: "strict"` で初期化する。
+- Mermaid block の初期表示は `Diagram` とする。
+- block header に `Mermaid` ラベルと `Diagram` / `Code` 切替ボタンを表示する。
+- `Code` 表示では元の Mermaid code を表示する。
+- 空 code block は `Empty Mermaid diagram.` を表示する。
+- 50KB を超える Mermaid code は自動 render せず、`Diagram is too large to render automatically.` と code fallback を表示する。
+- レンダリング中は `Rendering diagram...` を表示する。
+- レンダリング失敗時は `Unable to render Mermaid diagram.` とエラー概要を block 内に表示する。
+- SVG を DOM に挿入する前に script、foreignObject、event handler 属性、危険な URL を除去する。
+- レンダリングは block 単位で独立して扱い、1 つの失敗で Preview 全体を破綻させない。
+- Mermaid 表示状態、Code / Diagram 切替、render error はノートの dirty 状態を変更しない。
 
 ## 8. Frontmatter 仕様
 
@@ -433,12 +503,20 @@ Body text
 | `draftTitle` | 編集中タイトル |
 | `draftTags` | 編集中タグ |
 | `tagInput` | 未確定タグ入力 |
+| `isTagSuggestOpen` | タグ候補ドロップダウン表示有無 |
+| `activeTagSuggestionIndex` | キーボード操作中のタグ候補位置 |
 | `draftBody` | 編集中本文 |
 | `draftUpdatedAt` | 編集中更新日時 |
 | `isDirty` | 未保存変更有無 |
 | `dbError` | IndexedDB 初期化エラー |
-| `searchQuery` | 検索語 |
-| `tagFilter` | タグフィルタ入力 |
+| `searchQuery` | 適用済み検索語 |
+| `tagFilter` | 適用済みタグフィルタ。内部表現はカンマ区切り文字列 |
+| `isFilterDialogOpen` | Filter modal 表示有無 |
+| `filterDraftSearchQuery` | Filter modal 内の一時検索語 |
+| `filterDraftTags` | Filter modal 内の一時タグ条件 |
+| `filterTagInput` | Filter modal 内のタグ候補入力 |
+| `isTagFilterSuggestOpen` | Filter modal 内のタグ候補ドロップダウン表示有無 |
+| `activeTagFilterSuggestionIndex` | キーボード操作中の Filter modal タグ候補位置 |
 | `backupMessage` | バックアップ通知 |
 | `operationDialog` | Backup / Import 結果ダイアログ。Backup は `complete` / `ready` を持つ |
 | `isBackupBusy` | Backup 処理中 |
@@ -492,10 +570,6 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 - データ保存はブラウザ/プロファイル単位の IndexedDB に依存する。
 - 新規ノートは `Save` まで IndexedDB に保存されないが、一覧には表示される。
 - ノート切替時の未保存確認は `保存して移動` と `移動中止` の 2 択であり、破棄して移動する選択肢はない。
-- import/export/backup の結果通知や失敗通知は限定的。
-- backup はノートごとの複数ファイル連続 download であり、zip 化はしていない。
-- Preview のタスクチェック UI は `span` クリックであり、キーボード操作や ARIA 属性は未整備。
-- 画面文言は英語と日本語が混在している。
 - mobile 幅では editor の高さ/overflow 仕様により、操作領域の扱いを見直す余地がある。
 
 ## 13. 検証観点
