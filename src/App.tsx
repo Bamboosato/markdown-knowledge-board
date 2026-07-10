@@ -5,8 +5,15 @@ import type { FocusEvent, KeyboardEvent, MouseEvent } from "react";
 import remarkGfm from "remark-gfm";
 
 import "./App.css";
+import { MarpSlides } from "./components/MarpSlides";
 import { MermaidBlock } from "./components/MermaidBlock";
-import type { Note } from "./lib/types";
+import {
+  DEFAULT_MARP_SETTINGS,
+  MARP_SIZES,
+  MARP_THEMES,
+  getNoteMarpSettings,
+} from "./lib/types";
+import type { MarpSize, MarpTheme, Note } from "./lib/types";
 import { dbInitError, deleteNote, getAllNotes, saveNote } from "./lib/db";
 import {
   parseMarkdownWithFrontmatter,
@@ -17,6 +24,7 @@ import { getTaskLineIndexes, toggleTaskAtLine } from "./lib/markdownTasks";
 
 type SaveStatus = "idle" | "draft" | "unsaved" | "saving" | "saved" | "error";
 type MobileView = "notes" | "editor";
+type ActiveTab = "edit" | "preview" | "slides";
 type UnsavedChoice = "save" | "discard" | "cancel";
 
 type UnsavedDialogState = {
@@ -273,6 +281,7 @@ function createNoteFromMarkdown(
     tags: overrides?.tags ?? parsed.tags ?? [],
     updatedAt:
       overrides?.updatedAt ?? parsed.updatedAt ?? getCurrentTimestamp(),
+    marp: parsed.marp,
   };
 }
 
@@ -338,13 +347,25 @@ function areStringArraysEqual(left: string[], right: string[]): boolean {
   );
 }
 
+function areMarpSettingsEqual(left: Note, right: Note): boolean {
+  const leftMarp = getNoteMarpSettings(left);
+  const rightMarp = getNoteMarpSettings(right);
+  return (
+    leftMarp.enabled === rightMarp.enabled &&
+    leftMarp.theme === rightMarp.theme &&
+    leftMarp.size === rightMarp.size &&
+    leftMarp.paginate === rightMarp.paginate
+  );
+}
+
 function areNotesEquivalent(left: Note, right: Note): boolean {
   return (
     left.id === right.id &&
     left.title === right.title &&
     left.body === right.body &&
     left.updatedAt === right.updatedAt &&
-    areStringArraysEqual(left.tags, right.tags)
+    areStringArraysEqual(left.tags, right.tags) &&
+    areMarpSettingsEqual(left, right)
   );
 }
 
@@ -384,6 +405,18 @@ function App() {
   const [draftTags, setDraftTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [draftBody, setDraftBody] = useState("");
+  const [draftMarpEnabled, setDraftMarpEnabled] = useState(
+    DEFAULT_MARP_SETTINGS.enabled
+  );
+  const [draftMarpSize, setDraftMarpSize] = useState<MarpSize>(
+    DEFAULT_MARP_SETTINGS.size
+  );
+  const [draftMarpTheme, setDraftMarpTheme] = useState<MarpTheme>(
+    DEFAULT_MARP_SETTINGS.theme
+  );
+  const [draftMarpPaginate, setDraftMarpPaginate] = useState(
+    DEFAULT_MARP_SETTINGS.paginate
+  );
   const [draftUpdatedAt, setDraftUpdatedAt] = useState<number>(0);
   const [isDirty, setIsDirty] = useState(false);
   const isDirtyRef = useRef(false);
@@ -422,7 +455,8 @@ function App() {
   const pendingDeleteRef = useRef<PendingDeleteState | null>(null);
   const deleteUndoTimerRef = useRef<number | null>(null);
   const [initialDraft, setInitialDraft] = useState<Note | null>(null);
-  const [activeTab, setActiveTab] = useState<"edit" | "preview">("edit");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("edit");
+  const [slideIndex, setSlideIndex] = useState(0);
   const [isTagSuggestOpen, setIsTagSuggestOpen] = useState(false);
   const [activeTagSuggestionIndex, setActiveTagSuggestionIndex] = useState(0);
   const tagTextInputRef = useRef<HTMLInputElement | null>(null);
@@ -537,6 +571,10 @@ function App() {
       setDraftTags([]);
       setTagInput("");
       setDraftBody("");
+      setDraftMarpEnabled(DEFAULT_MARP_SETTINGS.enabled);
+      setDraftMarpSize(DEFAULT_MARP_SETTINGS.size);
+      setDraftMarpTheme(DEFAULT_MARP_SETTINGS.theme);
+      setDraftMarpPaginate(DEFAULT_MARP_SETTINGS.paginate);
       setDraftUpdatedAt(0);
       setIsDirty(false);
       isDirtyRef.current = false;
@@ -549,6 +587,11 @@ function App() {
     setDraftTags(note.tags);
     setTagInput("");
     setDraftBody(note.body);
+    const marp = getNoteMarpSettings(note);
+    setDraftMarpEnabled(marp.enabled);
+    setDraftMarpSize(marp.size);
+    setDraftMarpTheme(marp.theme);
+    setDraftMarpPaginate(marp.paginate);
     setDraftUpdatedAt(note.updatedAt);
     setIsDirty(false);
     isDirtyRef.current = false;
@@ -586,13 +629,30 @@ function App() {
     });
   };
 
-  const getDraftSnapshot = (): Note => ({
-    id: selectedId ?? createId(),
-    title: draftTitle.trim() || "Untitled",
-    body: draftBody,
-    tags: getEffectiveTags(),
-    updatedAt: draftUpdatedAt || getCurrentTimestamp(),
-  });
+  const getDraftMarpSettings = (): Note["marp"] =>
+    draftMarpEnabled
+      ? {
+          enabled: true,
+          theme: draftMarpTheme,
+          size: draftMarpSize,
+          paginate: draftMarpPaginate,
+        }
+      : undefined;
+
+  const getDraftSnapshot = (): Note => {
+    const note: Note = {
+      id: selectedId ?? createId(),
+      title: draftTitle.trim() || "Untitled",
+      body: draftBody,
+      tags: getEffectiveTags(),
+      updatedAt: draftUpdatedAt || getCurrentTimestamp(),
+    };
+    const marp = getDraftMarpSettings();
+    if (marp) {
+      note.marp = marp;
+    }
+    return note;
+  };
 
   const findImportMatchIndex = (candidate: Note, currentNotes: Note[]) => {
     const idMatch = currentNotes.findIndex((note) => note.id === candidate.id);
@@ -663,6 +723,11 @@ function App() {
       setTagInput("");
       closeTagSuggestions();
       setDraftBody(pending.note.body);
+      const marp = getNoteMarpSettings(pending.note);
+      setDraftMarpEnabled(marp.enabled);
+      setDraftMarpSize(marp.size);
+      setDraftMarpTheme(marp.theme);
+      setDraftMarpPaginate(marp.paginate);
       setDraftUpdatedAt(pending.note.updatedAt);
       setIsDirty(true);
       isDirtyRef.current = true;
@@ -854,6 +919,10 @@ function App() {
     setTagInput("");
     closeTagSuggestions();
     setDraftBody(note.body);
+    setDraftMarpEnabled(DEFAULT_MARP_SETTINGS.enabled);
+    setDraftMarpSize(DEFAULT_MARP_SETTINGS.size);
+    setDraftMarpTheme(DEFAULT_MARP_SETTINGS.theme);
+    setDraftMarpPaginate(DEFAULT_MARP_SETTINGS.paginate);
     setDraftUpdatedAt(note.updatedAt);
     setIsDirty(true);
     isDirtyRef.current = true;
@@ -862,6 +931,7 @@ function App() {
     setInitialDraft(note);
     setMobileView("editor");
     setActiveTab("edit");
+    setSlideIndex(0);
   };
 
   const candidateTags = useMemo(() => {
@@ -1161,6 +1231,10 @@ function App() {
       tags: trimmedTags,
       updatedAt: now,
     };
+    const marp = getDraftMarpSettings();
+    if (marp) {
+      note.marp = marp;
+    }
 
     setSaveStatus("saving");
     setLastSaveError(null);
@@ -1203,6 +1277,14 @@ function App() {
     resetDraft(note);
     setMobileView("editor");
     setActiveTab("edit");
+    setSlideIndex(0);
+  };
+
+  const handleChangeTab = (nextTab: ActiveTab) => {
+    setActiveTab(nextTab);
+    if (nextTab === "slides") {
+      setSlideIndex(0);
+    }
   };
 
   const handleShowNotes = async () => {
@@ -1219,6 +1301,10 @@ function App() {
     isDraftNote && initialDraft
       ? draftTitle !== initialDraft.title ||
         draftBody !== initialDraft.body ||
+        draftMarpEnabled !== getNoteMarpSettings(initialDraft).enabled ||
+        draftMarpSize !== getNoteMarpSettings(initialDraft).size ||
+        draftMarpTheme !== getNoteMarpSettings(initialDraft).theme ||
+        draftMarpPaginate !== getNoteMarpSettings(initialDraft).paginate ||
         !areStringArraysEqual(draftTags, initialDraft.tags) ||
         hasPendingTagInput
       : false;
@@ -1252,6 +1338,11 @@ function App() {
       setTagInput("");
       closeTagSuggestions();
       setDraftBody(initialDraft.body);
+      const marp = getNoteMarpSettings(initialDraft);
+      setDraftMarpEnabled(marp.enabled);
+      setDraftMarpSize(marp.size);
+      setDraftMarpTheme(marp.theme);
+      setDraftMarpPaginate(marp.paginate);
       setDraftUpdatedAt(initialDraft.updatedAt);
       setIsDirty(true);
       isDirtyRef.current = true;
@@ -1644,16 +1735,26 @@ function App() {
           <button
             type="button"
             className={`tab-button${activeTab === "edit" ? " active" : ""}`}
-            onClick={() => setActiveTab("edit")}
+            aria-pressed={activeTab === "edit"}
+            onClick={() => handleChangeTab("edit")}
           >
             Edit
           </button>
           <button
             type="button"
             className={`tab-button${activeTab === "preview" ? " active" : ""}`}
-            onClick={() => setActiveTab("preview")}
+            aria-pressed={activeTab === "preview"}
+            onClick={() => handleChangeTab("preview")}
           >
             Preview
+          </button>
+          <button
+            type="button"
+            className={`tab-button${activeTab === "slides" ? " active" : ""}`}
+            aria-pressed={activeTab === "slides"}
+            onClick={() => handleChangeTab("slides")}
+          >
+            Slides
           </button>
         </div>
         {activeTab === "edit" ? (
@@ -1751,6 +1852,75 @@ function App() {
                     ))}
                   </div>
                 ) : null}
+              </div>
+            </div>
+            <div className="editor-section metadata-field slides-settings-field">
+              <div className="label" id="slides-settings-label">
+                Slides
+              </div>
+              <div
+                className="marp-settings"
+                aria-labelledby="slides-settings-label"
+              >
+                <label className="marp-toggle">
+                  <input
+                    type="checkbox"
+                    checked={draftMarpEnabled}
+                    onChange={(event) => {
+                      setDraftMarpEnabled(event.target.checked);
+                      markDirty();
+                    }}
+                  />
+                  <span>Marp</span>
+                </label>
+                <label className="marp-setting">
+                  <span>Size</span>
+                  <select
+                    className="select"
+                    value={draftMarpSize}
+                    disabled={!draftMarpEnabled}
+                    onChange={(event) => {
+                      setDraftMarpSize(event.target.value as MarpSize);
+                      markDirty();
+                    }}
+                  >
+                    {MARP_SIZES.map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="marp-setting">
+                  <span>Theme</span>
+                  <select
+                    className="select"
+                    value={draftMarpTheme}
+                    disabled={!draftMarpEnabled}
+                    onChange={(event) => {
+                      setDraftMarpTheme(event.target.value as MarpTheme);
+                      markDirty();
+                    }}
+                  >
+                    {MARP_THEMES.map((theme) => (
+                      <option key={theme} value={theme}>
+                        {theme}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="marp-toggle">
+                  <input
+                    type="checkbox"
+                    checked={draftMarpPaginate}
+                    disabled={!draftMarpEnabled}
+                    onChange={(event) => {
+                      setDraftMarpPaginate(event.target.checked);
+                      markDirty();
+                    }}
+                  />
+                  <span>Page numbers</span>
+                </label>
               </div>
             </div>
           </>
@@ -1878,7 +2048,7 @@ function App() {
               }}
             />
           </div>
-        ) : (
+        ) : activeTab === "preview" ? (
           <div className="preview-panel editor-body">
             <div className="preview-label">Preview</div>
             {draftBody.trim().length === 0 ? (
@@ -1964,6 +2134,16 @@ function App() {
               </div>
             )}
           </div>
+        ) : (
+          <MarpSlides
+            markdown={draftBody}
+            enabled={draftMarpEnabled}
+            size={draftMarpSize}
+            theme={draftMarpTheme}
+            paginate={draftMarpPaginate}
+            slideIndex={slideIndex}
+            onSlideIndexChange={setSlideIndex}
+          />
         )}
       </main>
       {isFilterDialogOpen ? (

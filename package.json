@@ -11,6 +11,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@marp-team/marp-core": "^4.3.1",
     "idb": "^8.0.3",
     "js-yaml": "^4.1.1",
     "mermaid": "^11.16.0",

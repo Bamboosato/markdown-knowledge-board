@@ -1,12 +1,19 @@
 import yaml from "js-yaml";
 
-import type { Note } from "./types";
+import {
+  DEFAULT_MARP_SETTINGS,
+  MARP_SIZES,
+  MARP_THEMES,
+  getNoteMarpSettings,
+} from "./types";
+import type { MarpSettings, MarpSize, MarpTheme, Note } from "./types";
 
 type FrontmatterParseResult = {
   id?: string;
   title?: string;
   tags?: string[];
   updatedAt?: number;
+  marp?: MarpSettings;
   body: string;
 };
 
@@ -47,6 +54,35 @@ function toNumberTimestamp(value: unknown): number | undefined {
   return undefined;
 }
 
+function isMarpTheme(value: unknown): value is MarpTheme {
+  return (
+    typeof value === "string" &&
+    (MARP_THEMES as readonly string[]).includes(value)
+  );
+}
+
+function isMarpSize(value: unknown): value is MarpSize {
+  return (
+    typeof value === "string" && (MARP_SIZES as readonly string[]).includes(value)
+  );
+}
+
+function parseMarpSettings(data: Record<string, unknown>): MarpSettings | undefined {
+  if (typeof data.marp !== "boolean") {
+    return undefined;
+  }
+
+  return {
+    enabled: data.marp,
+    theme: isMarpTheme(data.theme) ? data.theme : DEFAULT_MARP_SETTINGS.theme,
+    size: isMarpSize(data.size) ? data.size : DEFAULT_MARP_SETTINGS.size,
+    paginate:
+      typeof data.paginate === "boolean"
+        ? data.paginate
+        : DEFAULT_MARP_SETTINGS.paginate,
+  };
+}
+
 export function parseMarkdownWithFrontmatter(
   text: string
 ): FrontmatterParseResult {
@@ -71,12 +107,14 @@ export function parseMarkdownWithFrontmatter(
       ? (tagsRaw as string[])
       : undefined;
   const updatedAt = toNumberTimestamp((data as { updatedAt?: unknown }).updatedAt);
+  const marp = parseMarpSettings(data as Record<string, unknown>);
 
   return {
     id,
     title,
     tags,
     updatedAt,
+    marp,
     body: parsed.body,
   };
 }
@@ -92,6 +130,13 @@ export function toMarkdownWithFrontmatter(note: Note): string {
   }
   if (note.tags.length > 0) {
     frontmatter.tags = note.tags;
+  }
+  const marp = getNoteMarpSettings(note);
+  if (marp.enabled) {
+    frontmatter.marp = true;
+    frontmatter.theme = marp.theme;
+    frontmatter.size = marp.size;
+    frontmatter.paginate = marp.paginate;
   }
 
   const body = note.body ?? "";
