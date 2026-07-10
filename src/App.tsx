@@ -1,8 +1,11 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { isValidElement } from "react";
+import type { FocusEvent, KeyboardEvent, MouseEvent } from "react";
 import remarkGfm from "remark-gfm";
 
 import "./App.css";
+import { MermaidBlock } from "./components/MermaidBlock";
 import type { Note } from "./lib/types";
 import { dbInitError, deleteNote, getAllNotes, saveNote } from "./lib/db";
 import {
@@ -48,6 +51,18 @@ type PendingDeleteState = {
   wasSelected: boolean;
   wasDraft: boolean;
 };
+
+type FilterConditions = {
+  query: string;
+  tags: string[];
+};
+
+type MarkdownCodeElementProps = {
+  className?: string;
+  children?: unknown;
+};
+
+const TAG_SUGGESTION_LIMIT = 8;
 
 type BackupDocument = {
   app: "markdown-knowledge-board";
@@ -117,11 +132,18 @@ function formatDate(timestamp: number): string {
 }
 
 function parseTags(value: string): string[] {
-  const items = value
+  const tags = new Map<string, string>();
+  value
     .split(",")
     .map((tag) => tag.trim())
-    .filter((tag) => tag.length > 0);
-  return Array.from(new Set(items));
+    .filter((tag) => tag.length > 0)
+    .forEach((tag) => {
+      const normalized = normalizeTag(tag);
+      if (normalized && !tags.has(normalized)) {
+        tags.set(normalized, tag);
+      }
+    });
+  return Array.from(tags.values());
 }
 
 function normalizeTag(tag: string): string {
@@ -130,6 +152,22 @@ function normalizeTag(tag: string): string {
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function filterNotes(notes: Note[], conditions: FilterConditions): Note[] {
+  const query = conditions.query.trim().toLowerCase();
+  const tags = conditions.tags.map((tag) => normalizeTag(tag));
+
+  return notes.filter((note) => {
+    const matchesQuery =
+      query.length === 0 ||
+      note.title.toLowerCase().includes(query) ||
+      note.body.toLowerCase().includes(query);
+    const noteTagKeys = new Set(note.tags.map((value) => normalizeTag(value)));
+    const matchesTags =
+      tags.length === 0 || tags.every((tag) => noteTagKeys.has(tag));
+    return matchesQuery && matchesTags;
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -361,6 +399,16 @@ function App() {
   const [dbError, setDbError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [tagFilter, setTagFilter] = useState("");
+  const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
+  const [filterDraftSearchQuery, setFilterDraftSearchQuery] = useState("");
+  const [filterDraftTags, setFilterDraftTags] = useState<string[]>([]);
+  const [filterTagInput, setFilterTagInput] = useState("");
+  const [isTagFilterSuggestOpen, setIsTagFilterSuggestOpen] = useState(false);
+  const [activeTagFilterSuggestionIndex, setActiveTagFilterSuggestionIndex] =
+    useState(0);
+  const filterSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const tagFilterInputRef = useRef<HTMLInputElement | null>(null);
+  const tagFilterSuggestRef = useRef<HTMLDivElement | null>(null);
   const [backupMessage, setBackupMessage] = useState<string | null>(
     getInitialBackupMessage
   );
@@ -375,6 +423,10 @@ function App() {
   const deleteUndoTimerRef = useRef<number | null>(null);
   const [initialDraft, setInitialDraft] = useState<Note | null>(null);
   const [activeTab, setActiveTab] = useState<"edit" | "preview">("edit");
+  const [isTagSuggestOpen, setIsTagSuggestOpen] = useState(false);
+  const [activeTagSuggestionIndex, setActiveTagSuggestionIndex] = useState(0);
+  const tagTextInputRef = useRef<HTMLInputElement | null>(null);
+  const tagSuggestRef = useRef<HTMLDivElement | null>(null);
   const draftLines = useMemo(() => draftBody.split("\n"), [draftBody]);
   const taskLineIndexes = useMemo(
     () => new Set(getTaskLineIndexes(draftBody)),
@@ -424,7 +476,62 @@ function App() {
     : undefined;
   const isDraftNote = selectedId !== null && !selectedNote;
 
+  const closeTagSuggestions = () => {
+    setIsTagSuggestOpen(false);
+    setActiveTagSuggestionIndex(0);
+  };
+
+  const closeTagFilterSuggestions = () => {
+    setIsTagFilterSuggestOpen(false);
+    setActiveTagFilterSuggestionIndex(0);
+  };
+
+  useEffect(() => {
+    if (!isTagSuggestOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (!tagSuggestRef.current?.contains(target)) {
+        setIsTagSuggestOpen(false);
+        setActiveTagSuggestionIndex(0);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isTagSuggestOpen]);
+
+  useEffect(() => {
+    if (!isTagFilterSuggestOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (!tagFilterSuggestRef.current?.contains(target)) {
+        setIsTagFilterSuggestOpen(false);
+        setActiveTagFilterSuggestionIndex(0);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isTagFilterSuggestOpen]);
+
   const resetDraft = (note?: Note) => {
+    closeTagSuggestions();
     if (!note) {
       setDraftTitle("");
       setDraftTags([]);
@@ -554,6 +661,7 @@ function App() {
       setDraftTitle(pending.note.title);
       setDraftTags(pending.note.tags);
       setTagInput("");
+      closeTagSuggestions();
       setDraftBody(pending.note.body);
       setDraftUpdatedAt(pending.note.updatedAt);
       setIsDirty(true);
@@ -744,6 +852,7 @@ function App() {
     setDraftTitle(note.title);
     setDraftTags([]);
     setTagInput("");
+    closeTagSuggestions();
     setDraftBody(note.body);
     setDraftUpdatedAt(note.updatedAt);
     setIsDirty(true);
@@ -773,6 +882,61 @@ function App() {
     );
   }, [notes]);
 
+  const selectedTagKeys = useMemo(
+    () => new Set(draftTags.map((tag) => normalizeTag(tag))),
+    [draftTags]
+  );
+  const tagSuggestionQuery = normalizeTag(tagInput);
+  const suggestedTags = useMemo(
+    () =>
+      candidateTags
+        .filter((tag) => {
+          const normalized = normalizeTag(tag);
+          return (
+            !selectedTagKeys.has(normalized) &&
+            (tagSuggestionQuery.length === 0 ||
+              normalized.includes(tagSuggestionQuery))
+          );
+        })
+        .slice(0, TAG_SUGGESTION_LIMIT),
+    [candidateTags, selectedTagKeys, tagSuggestionQuery]
+  );
+
+  const hasTagSuggestions = isTagSuggestOpen && suggestedTags.length > 0;
+  const activeTagSuggestionSafeIndex =
+    suggestedTags.length === 0
+      ? 0
+      : Math.min(activeTagSuggestionIndex, suggestedTags.length - 1);
+  const activeTagFilterValues = useMemo(
+    () => parseTags(tagFilter),
+    [tagFilter]
+  );
+  const filterDraftTagKeys = useMemo(
+    () => new Set(filterDraftTags.map((tag) => normalizeTag(tag))),
+    [filterDraftTags]
+  );
+  const tagFilterSuggestionQuery = normalizeTag(filterTagInput);
+  const suggestedTagFilters = useMemo(
+    () =>
+      candidateTags
+        .filter((tag) => {
+          const normalized = normalizeTag(tag);
+          return (
+            !filterDraftTagKeys.has(normalized) &&
+            (tagFilterSuggestionQuery.length === 0 ||
+              normalized.includes(tagFilterSuggestionQuery))
+          );
+        })
+        .slice(0, TAG_SUGGESTION_LIMIT),
+    [candidateTags, filterDraftTagKeys, tagFilterSuggestionQuery]
+  );
+  const hasTagFilterSuggestions =
+    isTagFilterSuggestOpen && suggestedTagFilters.length > 0;
+  const activeTagFilterSuggestionSafeIndex =
+    suggestedTagFilters.length === 0
+      ? 0
+      : Math.min(activeTagFilterSuggestionIndex, suggestedTagFilters.length - 1);
+
   const addTag = (tag: string) => {
     const trimmed = tag.trim();
     const normalized = normalizeTag(trimmed);
@@ -789,6 +953,139 @@ function App() {
     setIsDirty(true);
     setDraftUpdatedAt(getCurrentTimestamp());
     isDirtyRef.current = true;
+  };
+
+  const selectSuggestedTag = (tag: string) => {
+    addTag(tag);
+    setTagInput("");
+    setIsTagSuggestOpen(true);
+    setActiveTagSuggestionIndex(0);
+  };
+
+  const handleTagInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown" && suggestedTags.length > 0) {
+      event.preventDefault();
+      setIsTagSuggestOpen(true);
+      setActiveTagSuggestionIndex(
+        (index) => (index + 1) % suggestedTags.length
+      );
+      return;
+    }
+
+    if (event.key === "ArrowUp" && suggestedTags.length > 0) {
+      event.preventDefault();
+      setIsTagSuggestOpen(true);
+      setActiveTagSuggestionIndex(
+        (index) => (index - 1 + suggestedTags.length) % suggestedTags.length
+      );
+      return;
+    }
+
+    if (event.key === "Escape" && isTagSuggestOpen) {
+      event.preventDefault();
+      closeTagSuggestions();
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (hasTagSuggestions) {
+        const selectedSuggestion =
+          suggestedTags[activeTagSuggestionSafeIndex] ?? suggestedTags[0];
+        selectSuggestedTag(selectedSuggestion);
+        return;
+      }
+      addTag(tagInput);
+      setTagInput("");
+      setIsTagSuggestOpen(true);
+      setActiveTagSuggestionIndex(0);
+    }
+  };
+
+  const handleTagSuggestBlur = (event: FocusEvent<HTMLDivElement>) => {
+    const nextFocused = event.relatedTarget;
+    if (!nextFocused || !event.currentTarget.contains(nextFocused)) {
+      closeTagSuggestions();
+    }
+  };
+
+  const addFilterDraftTag = (tag: string) => {
+    const uniqueTags = new Map<string, string>();
+    for (const value of [...filterDraftTags, tag]) {
+      const normalized = normalizeTag(value);
+      if (normalized && !uniqueTags.has(normalized)) {
+        uniqueTags.set(normalized, value.trim());
+      }
+    }
+    setFilterDraftTags(Array.from(uniqueTags.values()));
+  };
+
+  const removeFilterDraftTag = (tag: string) => {
+    const normalized = normalizeTag(tag);
+    setFilterDraftTags((prev) =>
+      prev.filter((item) => normalizeTag(item) !== normalized)
+    );
+  };
+
+  const selectTagFilterSuggestion = (tag: string) => {
+    addFilterDraftTag(tag);
+    setFilterTagInput("");
+    setIsTagFilterSuggestOpen(true);
+    setActiveTagFilterSuggestionIndex(0);
+    tagFilterInputRef.current?.focus();
+  };
+
+  const handleTagFilterKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown" && suggestedTagFilters.length > 0) {
+      event.preventDefault();
+      setIsTagFilterSuggestOpen(true);
+      setActiveTagFilterSuggestionIndex(
+        (index) => (index + 1) % suggestedTagFilters.length
+      );
+      return;
+    }
+
+    if (event.key === "ArrowUp" && suggestedTagFilters.length > 0) {
+      event.preventDefault();
+      setIsTagFilterSuggestOpen(true);
+      setActiveTagFilterSuggestionIndex(
+        (index) =>
+          (index - 1 + suggestedTagFilters.length) % suggestedTagFilters.length
+      );
+      return;
+    }
+
+    if (event.key === "Escape" && isTagFilterSuggestOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeTagFilterSuggestions();
+      return;
+    }
+
+    if (event.key === "Enter" && hasTagFilterSuggestions) {
+      event.preventDefault();
+      const selectedSuggestion =
+        suggestedTagFilters[activeTagFilterSuggestionSafeIndex] ??
+        suggestedTagFilters[0];
+      selectTagFilterSuggestion(selectedSuggestion);
+      return;
+    }
+
+    if (
+      event.key === "Backspace" &&
+      filterTagInput.length === 0 &&
+      filterDraftTags.length > 0
+    ) {
+      event.preventDefault();
+      setFilterDraftTags((prev) => prev.slice(0, -1));
+    }
+  };
+
+  const handleTagFilterSuggestBlur = (event: FocusEvent<HTMLDivElement>) => {
+    const nextFocused = event.relatedTarget;
+    if (!nextFocused || !event.currentTarget.contains(nextFocused)) {
+      closeTagFilterSuggestions();
+    }
   };
 
   const getEffectiveTags = (): string[] => {
@@ -880,6 +1177,7 @@ function App() {
       setDraftUpdatedAt(now);
       setDraftTags(trimmedTags);
       setTagInput("");
+      closeTagSuggestions();
       setSaveStatus("saved");
       setLastSaveError(null);
       isDirtyRef.current = false;
@@ -952,6 +1250,7 @@ function App() {
       setDraftTitle(initialDraft.title);
       setDraftTags(initialDraft.tags);
       setTagInput("");
+      closeTagSuggestions();
       setDraftBody(initialDraft.body);
       setDraftUpdatedAt(initialDraft.updatedAt);
       setIsDirty(true);
@@ -977,20 +1276,77 @@ function App() {
       ? "Status: Saved"
       : "Status: No note";
 
-  const filteredNotes = notes.filter((note) => {
-    const query = searchQuery.trim().toLowerCase();
-    const tags = parseTags(tagFilter);
-    const matchesQuery =
-      query.length === 0 ||
-      note.title.toLowerCase().includes(query) ||
-      note.body.toLowerCase().includes(query);
-    const matchesTags =
-      tags.length === 0 ||
-      tags.every((tag) =>
-        note.tags.map((value) => value.toLowerCase()).includes(tag.toLowerCase())
-      );
-    return matchesQuery && matchesTags;
+  const activeFilterCount =
+    (searchQuery.trim().length > 0 ? 1 : 0) + activeTagFilterValues.length;
+  const hasActiveFilters = activeFilterCount > 0;
+  const filteredNotes = filterNotes(notes, {
+    query: searchQuery,
+    tags: activeTagFilterValues,
   });
+  const filterDraftPreviewCount = filterNotes(notes, {
+    query: filterDraftSearchQuery,
+    tags: filterDraftTags,
+  }).length;
+  const noteCountText = hasActiveFilters
+    ? `${filteredNotes.length} of ${notes.length} notes`
+    : `${notes.length} ${notes.length === 1 ? "note" : "notes"}`;
+  const filterDraftCountText =
+    filterDraftSearchQuery.trim().length > 0 || filterDraftTags.length > 0
+      ? `${filterDraftPreviewCount} of ${notes.length} notes`
+      : `${notes.length} ${notes.length === 1 ? "note" : "notes"}`;
+
+  const openFilterDialog = () => {
+    setFilterDraftSearchQuery(searchQuery);
+    setFilterDraftTags(activeTagFilterValues);
+    setFilterTagInput("");
+    closeTagFilterSuggestions();
+    setIsFilterDialogOpen(true);
+    requestAnimationFrame(() => {
+      filterSearchInputRef.current?.focus();
+    });
+  };
+
+  const closeFilterDialog = () => {
+    setIsFilterDialogOpen(false);
+    setFilterTagInput("");
+    closeTagFilterSuggestions();
+  };
+
+  const applyFilterDialog = () => {
+    setSearchQuery(filterDraftSearchQuery);
+    setTagFilter(filterDraftTags.join(", "));
+    closeFilterDialog();
+  };
+
+  const clearFilterDraft = () => {
+    setFilterDraftSearchQuery("");
+    setFilterDraftTags([]);
+    setFilterTagInput("");
+    closeTagFilterSuggestions();
+  };
+
+  const clearAppliedFilters = () => {
+    setSearchQuery("");
+    setTagFilter("");
+    if (isFilterDialogOpen) {
+      clearFilterDraft();
+    }
+  };
+
+  const handleFilterBackdropMouseDown = (
+    event: MouseEvent<HTMLDivElement>
+  ) => {
+    if (event.target === event.currentTarget) {
+      closeFilterDialog();
+    }
+  };
+
+  const handleFilterDialogKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeFilterDialog();
+    }
+  };
 
   const handleDelete = async () => {
     const targetNote =
@@ -1117,32 +1473,6 @@ function App() {
           </button>
         </div>
         <div className="sidebar-section">
-          <label className="label" htmlFor="search">
-            Search
-          </label>
-          <input
-            id="search"
-            className="input"
-            placeholder="Search title or body"
-            type="search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-          />
-        </div>
-        <div className="sidebar-section">
-          <label className="label" htmlFor="tag-filter">
-            Tag filter
-          </label>
-          <input
-            id="tag-filter"
-            className="input"
-            placeholder="tag1, tag2"
-            type="text"
-            value={tagFilter}
-            onChange={(event) => setTagFilter(event.target.value)}
-          />
-        </div>
-        <div className="sidebar-section">
           <div className="section-title">Import</div>
           <label
             className={`import-button${isImporting ? " disabled" : ""}`}
@@ -1162,11 +1492,51 @@ function App() {
           />
         </div>
         <div className="sidebar-section">
-          <div className="section-title">Notes</div>
+          <div className="notes-header">
+            <div>
+              <div className="section-title">Notes</div>
+              <div className="note-count" aria-live="polite">
+                {noteCountText}
+              </div>
+            </div>
+            <div className="notes-filter-actions">
+              <button
+                className={`filter-button${hasActiveFilters ? " active" : ""}`}
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded={isFilterDialogOpen}
+                onClick={openFilterDialog}
+              >
+                {hasActiveFilters ? `Filter (${activeFilterCount})` : "Filter"}
+              </button>
+              {hasActiveFilters ? (
+                <button
+                  className="filter-clear-button"
+                  type="button"
+                  onClick={clearAppliedFilters}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </div>
           <ul className="note-list">
             {filteredNotes.length === 0 ? (
               <li className="note-item empty">
-                {notes.length === 0 ? "No notes yet." : "No matches."}
+                <span>
+                  {notes.length === 0
+                    ? "No notes yet."
+                    : "No notes match your filters."}
+                </span>
+                {notes.length > 0 && hasActiveFilters ? (
+                  <button
+                    className="inline-action"
+                    type="button"
+                    onClick={clearAppliedFilters}
+                  >
+                    Clear Filters
+                  </button>
+                ) : null}
               </li>
             ) : (
               filteredNotes.map((note) => (
@@ -1286,179 +1656,221 @@ function App() {
             Preview
           </button>
         </div>
-        <div className="editor-section">
-          <label className="label" htmlFor="title">
-            Title
-          </label>
-          <input
-            id="title"
-            className="input"
-            placeholder="Note title"
-            type="text"
-            value={draftTitle}
-            onChange={(event) => {
-              setDraftTitle(event.target.value);
-              markDirty();
-            }}
-          />
-        </div>
-        <div className="editor-section">
-          <label className="label" htmlFor="tags-input">
-            Tags
-          </label>
-          <div className="tag-input">
-            {draftTags.length === 0 ? (
-              <span className="tag-placeholder">No tags yet.</span>
-            ) : null}
-            {draftTags.map((tag) => (
-              <span key={tag} className="tag-chip">
-                {tag}
-                <button
-                  className="tag-remove"
-                  type="button"
-                  onClick={() => removeTag(tag)}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            <input
-              id="tags-input"
-              className="tag-text-input"
-              placeholder="Type tag and press Enter"
-              type="text"
-              value={tagInput}
-              onChange={(event) => {
-                setTagInput(event.target.value);
-                markDirty();
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addTag(tagInput);
-                  setTagInput("");
-                }
-              }}
-            />
-          </div>
-          {candidateTags.length > 0 ? (
-            <div className="tag-candidates">
-              {candidateTags.map((tag) => (
-                <button
-                  key={tag}
-                  type="button"
-                  className="tag-candidate"
-                  onClick={() => addTag(tag)}
-                >
-                  {tag}
-                </button>
-              ))}
+        {activeTab === "edit" ? (
+          <>
+            <div className="editor-section metadata-field">
+              <div className="label" id="title-label">
+                Title
+              </div>
+              <input
+                id="title"
+                className="input"
+                placeholder="Note title"
+                type="text"
+                aria-labelledby="title-label"
+                value={draftTitle}
+                onChange={(event) => {
+                  setDraftTitle(event.target.value);
+                  markDirty();
+                }}
+              />
             </div>
-          ) : null}
-        </div>
+            <div className="editor-section metadata-field">
+              <div className="label" id="tags-label">
+                Tags
+              </div>
+              <div
+                className="tag-suggest"
+                ref={tagSuggestRef}
+                onBlur={handleTagSuggestBlur}
+              >
+                <div
+                  className="tag-input"
+                  onClick={() => tagTextInputRef.current?.focus()}
+                >
+                  {draftTags.map((tag) => (
+                    <span key={tag} className="tag-chip">
+                      {tag}
+                      <button
+                        className="tag-remove"
+                        type="button"
+                        onClick={() => removeTag(tag)}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    id="tags-input"
+                    ref={tagTextInputRef}
+                    className="tag-text-input"
+                    placeholder="Type tag and press Enter"
+                    type="text"
+                    role="combobox"
+                    aria-labelledby="tags-label"
+                    aria-autocomplete="list"
+                    aria-expanded={hasTagSuggestions}
+                    aria-controls={hasTagSuggestions ? "tag-suggestions" : undefined}
+                    aria-activedescendant={
+                      hasTagSuggestions
+                        ? `tag-suggestion-${activeTagSuggestionSafeIndex}`
+                        : undefined
+                    }
+                    value={tagInput}
+                    onFocus={() => setIsTagSuggestOpen(true)}
+                    onChange={(event) => {
+                      setTagInput(event.target.value);
+                      setIsTagSuggestOpen(true);
+                      setActiveTagSuggestionIndex(0);
+                      markDirty();
+                    }}
+                    onKeyDown={handleTagInputKeyDown}
+                  />
+                </div>
+                {hasTagSuggestions ? (
+                  <div
+                    id="tag-suggestions"
+                    className="tag-suggestion-list"
+                    role="listbox"
+                    aria-label="Tag suggestions"
+                  >
+                    {suggestedTags.map((tag, index) => (
+                      <button
+                        key={tag}
+                        id={`tag-suggestion-${index}`}
+                        type="button"
+                        role="option"
+                        aria-selected={index === activeTagSuggestionSafeIndex}
+                        className="tag-suggestion"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onMouseEnter={() => setActiveTagSuggestionIndex(index)}
+                        onClick={() => selectSuggestedTag(tag)}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </>
+        ) : null}
         {activeTab === "edit" ? (
           <div className="editor-section editor-body">
-            <div className="md-toolbar" role="toolbar" aria-label="Markdown tools">
-              <button
-                type="button"
-                className="md-button"
-                title="Bold"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => handleWrap("**", "**", "bold")}
-              >
-                Bold
-              </button>
-              <button
-                type="button"
-                className="md-button"
-                title="Italic"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => handleWrap("*", "*", "italic")}
-              >
-                Italic
-              </button>
-              <button
-                type="button"
-                className="md-button"
-                title="Strike"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => handleWrap("~~", "~~", "strike")}
-              >
-                Strike
-              </button>
-              <button
-                type="button"
-                className="md-button"
-                title="Code"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => handleWrap("`", "`", "code")}
-              >
-                Code
-              </button>
-              <button
-                type="button"
-                className="md-button"
-                title="H1"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => handleToggleLine("# ")}
-              >
-                H1
-              </button>
-              <button
-                type="button"
-                className="md-button"
-                title="H2"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => handleToggleLine("## ")}
-              >
-                H2
-              </button>
-              <button
-                type="button"
-                className="md-button"
-                title="Bullet"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => handleToggleLine("- ")}
-              >
-                Bullet
-              </button>
-              <button
-                type="button"
-                className="md-button"
-                title="Task"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => handleToggleLine("- [ ] ")}
-              >
-                Task
-              </button>
-              <button
-                type="button"
-                className="md-button"
-                title="Quote"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => handleToggleLine("> ")}
-              >
-                Quote
-              </button>
-              <button
-                type="button"
-                className="md-button"
-                title="Link"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={handleInsertLink}
-              >
-                Link
-              </button>
+            <div className="body-header">
+              <div className="label" id="body-label">
+                Body
+              </div>
+              <div className="md-toolbar" role="toolbar" aria-label="Markdown tools">
+                <button
+                  type="button"
+                  className="md-button md-button-bold"
+                  aria-label="Bold"
+                  title="Bold"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => handleWrap("**", "**", "bold")}
+                >
+                  B
+                </button>
+                <button
+                  type="button"
+                  className="md-button md-button-italic"
+                  aria-label="Italic"
+                  title="Italic"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => handleWrap("*", "*", "italic")}
+                >
+                  I
+                </button>
+                <button
+                  type="button"
+                  className="md-button md-button-strike"
+                  aria-label="Strike"
+                  title="Strike"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => handleWrap("~~", "~~", "strike")}
+                >
+                  S
+                </button>
+                <button
+                  type="button"
+                  className="md-button md-button-code"
+                  aria-label="Code"
+                  title="Code"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => handleWrap("`", "`", "code")}
+                >
+                  {"<>"}
+                </button>
+                <button
+                  type="button"
+                  className="md-button"
+                  aria-label="H1"
+                  title="H1"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => handleToggleLine("# ")}
+                >
+                  H1
+                </button>
+                <button
+                  type="button"
+                  className="md-button"
+                  aria-label="H2"
+                  title="H2"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => handleToggleLine("## ")}
+                >
+                  H2
+                </button>
+                <button
+                  type="button"
+                  className="md-button"
+                  aria-label="Bullet"
+                  title="Bullet"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => handleToggleLine("- ")}
+                >
+                  -
+                </button>
+                <button
+                  type="button"
+                  className="md-button md-button-wide"
+                  aria-label="Task"
+                  title="Task"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => handleToggleLine("- [ ] ")}
+                >
+                  {"[ ]"}
+                </button>
+                <button
+                  type="button"
+                  className="md-button"
+                  aria-label="Quote"
+                  title="Quote"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => handleToggleLine("> ")}
+                >
+                  {">"}
+                </button>
+                <button
+                  type="button"
+                  className="md-button"
+                  aria-label="Link"
+                  title="Link"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={handleInsertLink}
+                >
+                  {"[]"}
+                </button>
+              </div>
             </div>
-            <label className="label" htmlFor="body">
-              Body
-            </label>
             <textarea
               id="body"
               className="textarea textarea-fill"
               placeholder="Write markdown here..."
               rows={16}
               ref={bodyRef}
+              aria-labelledby="body-label"
               value={draftBody}
               onChange={(event) => {
                 setDraftBody(event.target.value);
@@ -1477,6 +1889,26 @@ function App() {
                   remarkPlugins={[remarkGfm]}
                   components={{
                     input: () => null,
+                    pre: ({ children }) => {
+                      const codeElement = Array.isArray(children)
+                        ? children[0]
+                        : children;
+                      if (
+                        isValidElement<MarkdownCodeElementProps>(codeElement)
+                      ) {
+                        const languageMatch = /language-(\S+)/i.exec(
+                          codeElement.props.className ?? ""
+                        );
+                        const language = languageMatch?.[1]?.toLowerCase();
+                        if (language === "mermaid") {
+                          const code = String(
+                            codeElement.props.children ?? ""
+                          ).replace(/\n$/, "");
+                          return <MermaidBlock code={code} />;
+                        }
+                      }
+                      return <pre>{children}</pre>;
+                    },
                     li: ({ node, children, ...props }) => {
                       const className = props.className ?? "";
                       const isTask = className.includes("task-list-item");
@@ -1534,6 +1966,153 @@ function App() {
           </div>
         )}
       </main>
+      {isFilterDialogOpen ? (
+        <div
+          className="modal-backdrop"
+          onMouseDown={handleFilterBackdropMouseDown}
+        >
+          <div
+            className="filter-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="filter-dialog-title"
+            onKeyDown={handleFilterDialogKeyDown}
+          >
+            <h2 id="filter-dialog-title">Filter notes</h2>
+            <div className="filter-dialog-body">
+              <div className="filter-field">
+                <div className="label" id="filter-search-label">
+                  Search
+                </div>
+                <input
+                  id="filter-search"
+                  ref={filterSearchInputRef}
+                  className="input"
+                  placeholder="Search title or body"
+                  type="search"
+                  aria-labelledby="filter-search-label"
+                  value={filterDraftSearchQuery}
+                  onChange={(event) =>
+                    setFilterDraftSearchQuery(event.target.value)
+                  }
+                />
+              </div>
+              <div className="filter-field">
+                <div className="label" id="filter-tags-label">
+                  Tags
+                </div>
+                <div
+                  className="tag-suggest"
+                  ref={tagFilterSuggestRef}
+                  onBlur={handleTagFilterSuggestBlur}
+                >
+                  <div
+                    className="tag-input filter-tag-input"
+                    onClick={() => tagFilterInputRef.current?.focus()}
+                  >
+                    {filterDraftTags.map((tag) => (
+                      <span key={tag} className="tag-chip">
+                        {tag}
+                        <button
+                          className="tag-remove"
+                          type="button"
+                          aria-label={`Remove ${tag} filter`}
+                          onClick={() => removeFilterDraftTag(tag)}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      id="filter-tags-input"
+                      ref={tagFilterInputRef}
+                      className="tag-text-input"
+                      placeholder="Type tag"
+                      type="text"
+                      role="combobox"
+                      aria-labelledby="filter-tags-label"
+                      aria-autocomplete="list"
+                      aria-expanded={hasTagFilterSuggestions}
+                      aria-controls={
+                        hasTagFilterSuggestions
+                          ? "tag-filter-suggestions"
+                          : undefined
+                      }
+                      aria-activedescendant={
+                        hasTagFilterSuggestions
+                          ? `tag-filter-suggestion-${activeTagFilterSuggestionSafeIndex}`
+                          : undefined
+                      }
+                      value={filterTagInput}
+                      onFocus={() => setIsTagFilterSuggestOpen(true)}
+                      onChange={(event) => {
+                        setFilterTagInput(event.target.value);
+                        setIsTagFilterSuggestOpen(true);
+                        setActiveTagFilterSuggestionIndex(0);
+                      }}
+                      onKeyDown={handleTagFilterKeyDown}
+                    />
+                  </div>
+                  {hasTagFilterSuggestions ? (
+                    <div
+                      id="tag-filter-suggestions"
+                      className="tag-suggestion-list"
+                      role="listbox"
+                      aria-label="Filter tag suggestions"
+                    >
+                      {suggestedTagFilters.map((tag, index) => (
+                        <button
+                          key={tag}
+                          id={`tag-filter-suggestion-${index}`}
+                          type="button"
+                          role="option"
+                          aria-selected={
+                            index === activeTagFilterSuggestionSafeIndex
+                          }
+                          className="tag-suggestion"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onMouseEnter={() =>
+                            setActiveTagFilterSuggestionIndex(index)
+                          }
+                          onClick={() => selectTagFilterSuggestion(tag)}
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="filter-result-count" aria-live="polite">
+                {filterDraftCountText}
+              </div>
+            </div>
+            <div className="dialog-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={clearFilterDraft}
+              >
+                Clear Filters
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={closeFilterDialog}
+              >
+                Cancel
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={applyFilterDialog}
+              >
+                Apply Filters
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {unsavedDialog ? (
         <div className="modal-backdrop">
           <div

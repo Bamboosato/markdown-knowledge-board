@@ -272,7 +272,7 @@ Preview 内のタスクチェックが視覚的にはクリック可能でも、
 
 ### 改善方針
 
-アプリ内の UI 表示言語は英語で統一する。日本語併記は行わず、ボタン、通知、確認ダイアログ、空状態、エラー文言をすべて英語のプロダクトコピーとして整える。
+アプリ画面に表示される UI 言語は英語で統一する。日本語併記は行わず、ボタン、通知、確認ダイアログ、空状態、エラー文言をすべて英語のプロダクトコピーとして整える。仕様書本文、テスト名、開発者向けコメントや内部識別子は本項目の対象外とする。
 
 ### 機能仕様案
 
@@ -281,6 +281,7 @@ Preview 内のタスクチェックが視覚的にはクリック可能でも、
 - Markdown、Preview、Import、Export、Backup、Slides などの機能名は英語表記のみとする。
 - 日本語併記、日英併記、画面内の補足的な日本語説明は行わない。
 - エラー文言は英語で原因と次の操作が分かる形にする。
+- 仕様書本文、テスト名、コード内の内部識別子は対象外とする。
 
 ### 画面仕様案
 
@@ -294,6 +295,7 @@ Preview 内のタスクチェックが視覚的にはクリック可能でも、
 - HTML 言語指定が画面表示と一致する。
 - すべての確認文言が英語で操作結果を明示している。
 - 日本語併記が表示されない。
+- 仕様書本文やテスト名に日本語が残っていても、本項目の未完了条件にはしない。
 
 ### 検証観点
 
@@ -309,25 +311,38 @@ Preview 内のタスクチェックが視覚的にはクリック可能でも、
 
 ### 改善方針
 
-検索条件を視覚的なフィルタチップとして表示し、候補選択と解除をしやすくする。検索結果件数と現在の条件を常に確認できるようにする。
+Search / Tags をサイドバーへ常時表示せず、`Filter` ボタンから開く modal dialog で条件設定する。Note 一覧の表示領域を確保しつつ、適用中の条件数、検索結果件数、解除導線を確認できるようにする。
 
 ### 機能仕様案
 
-- 既存ノートのタグ一覧から候補を表示する。
-- 選択済みタグはチップとして表示し、個別に解除できる。
+- サイドバーの Notes ヘッダーに `Filter` ボタンを表示する。
+- Search または Tag filter が有効な場合、`Filter (n)` として有効条件数を表示する。
+- Search または Tag filter が有効な場合、Notes ヘッダーに `Clear` ボタンを表示し、modal を開かずに全条件を解除できる。
+- `Filter` ボタン押下で Search / Tags 条件設定 modal を表示する。
+- modal 内で既存ノートのタグ一覧から候補を表示する。
+- 選択済みタグは modal 内でチップとして表示し、個別に解除できる。
+- タグ候補は最大 8 件、タグ名昇順、大小文字を区別しない並び順とする。
+- タグ候補は入力文字で絞り込み、選択済みタグを除外する。
 - 検索文字列とタグ条件の AND 条件で絞り込む。
+- `Apply Filters` で modal 内の一時条件を Note 一覧へ反映する。
+- `Cancel`、背景クリック、Esc では modal 内の変更を破棄する。
 - `Clear Filters` ボタンで検索文字列とタグ条件をまとめて解除する。
-- 検索結果件数を表示する。
+- 検索結果件数を `filtered of total notes` 形式で表示する。
 
 ### 画面仕様案
 
-- サイドバー上部に検索欄、タグ候補、選択中タグ、件数を配置する。
+- サイドバー上部には Search / Tag filter 入力欄を常時表示しない。
+- Notes ヘッダーに件数と `Filter` ボタンを配置する。
+- 条件適用中は Notes ヘッダーに `Clear` ボタンを追加する。
+- modal 内に Search 欄、選択中タグ、タグ入力欄、候補ドロップダウン、件数を配置する。
 - 0 件時は `No notes match your filters` と表示し、条件解除導線を出す。
 - タグ候補はノート件数が多い場合でも折り返しまたはスクロールで破綻しない。
 
 ### 受け入れ条件
 
+- `Filter` ボタンから Search / Tags 条件を設定できる。
 - タグをクリックしてフィルタ追加・解除ができる。
+- modal 入力中は Note 一覧へ反映されず、`Apply Filters` 後に反映される。
 - 複数タグ指定時の条件が仕様通り AND になる。
 - 検索条件をすべて解除できる。
 - 0 件時に状態と次の操作が分かる。
@@ -341,11 +356,15 @@ Preview 内のタスクチェックが視覚的にはクリック可能でも、
 
 ## 9. Markdown ツールバーの無選択時挙動明確化
 
+Phase 3 では本項目の実装を保留する。現時点では Bold / Italic / Strike / Code は選択範囲がある場合のみ適用対象とし、無選択時のプレースホルダー挿入または disabled 表示は後続改善で扱う。
+
 ### 現状課題
 
 ツールバー操作は選択範囲がある場合に分かりやすい一方、無選択時に何が起きるべきかが曖昧になりやすい。利用者はボタンが効かないと感じる可能性がある。
 
 ### 改善方針
+
+本項目は保留とする。後続改善で再開する場合は、以下の案を再評価する。
 
 無選択時はテンプレート挿入として動作するか、選択が必要な操作として無効化するかを操作種別ごとに定義する。
 
@@ -486,11 +505,14 @@ Preview 内のタスクチェックが視覚的にはクリック可能でも、
 
 - 表示言語と文言トーンの統一
 - Search / Tags フィルタの状態把握性向上
+
+保留対象:
+
 - Markdown ツールバーの無選択時挙動明確化
 
 完了条件:
 
-- 初見利用者でも検索条件、保存状態、ツールバー結果を理解しやすい。
+- 初見利用者でも検索条件と保存状態を理解しやすい。
 - 文言と画面状態が一貫している。
 
 ## 将来拡張仕様案
@@ -518,19 +540,68 @@ Markdown Preview はテキスト主体の表示であり、`mermaid` コード�
 
 Preview レンダリング時に `mermaid` コードブロックを検出し、図としてレンダリングする。通常のコードブロック表示と Mermaid 図表示を明確に分け、レンダリング失敗時も Markdown 本文が読める状態を維持する。
 
+初期仕様では Preview 体験の拡張に限定し、保存形式、Import / Export / Backup の Markdown データ構造は変更しない。Mermaid 図は表示時にのみ生成され、ノート本文には生成結果を保存しない。
+
+#### 対象範囲
+
+- 対象は fenced code block の言語指定が `mermaid` の場合のみとする。
+- 言語指定は大小文字を区別せず、` ```mermaid `、` ```Mermaid ` を同じ扱いにする。
+- inline code、通常の code block、言語指定なし code block、`mermaid` 以外の code block は既存の code 表示を維持する。
+- Preview タブ内のみで動作する。Edit 画面の textarea、Markdown toolbar、保存処理は変更しない。
+- Mermaid 図の表示状態、`Diagram` / `Code` 切替状態、エラー状態は保存対象外とする。
+
+#### 設定仕様案
+
+- Mermaid renderer は Preview 内に `mermaid` code block が存在する場合のみ lazy load する。
+- renderer 設定は初期仕様では固定値とし、ユーザー設定画面は追加しない。
+- Mermaid theme はアプリのライト UI と整合する light/default 系を初期値にする。
+- Mermaid の自動起動は使わず、Preview 側が対象 code block 単位で明示的に render する。
+- Mermaid の security level は strict 相当とし、ユーザー入力由来の HTML、script、event handler、外部リソース読み込みを許可しない。
+- SVG を DOM に挿入する場合は、script、foreignObject、event handler 属性、危険な URL を除去する。
+- レンダリングは本文変更から 300ms debounce して実行する。
+- 複数 Mermaid block がある場合は block 単位で独立して処理し、1 つの失敗が他の block や Preview 全体へ波及しないようにする。
+- 同一 Preview 内で Mermaid code が変わっていない場合は、可能な範囲で直前の SVG を再利用する。
+- 初期の安全上限として、1 block あたり 50KB を超える Mermaid code は自動 render せず、code fallback と警告を表示する。
+
 #### 機能仕様案
 
 - fenced code block の言語が `mermaid` の場合に図として表示する。
-- 図のレンダリングに失敗した場合は、エラー概要と元コードを表示する。
-- Mermaid のテーマはアプリのライト UI と整合するものを初期値にする。
-- 図は Preview 内で横スクロールまたは縮小表示できる。
-- 図の再レンダリングは本文変更後に debounce して実行する。
+- 初期表示は `Diagram` 表示とする。
+- `Show Code` 操作で元の Mermaid code を確認できる。
+- `Show Diagram` 操作で図表示へ戻せる。
+- 図のレンダリング中は block 内に `Rendering diagram...` を表示する。
+- Mermaid code が空の場合は render せず、`Empty Mermaid diagram.` を表示する。
+- 図のレンダリングに失敗した場合は、block 内に `Unable to render Mermaid diagram.` とエラー概要を表示し、元コードを確認できるようにする。
+- 図は Preview 内で横スクロールできる。Preview 全体や画面幅を突き破らない。
+- Markdown 本文を編集して Preview に戻った場合、変更後の Mermaid code で再レンダリングする。
+- レンダリング失敗、表示切替、code fallback はノートの dirty 状態を変更しない。
 
 #### 画面仕様案
 
-- Mermaid 図の右上に `Show Diagram`、`Show Code` の切替を用意する。
-- レンダリング失敗時は図領域にエラーを表示し、元コードを折りたたみ可能にする。
-- モバイルでは図の横幅が画面を突き破らないようにする。
+- Mermaid block は通常 code block と区別できる枠として表示する。
+- block header の左側に `Mermaid` ラベルを表示する。
+- block header の右側に `Diagram` / `Code` の切替ボタンを表示する。
+- エラー時は図領域を error 状態として表示し、`Code` 表示へ切り替えられるようにする。
+- モバイルでは header 操作が折り返しても本文や図と重ならない。
+- 横長の図は block 内で横スクロールさせ、ページ全体の横スクロールは発生させない。
+- 図の SVG は Preview の本文色、枠線、背景と違和感が出ない配色にする。
+
+#### アクセシビリティ仕様案
+
+- `Diagram` / `Code` 切替は button として実装し、キーボード操作と focus 表示に対応する。
+- Mermaid 図の container には `role="img"` または SVG 側の適切な accessible name を付与する。
+- accessible name は `Mermaid diagram` を基本とし、複数 block がある場合も識別できるようにする。
+- 図の内容を読み取れない利用者向けに、常に元の Mermaid code へ切り替えられる導線を提供する。
+- レンダリング失敗時のエラーは screen reader で把握できるようにする。
+
+#### エラー・境界仕様案
+
+- Mermaid 構文エラーは block 単位で表示し、Preview 全体を blank にしない。
+- renderer の lazy load 失敗時は全 Mermaid block を code fallback とし、Preview 全体は継続表示する。
+- 50KB 超の Mermaid block は `Diagram is too large to render automatically.` を表示し、元コードを表示できるようにする。
+- 空 code block は `Empty Mermaid diagram.` を表示する。
+- 同じ本文内に Mermaid block が複数ある場合、各 block の表示状態とエラー状態を独立させる。
+- レンダリング中に本文が変わった場合、古い render 結果を後から反映しない。
 
 #### 受け入れ条件
 
@@ -538,13 +609,20 @@ Preview レンダリング時に `mermaid` コードブロックを検出し、�
 - 不正な Mermaid 構文でも Preview 全体が落ちない。
 - 長い図や横長の図でも画面操作不能にならない。
 - Markdown 本文を編集すると、Preview の図が更新される。
+- `Show Code` / `Show Diagram` をキーボードで操作できる。
+- Mermaid 図の表示失敗時も元コードを確認できる。
+- Mermaid 表示状態の変更でノートが未保存状態にならない。
 
 #### 検証観点
 
-- 機能観点: 複数種類の Mermaid 図を表示できることを確認する。
-- 異常系: 構文エラー、空コードブロック、巨大図を確認する。
-- UI 観点: モバイル表示、横スクロール、コード表示切替を確認する。
-- 非機能観点: 入力ごとの再レンダリングで UI が固まらないことを確認する。
+- 機能観点: flowchart、sequenceDiagram、stateDiagram、複数 Mermaid block、通常 code block との混在を確認する。
+- 非機能観点: lazy load、300ms debounce、複数 block、50KB 上限、長文ノートで UI が固まり続けないことを確認する。
+- データ観点: Mermaid code を含むノートの保存、再読み込み、Import / Export / Backup で Markdown 本文が変形しないことを確認する。
+- UI 観点: Diagram / Code 切替、モバイル表示、横スクロール、エラー表示、loading 表示、focus 表示を確認する。
+- 正常系: 有効な Mermaid code を Preview で図表示し、Code 表示へ切り替え、再度 Diagram 表示へ戻せることを確認する。
+- 異常系: 構文エラー、renderer load 失敗、空 code block、50KB 超 code block を確認する。
+- 境界値: Mermaid block 0 件、1 件、複数件、横長図、長いラベル、同一 code の重複を確認する。
+- 状態遷移: Edit / Preview 切替、本文変更後の再レンダリング、render 中の本文変更、エラーから code 表示への切替を確認する。
 
 ### A2. Marp によるスライド表示
 
