@@ -371,7 +371,7 @@ function areNotesEquivalent(left: Note, right: Note): boolean {
 
 function createBackupMessage(lastBackupAt: string | null, now: number): string | null {
   if (!lastBackupAt) {
-    return "No backup has been created yet.";
+    return "None";
   }
 
   const lastDate = new Date(lastBackupAt);
@@ -385,7 +385,7 @@ function createBackupMessage(lastBackupAt: string | null, now: number): string |
     return null;
   }
 
-  return `Last backup: ${diffDays} days ago (${lastDate.toLocaleString()})`;
+  return `${diffDays} days ago (${lastDate.toLocaleString()})`;
 }
 
 function getInitialBackupMessage(): string | null {
@@ -1654,9 +1654,6 @@ function App() {
         </div>
       </aside>
       <main className="editor">
-        {backupMessage ? (
-          <div className="backup-banner">{backupMessage}</div>
-        ) : null}
         <div className="editor-header">
           <div className="editor-title-row">
             <button
@@ -1669,7 +1666,22 @@ function App() {
             <h1 className="app-title">Markdown Knowledge Board</h1>
           </div>
           <div className="editor-actions">
-            <div className="save-status">{statusText}</div>
+            <div className="editor-status" aria-label="Editor status">
+              <span>{statusText}</span>
+              {backupMessage ? (
+                <>
+                  <span className="status-separator" aria-hidden="true">
+                    |
+                  </span>
+                  <span>
+                    Backup:{" "}
+                    {backupMessage === "No backup has been created yet."
+                      ? "None"
+                      : backupMessage}
+                  </span>
+                </>
+              ) : null}
+            </div>
             <button
               className="primary-button"
               type="button"

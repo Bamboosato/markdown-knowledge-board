@@ -118,6 +118,40 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     expect(await page.evaluate(() => localStorage.getItem("lastBackupAt"))).toBeNull();
   });
 
+  test("shows the missing backup state beside the editor status", async ({ page }) => {
+    await page.goto("/");
+
+    const editorStatus = page.getByLabel("Editor status");
+    await expect(editorStatus).toHaveText("Status: No note|Backup: None");
+    await expect(page.getByText("No backup has been created yet.")).toHaveCount(0);
+  });
+
+  test("aligns the app header with the New Note button", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+
+    const newNoteBox = await page
+      .getByRole("button", { name: /new note/i })
+      .boundingBox();
+    const appTitleBox = await page
+      .getByRole("heading", { name: "Markdown Knowledge Board" })
+      .boundingBox();
+
+    expect(newNoteBox).not.toBeNull();
+    expect(appTitleBox).not.toBeNull();
+    expect(Math.abs(newNoteBox!.y - appTitleBox!.y)).toBeLessThanOrEqual(1);
+  });
+
+  test("centers text in every button", async ({ page }) => {
+    await page.goto("/");
+
+    const textAlignValues = await page.locator("button").evaluateAll((buttons) =>
+      [...new Set(buttons.map((button) => getComputedStyle(button).textAlign))]
+    );
+
+    expect(textAlignValues).toEqual(["center"]);
+  });
+
   test("summarizes duplicate and failed import results", async ({ page }) => {
     await mockBackupSavePicker(page);
     await page.goto("/");

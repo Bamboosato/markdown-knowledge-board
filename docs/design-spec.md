@@ -264,7 +264,7 @@ editor header には以下を配置する。
 1. IndexedDB から全ノートを取得する。
 2. `updatedAt` の降順で `notes` に保持する。
 3. IndexedDB 初期化エラーがあれば `dbError` に反映する。
-4. `localStorage.lastBackupAt` を確認し、未バックアップまたは 7 日以上経過している場合はバックアップメッセージを表示する。
+4. `localStorage.lastBackupAt` を確認し、未バックアップまたは 7 日以上経過している場合は、エディタ上部の Status と並べて小さな補助情報として `Backup: None` または経過日数を表示する。
 
 ### 7.2 新規ノート作成
 
