@@ -5,6 +5,7 @@ declare global {
   interface Window {
     __backupFileName?: string;
     __backupText?: string;
+    __viewTransitionCalls?: number;
   }
 }
 
@@ -29,6 +30,16 @@ async function expectResultValue(dialog: Locator, label: string, value: string) 
   await expect(dialog.locator(".result-summary div", { hasText: label }).locator("dd")).toHaveText(
     value
   );
+}
+
+async function clickAppMenuItem(page: Page, name: string) {
+  await page.getByRole("button", { name: "Open application menu" }).click();
+  await page.getByRole("menuitem", { name }).click();
+}
+
+async function clickNoteAction(page: Page, name: string) {
+  await page.getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name }).click();
 }
 
 async function mockBackupSavePicker(page: Page) {
@@ -66,7 +77,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await mockBackupSavePicker(page);
     await page.goto("/");
 
-    await page.getByRole("button", { name: "Backup All Notes" }).click();
+    await clickAppMenuItem(page, "Backup All Notes");
     await expect(
       page.getByRole("dialog", { name: "Backup Complete" })
     ).toBeVisible();
@@ -86,7 +97,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await createSavedNote(page, "Phase 2 backup note", "# Phase 2\n\nBackup body");
     await page.getByRole("button", { name: "Notes" }).click();
 
-    await page.getByRole("button", { name: "Backup All Notes" }).click();
+    await clickAppMenuItem(page, "Backup All Notes");
     await expect(
       page.getByRole("dialog", { name: "Backup Complete" })
     ).toBeVisible();
@@ -102,6 +113,11 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     );
     expect(backup.noteCount).toBe(1);
     expect(backup.notes).toHaveLength(1);
+    await page.getByRole("button", { name: "Close" }).click();
+    await page.getByRole("button", { name: "Open application menu" }).click();
+    await expect(
+      page.getByRole("menu", { name: "Application menu" }).locator(".backup-last-value")
+    ).toHaveText(/^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}$/);
   });
 
   test("does not show a backup result dialog when the save picker is canceled", async ({
@@ -110,7 +126,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await mockBackupCancelPicker(page);
     await page.goto("/");
 
-    await page.getByRole("button", { name: "Backup All Notes" }).click();
+    await clickAppMenuItem(page, "Backup All Notes");
 
     await expect(
       page.getByRole("dialog", { name: /Backup/ })
@@ -118,28 +134,418 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     expect(await page.evaluate(() => localStorage.getItem("lastBackupAt"))).toBeNull();
   });
 
-  test("shows the missing backup state beside the editor status", async ({ page }) => {
+  test("shows the latest backup information inside the application menu", async ({ page }) => {
     await page.goto("/");
 
     const editorStatus = page.getByLabel("Editor status");
-    await expect(editorStatus).toHaveText("Status: No note|Backup: None");
-    await expect(page.getByText("No backup has been created yet.")).toHaveCount(0);
+    await expect(editorStatus).toContainText("Status: No note");
+    await expect(editorStatus).not.toContainText("Backup");
+    await page.getByRole("button", { name: "Open application menu" }).click();
+    const menu = page.getByRole("menu", { name: "Application menu" });
+    await expect(menu.getByText("Last backup")).toBeVisible();
+    await expect(menu.getByText("No backups yet")).toBeVisible();
+    await expect(menu).toHaveCSS("width", "240px");
+    const backupMenuItem = menu.getByRole("menuitem", {
+      name: /Backup All Notes/,
+    });
+    await expect(backupMenuItem).toHaveCSS("align-items", "flex-start");
+    const [backupIconBox, backupTitleBox] = await Promise.all([
+      backupMenuItem.locator("svg").boundingBox(),
+      backupMenuItem.getByText("Backup All Notes").boundingBox(),
+    ]);
+    expect(backupIconBox).not.toBeNull();
+    expect(backupTitleBox).not.toBeNull();
+    expect(Math.abs(backupIconBox!.y - backupTitleBox!.y)).toBeLessThanOrEqual(3);
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: /new note/i }).click();
+    await expect(editorStatus).toContainText("Status: Draft");
+    await expect(editorStatus.locator(".status-dot")).toHaveCSS(
+      "background-color",
+      "rgb(138, 138, 138)"
+    );
+    await page.getByLabel("Title").fill("Status colors");
+    await page.getByRole("button", { name: /^Save$/ }).click();
+    await expect(editorStatus).toContainText("Status: Saved");
+    await expect(editorStatus.locator(".status-dot")).toHaveCSS(
+      "background-color",
+      "rgb(37, 99, 235)"
+    );
+    await page.getByLabel("Title").fill("Status colors changed");
+    await expect(editorStatus).toContainText("Status: Unsaved");
+    await expect(editorStatus.locator(".status-dot")).toHaveCSS(
+      "background-color",
+      "rgb(217, 119, 6)"
+    );
   });
 
-  test("aligns the app header with the New Note button", async ({ page }) => {
+  test("places the sidebar and editor below the fixed header", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
 
-    const newNoteBox = await page
-      .getByRole("button", { name: /new note/i })
-      .boundingBox();
-    const appTitleBox = await page
-      .getByRole("heading", { name: "Markdown Knowledge Board" })
-      .boundingBox();
+    const headerBox = await page.locator(".editor-header").boundingBox();
+    const sidebarBox = await page.locator(".sidebar").boundingBox();
+    const editorBox = await page.locator(".editor").boundingBox();
 
-    expect(newNoteBox).not.toBeNull();
-    expect(appTitleBox).not.toBeNull();
-    expect(Math.abs(newNoteBox!.y - appTitleBox!.y)).toBeLessThanOrEqual(1);
+    expect(headerBox).not.toBeNull();
+    expect(sidebarBox).not.toBeNull();
+    expect(editorBox).not.toBeNull();
+    expect(
+      Math.abs(sidebarBox!.y - (headerBox!.y + headerBox!.height))
+    ).toBeLessThanOrEqual(1);
+    expect(Math.abs(editorBox!.y - sidebarBox!.y)).toBeLessThanOrEqual(1);
+  });
+
+  test("separates backup actions from the Markdown import shortcut", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    const menuButton = page.getByRole("button", {
+      name: "Open application menu",
+    });
+    await menuButton.click();
+    const menu = page.getByRole("menu", { name: "Application menu" });
+    await expect(menu).toBeVisible();
+    await expect(
+      menu.getByRole("menuitem", { name: "Backup All Notes" })
+    ).toBeVisible();
+    await expect(
+      menu.getByRole("menuitem", { name: "Import Backup" })
+    ).toBeVisible();
+    await expect(menu.getByText("Import Markdown")).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(menuButton).toBeFocused();
+
+    const markdownImport = page.getByRole("button", {
+      name: "Import Markdown",
+    });
+    await expect(markdownImport).toHaveAttribute("data-tooltip", "Import Markdown");
+    await expect(page.locator("#import-markdown")).toHaveAttribute(
+      "accept",
+      ".md,text/markdown"
+    );
+    await expect(page.locator("#import-backup")).toHaveAttribute(
+      "accept",
+      ".json,application/json"
+    );
+  });
+
+  test("prioritizes Save and groups lower-frequency note actions", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+
+    const revertButton = page.getByRole("button", { name: "Revert changes" });
+    const moreButton = page.getByRole("button", { name: "More actions" });
+    await expect(revertButton).toHaveAttribute("data-tooltip", "Revert changes");
+    await expect(moreButton).toHaveAttribute("data-tooltip", "More actions");
+    await expect(revertButton).toBeDisabled();
+    await expect(moreButton).toBeDisabled();
+
+    await createSavedNote(page, "Action menu note", "# Action menu note");
+    await expect(moreButton).toBeEnabled();
+    await moreButton.click();
+    const menu = page.getByRole("menu", { name: "More actions" });
+    await expect(menu.getByRole("menuitem", { name: "Export" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Delete" })).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(moreButton).toBeFocused();
+  });
+
+  test("uses consistent borders and icon contrast across icon buttons", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+
+    const iconButtons = [
+      page.getByRole("button", { name: "Open application menu" }),
+      page.getByRole("button", { name: "Import Markdown" }),
+      page.getByRole("button", { name: "Revert changes" }),
+      page.getByRole("button", { name: "More actions" }),
+      page.getByRole("button", { name: "Expand editor" }),
+    ];
+    const visualStyles = await Promise.all(
+      iconButtons.map((button) =>
+        button.evaluate((element) => {
+          const buttonStyle = getComputedStyle(element);
+          const icon = element.querySelector("svg");
+          if (!icon) {
+            throw new Error("Icon not found");
+          }
+          return {
+            borderColor: buttonStyle.borderTopColor,
+            borderWidth: buttonStyle.borderTopWidth,
+            color: buttonStyle.color,
+            iconStrokeWidth: getComputedStyle(icon).strokeWidth,
+          };
+        })
+      )
+    );
+
+    expect(new Set(visualStyles.map((style) => style.borderColor)).size).toBe(1);
+    expect(new Set(visualStyles.map((style) => style.borderWidth))).toEqual(
+      new Set(["1px"])
+    );
+    expect(new Set(visualStyles.map((style) => style.color)).size).toBe(1);
+    expect(new Set(visualStyles.map((style) => style.iconStrokeWidth))).toEqual(
+      new Set(["2px"])
+    );
+    await expect(page.getByRole("button", { name: "Revert changes" })).toHaveCSS(
+      "opacity",
+      "1"
+    );
+  });
+
+  test("keeps editor controls in a slim single-row sticky header", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+
+    const header = page.locator(".editor-header");
+    const headerBox = await header.boundingBox();
+    const buttonBoxes = await header.locator("button").evaluateAll((buttons) =>
+      buttons
+        .filter((button) => getComputedStyle(button).display !== "none")
+        .map((button) => {
+          const box = button.getBoundingClientRect();
+          return { top: box.top, bottom: box.bottom };
+        })
+    );
+
+    expect(headerBox).not.toBeNull();
+    expect(headerBox!.height).toBeLessThanOrEqual(56);
+    expect(await header.evaluate((element) => getComputedStyle(element).position)).toBe(
+      "sticky"
+    );
+    expect(Math.max(...buttonBoxes.map((box) => box.top))).toBeLessThanOrEqual(
+      Math.min(...buttonBoxes.map((box) => box.bottom))
+    );
+  });
+
+  test("keeps horizontal scrolling out of the page, sidebar, and header", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/");
+
+    const actions = page.locator(".editor-actions");
+    await expect(actions).toHaveCSS("overflow-x", "visible");
+    await expect(actions).toHaveCSS("overflow-y", "visible");
+
+    await createSavedNote(
+      page,
+      "A-very-long-note-title-without-breakable-spaces-that-must-stay-inside-the-sidebar",
+      "# Header overflow note"
+    );
+
+    const overflowMetrics = await page.evaluate(() => {
+      const sidebar = document.querySelector<HTMLElement>(".sidebar");
+      if (!sidebar) {
+        throw new Error("Sidebar not found");
+      }
+      return {
+        documentClientWidth: document.documentElement.clientWidth,
+        documentScrollWidth: document.documentElement.scrollWidth,
+        sidebarClientWidth: sidebar.clientWidth,
+        sidebarScrollWidth: sidebar.scrollWidth,
+        overflowingSidebarChildren: [...sidebar.querySelectorAll<HTMLElement>("*")]
+          .filter((element) => element.getBoundingClientRect().right > sidebar.getBoundingClientRect().right)
+          .map((element) => ({
+            className: element.className,
+            right: element.getBoundingClientRect().right,
+          })),
+      };
+    });
+    expect(overflowMetrics.documentScrollWidth).toBeLessThanOrEqual(
+      overflowMetrics.documentClientWidth
+    );
+    expect(
+      overflowMetrics.sidebarScrollWidth,
+      JSON.stringify(overflowMetrics.overflowingSidebarChildren)
+    ).toBeLessThanOrEqual(overflowMetrics.sidebarClientWidth);
+
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(page.getByRole("menu", { name: "More actions" })).toBeVisible();
+  });
+
+  test("expands the Body editor below the fixed header with a view transition", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      window.__viewTransitionCalls = 0;
+      Object.defineProperty(document, "startViewTransition", {
+        configurable: true,
+        value: (update: () => void) => {
+          window.__viewTransitionCalls = (window.__viewTransitionCalls ?? 0) + 1;
+          update();
+          return {};
+        },
+      });
+    });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await createSavedNote(
+      page,
+      "Expanded editor note",
+      Array.from({ length: 40 }, (_, index) => `Line ${index + 1}`).join("\n")
+    );
+
+    const body = page.getByLabel("Body");
+    await body.fill(`Unsaved body\n${await body.inputValue()}`);
+    await body.evaluate((element) => {
+      if (!(element instanceof HTMLTextAreaElement)) {
+        throw new Error("Body textarea not found");
+      }
+      element.setSelectionRange(3, 8);
+      element.scrollTop = 120;
+    });
+
+    await page.getByRole("button", { name: "Expand editor" }).click();
+    await expect(page.locator(".app")).toHaveClass(/editor-expanded/);
+    await expect(page.locator(".sidebar")).toHaveCSS("visibility", "hidden");
+    await expect(page.getByText("Status: Unsaved")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Restore editor" })).toBeVisible();
+
+    const expandedBounds = await page.evaluate(() => {
+      const workspace = document.querySelector<HTMLElement>(".app-workspace");
+      const editorBody = document.querySelector<HTMLElement>(".editor-body.is-expanded");
+      if (!workspace || !editorBody) {
+        throw new Error("Expanded editor layout not found");
+      }
+      const workspaceBox = workspace.getBoundingClientRect();
+      const editorBox = editorBody.getBoundingClientRect();
+      const textarea = document.querySelector<HTMLTextAreaElement>("#body");
+      return {
+        workspace: {
+          top: workspaceBox.top,
+          right: workspaceBox.right,
+          bottom: workspaceBox.bottom,
+          left: workspaceBox.left,
+        },
+        editor: {
+          top: editorBox.top,
+          right: editorBox.right,
+          bottom: editorBox.bottom,
+          left: editorBox.left,
+        },
+        selectionStart: textarea?.selectionStart,
+        selectionEnd: textarea?.selectionEnd,
+        scrollTop: textarea?.scrollTop,
+        transitionCalls: window.__viewTransitionCalls,
+      };
+    });
+    expect(expandedBounds.editor).toEqual(expandedBounds.workspace);
+    expect(expandedBounds.selectionStart).toBe(3);
+    expect(expandedBounds.selectionEnd).toBe(8);
+    expect(expandedBounds.scrollTop).toBeGreaterThan(0);
+    expect(expandedBounds.transitionCalls).toBe(1);
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".app")).not.toHaveClass(/editor-expanded/);
+    await expect(page.locator(".sidebar")).toHaveCSS("visibility", "visible");
+    await expect(page.getByRole("button", { name: "Expand editor" })).toBeVisible();
+    await expect(body).toHaveValue(/^Unsaved body/);
+    await expect.poll(() => page.evaluate(() => window.__viewTransitionCalls)).toBe(2);
+  });
+
+  test("expands immediately when the View Transitions API is unavailable", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(document, "startViewTransition", {
+        configurable: true,
+        value: undefined,
+      });
+    });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Expand editor" }).click();
+    await expect(page.locator(".app")).toHaveClass(/editor-expanded/);
+    await expect(page.getByRole("button", { name: "Restore editor" })).toBeVisible();
+  });
+
+  test("uses an immediate mobile expansion when reduced motion is requested", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.addInitScript(() => {
+      window.__viewTransitionCalls = 0;
+      Object.defineProperty(document, "startViewTransition", {
+        configurable: true,
+        value: (update: () => void) => {
+          window.__viewTransitionCalls = (window.__viewTransitionCalls ?? 0) + 1;
+          update();
+          return {};
+        },
+      });
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await page.getByRole("button", { name: /new note/i }).click();
+
+    await page.getByRole("button", { name: "Expand editor" }).click();
+    await expect(page.locator(".app")).toHaveClass(/editor-expanded/);
+    const verticalBounds = await page.evaluate(() => {
+      const header = document.querySelector<HTMLElement>(".editor-header");
+      const editorBody = document.querySelector<HTMLElement>(".editor-body.is-expanded");
+      if (!header || !editorBody) {
+        throw new Error("Expanded mobile editor layout not found");
+      }
+      return {
+        headerBottom: header.getBoundingClientRect().bottom,
+        editorTop: editorBody.getBoundingClientRect().top,
+        editorBottom: editorBody.getBoundingClientRect().bottom,
+        viewportHeight: window.innerHeight,
+        transitionCalls: window.__viewTransitionCalls,
+      };
+    });
+    expect(verticalBounds.editorTop).toBeCloseTo(verticalBounds.headerBottom, 0);
+    expect(verticalBounds.editorBottom).toBeCloseTo(verticalBounds.viewportHeight, 0);
+    expect(verticalBounds.transitionCalls).toBe(0);
+  });
+
+  test("keeps document scrolling locked while Preview owns its overflow", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await createSavedNote(page, "Stable preview", "# Stable preview\n\nShort body");
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(page.locator(".preview-panel .preview-label")).toHaveCount(0);
+    const preview = page.locator(".mdPreview-scroll");
+    await expect(preview).toHaveCSS("overflow-y", "auto");
+    const desktopOverflow = await page.evaluate(() => ({
+      html: getComputedStyle(document.documentElement).overflowY,
+      body: getComputedStyle(document.body).overflowY,
+      root: getComputedStyle(document.querySelector<HTMLElement>("#root")!).overflowY,
+      documentClientHeight: document.documentElement.clientHeight,
+      documentScrollHeight: document.documentElement.scrollHeight,
+    }));
+    expect(desktopOverflow.html).toBe("hidden");
+    expect(desktopOverflow.body).toBe("hidden");
+    expect(desktopOverflow.root).toBe("hidden");
+    expect(desktopOverflow.documentScrollHeight).toBeLessThanOrEqual(
+      desktopOverflow.documentClientHeight
+    );
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileOverflow = await page.evaluate(() => ({
+      html: getComputedStyle(document.documentElement).overflowY,
+      body: getComputedStyle(document.body).overflowY,
+      root: getComputedStyle(document.querySelector<HTMLElement>("#root")!).overflowY,
+    }));
+    expect(mobileOverflow).toEqual({
+      html: "visible",
+      body: "visible",
+      root: "visible",
+    });
   });
 
   test("centers text in every button", async ({ page }) => {
@@ -152,6 +558,47 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     expect(textAlignValues).toEqual(["center"]);
   });
 
+  test("uses the same restrained corner radius for tabs and inputs", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await page.goto("/");
+    await page.getByRole("button", { name: /new note/i }).click();
+
+    await expect(page.getByRole("button", { name: "Edit", exact: true })).toHaveCSS(
+      "border-radius",
+      "8px"
+    );
+    await expect(page.getByRole("button", { name: "Preview" })).toHaveCSS(
+      "border-radius",
+      "8px"
+    );
+    await expect(page.getByRole("button", { name: "Slides" })).toHaveCSS(
+      "border-radius",
+      "8px"
+    );
+    for (const name of ["Edit", "Preview", "Slides"]) {
+      const tab = page.getByRole("button", { name, exact: true });
+      await expect(tab).toHaveCSS("min-width", "80px");
+      await expect(tab).toHaveCSS("justify-content", "center");
+    }
+    const titleLabel = page.locator(".metadata-field .label", {
+      hasText: "Title",
+    });
+    await expect(titleLabel).toHaveCSS("font-size", "13.6px");
+    await expect(titleLabel).toHaveCSS("font-weight", "600");
+    await expect(titleLabel).toHaveCSS("color", "rgb(102, 102, 102)");
+    const labelColumnWidths = await page.evaluate(() => ({
+      metadata: getComputedStyle(
+        document.querySelector<HTMLElement>(".metadata-field")!
+      ).gridTemplateColumns.split(" ")[0],
+      body: getComputedStyle(
+        document.querySelector<HTMLElement>(".body-header")!
+      ).gridTemplateColumns.split(" ")[0],
+    }));
+    expect(labelColumnWidths).toEqual({ metadata: "56px", body: "56px" });
+  });
+
   test("summarizes duplicate and failed import results", async ({ page }) => {
     await mockBackupSavePicker(page);
     await page.goto("/");
@@ -162,14 +609,14 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
       "# Phase 2 import source\n\nImport body"
     );
     await page.getByRole("button", { name: "Notes" }).click();
-    await page.getByRole("button", { name: "Backup All Notes" }).click();
+    await clickAppMenuItem(page, "Backup All Notes");
     await expect(
       page.getByRole("dialog", { name: "Backup Complete" })
     ).toBeVisible();
     const backupText = await page.evaluate(() => window.__backupText ?? "");
     await page.getByRole("button", { name: "Close" }).click();
 
-    await page.setInputFiles("#import-md", {
+    await page.setInputFiles("#import-backup", {
       name: "phase2-backup.json",
       mimeType: "application/json",
       buffer: Buffer.from(backupText),
@@ -183,7 +630,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expectResultValue(duplicateDialog, "Failed", "0");
     await page.getByRole("button", { name: "Close" }).click();
 
-    await page.setInputFiles("#import-md", [
+    await page.setInputFiles("#import-markdown", [
       {
         name: "valid-import.md",
         mimeType: "text/markdown",
@@ -229,7 +676,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
         name: "Mark task incomplete: Verify preview task",
       })
     ).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByText("Status: Unsaved changes")).toBeVisible();
+    await expect(page.getByText("Status: Unsaved")).toBeVisible();
 
     await page.getByRole("button", { name: "Edit" }).click();
     await expect(page.getByLabel("Title")).toHaveValue("Phase 2 task note");
@@ -274,6 +721,15 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     });
     await expect(suggestions).toBeVisible();
     await expect(suggestions.getByRole("option")).toHaveCount(8);
+    const suggestionBox = await suggestions.boundingBox();
+    const tagSuggestBox = await page.locator(".metadata-field .tag-suggest").boundingBox();
+    expect(suggestionBox).not.toBeNull();
+    expect(tagSuggestBox).not.toBeNull();
+    expect(Math.abs(suggestionBox!.x - tagSuggestBox!.x)).toBeLessThanOrEqual(1);
+    expect(suggestionBox!.width).toBeCloseTo(
+      Math.min(360, tagSuggestBox!.width),
+      0
+    );
     await page.locator("#tags-label").click();
     await expect(tagsInput).not.toBeFocused();
     await expect(
@@ -412,6 +868,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await page.keyboard.press("Enter");
     await tagFilterInput.fill("ph");
     await page.keyboard.press("Enter");
+    await page.keyboard.press("Escape");
     await dialog.getByRole("button", { name: "Apply Filters" }).click();
 
     await page.getByRole("button", { name: "Filter (3)" }).click();
@@ -515,14 +972,32 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await bodyLabel.click();
     await expect(page.locator("#body")).not.toBeFocused();
 
-    await expect(toolbar.getByRole("button", { name: "Bold" })).toHaveText("B");
-    await expect(toolbar.getByRole("button", { name: "Italic" })).toHaveText("I");
-    await expect(toolbar.getByRole("button", { name: "Strike" })).toHaveText("S");
-    await expect(toolbar.getByRole("button", { name: "Code" })).toHaveText("<>");
-    await expect(toolbar.getByRole("button", { name: "Bullet" })).toHaveText("-");
-    await expect(toolbar.getByRole("button", { name: "Task" })).toHaveText("[ ]");
-    await expect(toolbar.getByRole("button", { name: "Quote" })).toHaveText(">");
-    await expect(toolbar.getByRole("button", { name: "Link" })).toHaveText("[]");
+    await expect(
+      toolbar.getByRole("button", { name: "Bold" }).locator(".lucide-bold")
+    ).toBeVisible();
+    await expect(
+      toolbar.getByRole("button", { name: "Italic" }).locator(".lucide-italic")
+    ).toBeVisible();
+    await expect(
+      toolbar
+        .getByRole("button", { name: "Strike" })
+        .locator(".lucide-strikethrough")
+    ).toBeVisible();
+    await expect(
+      toolbar.getByRole("button", { name: "Code" }).locator(".lucide-code")
+    ).toBeVisible();
+    await expect(
+      toolbar.getByRole("button", { name: "Bullet" }).locator(".lucide-list")
+    ).toBeVisible();
+    await expect(
+      toolbar.getByRole("button", { name: "Task" }).locator(".lucide-list-todo")
+    ).toBeVisible();
+    await expect(
+      toolbar.getByRole("button", { name: "Quote" }).locator(".lucide-quote")
+    ).toBeVisible();
+    await expect(
+      toolbar.getByRole("button", { name: "Link" }).locator(".lucide-link")
+    ).toBeVisible();
     await expect(toolbar.getByText("Bold", { exact: true })).toHaveCount(0);
     await expect(toolbar.getByText("Italic", { exact: true })).toHaveCount(0);
 
@@ -538,12 +1013,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     const mobileTagsInputBox = await page.locator(".tag-input").boundingBox();
     expect(mobileTitleInputBox).not.toBeNull();
     expect(mobileTagsInputBox).not.toBeNull();
-    expect(Math.abs(mobileToolbarBox!.x - mobileTitleInputBox!.x)).toBeLessThan(
-      2
-    );
-    expect(Math.abs(mobileToolbarBox!.x - mobileTagsInputBox!.x)).toBeLessThan(
-      2
-    );
+    expect(Math.abs(mobileToolbarBox!.x - mobileBodyLabelBox!.x)).toBeLessThan(2);
 
     const toolbarBox = await toolbar.boundingBox();
     expect(toolbarBox).not.toBeNull();
@@ -555,6 +1025,9 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     const buttonCount = await toolbarButtons.count();
     const lastButtonBox = await toolbarButtons.nth(buttonCount - 1).boundingBox();
     expect(lastButtonBox).not.toBeNull();
+    expect(lastButtonBox!.x + lastButtonBox!.width).toBeLessThanOrEqual(
+      toolbarBox!.x + toolbarBox!.width + 1
+    );
     expect(lastButtonBox!.x + lastButtonBox!.width).toBeLessThanOrEqual(
       mobileTagsInputBox!.x + mobileTagsInputBox!.width + 1
     );
@@ -578,18 +1051,22 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
 
     await page.getByLabel("Title").fill("Changed title");
     await page.getByLabel("Body").fill("# Changed title\n\nChanged body");
-    await expect(page.getByText("Status: Unsaved changes")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Revert" })).toBeEnabled();
+    await expect(page.getByText("Status: Unsaved")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Revert changes" })
+    ).toBeEnabled();
 
     page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Revert" }).click();
+    await page.getByRole("button", { name: "Revert changes" }).click();
 
     await expect(page.getByLabel("Title")).toHaveValue("Phase 2 revert note");
     await expect(page.getByLabel("Body")).toHaveValue(
       "# Phase 2 revert note\n\nOriginal body"
     );
     await expect(page.getByText("Status: Saved")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Revert" })).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Revert changes" })
+    ).toBeDisabled();
   });
 
   test("restores a deleted note through Undo", async ({ page }) => {
@@ -601,8 +1078,25 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
       "# Phase 2 undo note\n\nUndo body"
     );
 
-    page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Delete" }).click();
+    await clickNoteAction(page, "Delete");
+    const deleteDialog = page.getByRole("dialog", { name: "Delete note?" });
+    await expect(deleteDialog).toBeVisible();
+    await expect(deleteDialog).toContainText("Phase 2 undo note");
+    await expect(deleteDialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await deleteDialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(deleteDialog).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "More actions" })).toBeFocused();
+    await expect(page.getByLabel("Body")).toHaveValue(
+      "# Phase 2 undo note\n\nUndo body"
+    );
+
+    await clickNoteAction(page, "Delete");
+    await deleteDialog.press("Escape");
+    await expect(deleteDialog).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "More actions" })).toBeFocused();
+
+    await clickNoteAction(page, "Delete");
+    await deleteDialog.getByRole("button", { name: "Delete Note" }).click();
 
     await expect(page.getByText("Note deleted")).toBeVisible();
     await page.getByRole("button", { name: "Undo" }).click();

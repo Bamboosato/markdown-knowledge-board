@@ -12,6 +12,34 @@ test.describe("Phase 1 mobile workflow", () => {
     ).toBeVisible();
     await expect(page.getByText("Status: Draft")).toBeVisible();
 
+    const [statusBox, saveBox] = await Promise.all([
+      page.getByLabel("Editor status").boundingBox(),
+      page.getByRole("button", { name: /^Save$/ }).boundingBox(),
+    ]);
+    expect(statusBox).not.toBeNull();
+    expect(saveBox).not.toBeNull();
+    const statusCenterY = statusBox!.y + statusBox!.height / 2;
+    const saveCenterY = saveBox!.y + saveBox!.height / 2;
+    expect(Math.abs(statusCenterY - saveCenterY)).toBeLessThanOrEqual(1);
+    expect(saveBox!.width).toBeLessThan(140);
+    const headerBounds = await page.evaluate(() => {
+      const header = document.querySelector<HTMLElement>(".editor-header")!;
+      const titleRow = document.querySelector<HTMLElement>(".editor-title-row")!;
+      const actions = document.querySelector<HTMLElement>(".editor-actions")!;
+      const headerBox = header.getBoundingClientRect();
+      return [titleRow, actions].map((element) => {
+        const box = element.getBoundingClientRect();
+        return {
+          leftOverflow: headerBox.left - box.left,
+          rightOverflow: box.right - headerBox.right,
+        };
+      });
+    });
+    for (const bounds of headerBounds) {
+      expect(bounds.leftOverflow).toBeLessThanOrEqual(0);
+      expect(bounds.rightOverflow).toBeLessThanOrEqual(0);
+    }
+
     await page.getByLabel("Title").fill("Phase 1 mobile note");
     await page
       .getByLabel("Body")

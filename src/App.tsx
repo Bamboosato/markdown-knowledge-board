@@ -2,7 +2,28 @@
 import ReactMarkdown from "react-markdown";
 import { isValidElement } from "react";
 import type { FocusEvent, KeyboardEvent, MouseEvent } from "react";
+import { flushSync } from "react-dom";
 import remarkGfm from "remark-gfm";
+import {
+  Archive,
+  Bold,
+  Code,
+  Download,
+  FileDown,
+  Italic,
+  Link,
+  List,
+  ListTodo,
+  Maximize2,
+  Menu,
+  Minimize2,
+  MoreHorizontal,
+  Quote,
+  RotateCcw,
+  Strikethrough,
+  Trash2,
+  Upload,
+} from "lucide-react";
 
 import "./App.css";
 import { MarpSlides } from "./components/MarpSlides";
@@ -58,6 +79,10 @@ type PendingDeleteState = {
   restoreIndex: number;
   wasSelected: boolean;
   wasDraft: boolean;
+};
+
+type DeleteConfirmationState = {
+  note: Note;
 };
 
 type FilterConditions = {
@@ -369,33 +394,20 @@ function areNotesEquivalent(left: Note, right: Note): boolean {
   );
 }
 
-function createBackupMessage(lastBackupAt: string | null, now: number): string | null {
-  if (!lastBackupAt) {
-    return "None";
-  }
-
-  const lastDate = new Date(lastBackupAt);
-  if (Number.isNaN(lastDate.getTime())) {
-    return null;
-  }
-
-  const diffMs = now - lastDate.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays < 7) {
-    return null;
-  }
-
-  return `${diffDays} days ago (${lastDate.toLocaleString()})`;
-}
-
-function getInitialBackupMessage(): string | null {
+function getInitialLastBackupAt(): string | null {
   if (typeof localStorage === "undefined") {
     return null;
   }
-  return createBackupMessage(
-    localStorage.getItem("lastBackupAt"),
-    getCurrentTimestamp()
-  );
+  const stored = localStorage.getItem("lastBackupAt");
+  return stored && !Number.isNaN(new Date(stored).getTime()) ? stored : null;
+}
+
+function formatBackupTimestamp(value: string): string {
+  const date = new Date(value);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(
+    date.getDate()
+  )} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function App() {
@@ -429,6 +441,7 @@ function App() {
     null
   );
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const [isEditorExpanded, setIsEditorExpanded] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [tagFilter, setTagFilter] = useState("");
@@ -442,16 +455,26 @@ function App() {
   const filterSearchInputRef = useRef<HTMLInputElement | null>(null);
   const tagFilterInputRef = useRef<HTMLInputElement | null>(null);
   const tagFilterSuggestRef = useRef<HTMLDivElement | null>(null);
-  const [backupMessage, setBackupMessage] = useState<string | null>(
-    getInitialBackupMessage
+  const [lastBackupAt, setLastBackupAt] = useState<string | null>(
+    getInitialLastBackupAt
   );
   const [operationDialog, setOperationDialog] =
     useState<OperationDialogState | null>(null);
   const [isBackupBusy, setIsBackupBusy] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isAppMenuOpen, setIsAppMenuOpen] = useState(false);
+  const appMenuRef = useRef<HTMLDivElement | null>(null);
+  const appMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
+  const actionsMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const markdownImportInputRef = useRef<HTMLInputElement | null>(null);
+  const backupImportInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDeleteState | null>(
     null
   );
+  const [deleteConfirmation, setDeleteConfirmation] =
+    useState<DeleteConfirmationState | null>(null);
   const pendingDeleteRef = useRef<PendingDeleteState | null>(null);
   const deleteUndoTimerRef = useRef<number | null>(null);
   const [initialDraft, setInitialDraft] = useState<Note | null>(null);
@@ -466,6 +489,93 @@ function App() {
     () => new Set(getTaskLineIndexes(draftBody)),
     [draftBody]
   );
+
+  useEffect(() => {
+    if (!isAppMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !appMenuRef.current?.contains(target)) {
+        setIsAppMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setIsAppMenuOpen(false);
+        appMenuButtonRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isAppMenuOpen]);
+
+  useEffect(() => {
+    if (!isActionsMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !actionsMenuRef.current?.contains(target)) {
+        setIsActionsMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setIsActionsMenuOpen(false);
+        actionsMenuButtonRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isActionsMenuOpen]);
+
+  const updateEditorExpanded = (expanded: boolean) => {
+    const applyUpdate = () => {
+      flushSync(() => setIsEditorExpanded(expanded));
+    };
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+
+    if (!document.startViewTransition || prefersReducedMotion) {
+      applyUpdate();
+      return;
+    }
+
+    document.startViewTransition(applyUpdate);
+  };
+
+  useEffect(() => {
+    if (!isEditorExpanded) {
+      return;
+    }
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) {
+        return;
+      }
+      event.preventDefault();
+      updateEditorExpanded(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isEditorExpanded]);
 
   useEffect(() => {
     let active = true;
@@ -813,7 +923,11 @@ function App() {
       return;
     }
 
-    const canContinue = await confirmUnsavedTransition("import Markdown files");
+    const importTarget =
+      input.dataset.importKind === "backup"
+        ? "import a backup"
+        : "import Markdown files";
+    const canContinue = await confirmUnsavedTransition(importTarget);
     if (!canContinue) {
       input.value = "";
       return;
@@ -1354,18 +1468,18 @@ function App() {
     resetDraft();
   };
 
-  const statusText =
+  const editorStatus =
     saveStatus === "saving"
-      ? "Status: Saving"
+      ? { label: "Saving", tone: "saving" }
       : saveStatus === "error"
-      ? "Status: Save failed"
+      ? { label: "Save failed", tone: "error" }
       : isDraftNote
-      ? "Status: Draft"
+      ? { label: "Draft", tone: "draft" }
       : isDirty
-      ? "Status: Unsaved changes"
+      ? { label: "Unsaved", tone: "unsaved" }
       : selectedId
-      ? "Status: Saved"
-      : "Status: No note";
+      ? { label: "Saved", tone: "saved" }
+      : { label: "No note", tone: "neutral" };
 
   const activeFilterCount =
     (searchQuery.trim().length > 0 ? 1 : 0) + activeTagFilterValues.length;
@@ -1439,7 +1553,7 @@ function App() {
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     const targetNote =
       selectedNote && !isDirtyRef.current && tagInput.trim().length === 0
         ? selectedNote
@@ -1451,12 +1565,21 @@ function App() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Delete "${targetNote.title || "Untitled"}"?`
-    );
-    if (!confirmed) {
+    setDeleteConfirmation({ note: targetNote });
+  };
+
+  const closeDeleteConfirmation = () => {
+    setDeleteConfirmation(null);
+    window.requestAnimationFrame(() => actionsMenuButtonRef.current?.focus());
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmation) {
       return;
     }
+
+    const targetNote = deleteConfirmation.note;
+    setDeleteConfirmation(null);
 
     await finalizePendingDelete();
 
@@ -1526,7 +1649,7 @@ function App() {
         return;
       }
       localStorage.setItem("lastBackupAt", nowIso);
-      setBackupMessage(null);
+      setLastBackupAt(nowIso);
       setOperationDialog({
         kind: "backup",
         status,
@@ -1542,9 +1665,171 @@ function App() {
   };
 
   return (
-    <div className={`app mobile-${mobileView}`}>
+    <div
+      className={`app mobile-${mobileView}${
+        isEditorExpanded ? " editor-expanded" : ""
+      }`}
+    >
+      <header className="editor-header">
+        <div className="editor-title-row">
+          <div className="app-menu" ref={appMenuRef}>
+            <button
+              ref={appMenuButtonRef}
+              className="app-menu-button"
+              type="button"
+              aria-label="Open application menu"
+              aria-haspopup="menu"
+              aria-expanded={isAppMenuOpen}
+              aria-controls="application-menu"
+              onClick={() => setIsAppMenuOpen((open) => !open)}
+            >
+              <Menu aria-hidden="true" />
+            </button>
+            {isAppMenuOpen ? (
+              <div
+                id="application-menu"
+                className="app-menu-popover"
+                role="menu"
+                aria-label="Application menu"
+              >
+                <button
+                  className="app-menu-item"
+                  type="button"
+                  role="menuitem"
+                  disabled={isBackupBusy}
+                  onClick={() => {
+                    setIsAppMenuOpen(false);
+                    void handleBackupAll();
+                  }}
+                >
+                  <Archive aria-hidden="true" />
+                  <span className="app-menu-item-content">
+                    <span>{isBackupBusy ? "Creating Backup" : "Backup All Notes"}</span>
+                    <span className="backup-last-label">Last backup</span>
+                    <span className="backup-last-value">
+                      {lastBackupAt
+                        ? formatBackupTimestamp(lastBackupAt)
+                        : "No backups yet"}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  className="app-menu-item"
+                  type="button"
+                  role="menuitem"
+                  disabled={isImporting}
+                  onClick={() => {
+                    setIsAppMenuOpen(false);
+                    backupImportInputRef.current?.click();
+                  }}
+                >
+                  <Upload aria-hidden="true" />
+                  {isImporting ? "Importing" : "Import Backup"}
+                </button>
+              </div>
+            ) : null}
+            <input
+              id="import-backup"
+              ref={backupImportInputRef}
+              className="file-input"
+              type="file"
+              accept=".json,application/json"
+              data-import-kind="backup"
+              multiple
+              disabled={isImporting}
+              onChange={handleImport}
+            />
+          </div>
+          <button
+            className="mobile-back-button secondary-button"
+            type="button"
+            onClick={handleShowNotes}
+          >
+            Notes
+          </button>
+          <h1 className="app-title">Markdown Knowledge Board</h1>
+        </div>
+        <div className="editor-actions">
+          <div className="editor-status" aria-label="Editor status" aria-live="polite">
+            <span className={`status-indicator status-${editorStatus.tone}`}>
+              <span className="sr-only">Status: </span>
+              <span className="status-dot" aria-hidden="true" />
+              <span>{editorStatus.label}</span>
+            </span>
+          </div>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={handleSave}
+            disabled={saveStatus === "saving"}
+          >
+            {saveStatus === "saving" ? "Saving" : "Save"}
+          </button>
+          <button
+            className="secondary-button icon-action-button tooltip-button"
+            type="button"
+            aria-label="Revert changes"
+            data-tooltip="Revert changes"
+            onClick={handleRevertDraft}
+            disabled={!canRevertDraft}
+          >
+            <RotateCcw aria-hidden="true" />
+          </button>
+          <div className="actions-menu" ref={actionsMenuRef}>
+            <button
+              ref={actionsMenuButtonRef}
+              className="secondary-button icon-action-button tooltip-button"
+              type="button"
+              aria-label="More actions"
+              data-tooltip="More actions"
+              aria-haspopup="menu"
+              aria-expanded={isActionsMenuOpen}
+              aria-controls="note-actions-menu"
+              disabled={!selectedNote && !isDraftNote}
+              onClick={() => setIsActionsMenuOpen((open) => !open)}
+            >
+              <MoreHorizontal aria-hidden="true" />
+            </button>
+            {isActionsMenuOpen ? (
+              <div
+                id="note-actions-menu"
+                className="actions-menu-popover"
+                role="menu"
+                aria-label="More actions"
+              >
+                <button
+                  className="actions-menu-item"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsActionsMenuOpen(false);
+                    handleExport();
+                  }}
+                >
+                  <Download aria-hidden="true" />
+                  Export
+                </button>
+                <div className="actions-menu-separator" role="separator" />
+                <button
+                  className="actions-menu-item actions-menu-item-danger"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsActionsMenuOpen(false);
+                    handleDelete();
+                  }}
+                >
+                  <Trash2 aria-hidden="true" />
+                  Delete
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </header>
+      <div className="app-workspace">
       <aside className="sidebar">
-        <div className="sidebar-section">
+        <div className="sidebar-primary-actions">
           <button
             className="new-note-button"
             type="button"
@@ -1552,31 +1837,23 @@ function App() {
           >
             + New Note
           </button>
-        </div>
-        <div className="sidebar-section">
           <button
-            className="backup-button"
+            className="markdown-import-button tooltip-button"
             type="button"
-            onClick={handleBackupAll}
-            disabled={isBackupBusy}
+            aria-label="Import Markdown"
+            data-tooltip="Import Markdown"
+            disabled={isImporting}
+            onClick={() => markdownImportInputRef.current?.click()}
           >
-            {isBackupBusy ? "Creating Backup" : "Backup All Notes"}
+            <FileDown aria-hidden="true" />
           </button>
-        </div>
-        <div className="sidebar-section">
-          <div className="section-title">Import</div>
-          <label
-            className={`import-button${isImporting ? " disabled" : ""}`}
-            htmlFor="import-md"
-            aria-disabled={isImporting}
-          >
-            {isImporting ? "Importing" : "Import Markdown / Backup"}
-          </label>
           <input
-            id="import-md"
+            id="import-markdown"
+            ref={markdownImportInputRef}
             className="file-input"
             type="file"
-            accept=".md,.json,text/markdown,application/json"
+            accept=".md,text/markdown"
+            data-import-kind="markdown"
             multiple
             disabled={isImporting}
             onChange={handleImport}
@@ -1654,68 +1931,6 @@ function App() {
         </div>
       </aside>
       <main className="editor">
-        <div className="editor-header">
-          <div className="editor-title-row">
-            <button
-              className="mobile-back-button secondary-button"
-              type="button"
-              onClick={handleShowNotes}
-            >
-              Notes
-            </button>
-            <h1 className="app-title">Markdown Knowledge Board</h1>
-          </div>
-          <div className="editor-actions">
-            <div className="editor-status" aria-label="Editor status">
-              <span>{statusText}</span>
-              {backupMessage ? (
-                <>
-                  <span className="status-separator" aria-hidden="true">
-                    |
-                  </span>
-                  <span>
-                    Backup:{" "}
-                    {backupMessage === "No backup has been created yet."
-                      ? "None"
-                      : backupMessage}
-                  </span>
-                </>
-              ) : null}
-            </div>
-            <button
-              className="primary-button"
-              type="button"
-              onClick={handleSave}
-              disabled={saveStatus === "saving"}
-            >
-              {saveStatus === "saving" ? "Saving" : "Save"}
-            </button>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={handleRevertDraft}
-              disabled={!canRevertDraft}
-            >
-              Revert
-            </button>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={handleExport}
-              disabled={!selectedNote && !isDraftNote}
-            >
-              Export
-            </button>
-            <button
-              className="danger-button"
-              type="button"
-              onClick={handleDelete}
-              disabled={!selectedNote && !isDraftNote}
-            >
-              Delete
-            </button>
-          </div>
-        </div>
         {lastSaveError ? (
           <div className="db-error save-error-panel">
             <div>
@@ -1768,6 +1983,69 @@ function App() {
           >
             Slides
           </button>
+          {activeTab === "slides" ? (
+            <div className="marp-settings tab-marp-settings" aria-label="Slides settings">
+              <label className="marp-toggle">
+                <input
+                  type="checkbox"
+                  checked={draftMarpEnabled}
+                  onChange={(event) => {
+                    setDraftMarpEnabled(event.target.checked);
+                    markDirty();
+                  }}
+                />
+                <span>Marp</span>
+              </label>
+              <label className="marp-setting">
+                <span>Size</span>
+                <select
+                  className="select"
+                  value={draftMarpSize}
+                  disabled={!draftMarpEnabled}
+                  onChange={(event) => {
+                    setDraftMarpSize(event.target.value as MarpSize);
+                    markDirty();
+                  }}
+                >
+                  {MARP_SIZES.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="marp-setting">
+                <span>Theme</span>
+                <select
+                  className="select"
+                  value={draftMarpTheme}
+                  disabled={!draftMarpEnabled}
+                  onChange={(event) => {
+                    setDraftMarpTheme(event.target.value as MarpTheme);
+                    markDirty();
+                  }}
+                >
+                  {MARP_THEMES.map((theme) => (
+                    <option key={theme} value={theme}>
+                      {theme}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="marp-toggle">
+                <input
+                  type="checkbox"
+                  checked={draftMarpPaginate}
+                  disabled={!draftMarpEnabled}
+                  onChange={(event) => {
+                    setDraftMarpPaginate(event.target.checked);
+                    markDirty();
+                  }}
+                />
+                <span>Page numbers</span>
+              </label>
+            </div>
+          ) : null}
         </div>
         {activeTab === "edit" ? (
           <>
@@ -1866,79 +2144,14 @@ function App() {
                 ) : null}
               </div>
             </div>
-            <div className="editor-section metadata-field slides-settings-field">
-              <div className="label" id="slides-settings-label">
-                Slides
-              </div>
-              <div
-                className="marp-settings"
-                aria-labelledby="slides-settings-label"
-              >
-                <label className="marp-toggle">
-                  <input
-                    type="checkbox"
-                    checked={draftMarpEnabled}
-                    onChange={(event) => {
-                      setDraftMarpEnabled(event.target.checked);
-                      markDirty();
-                    }}
-                  />
-                  <span>Marp</span>
-                </label>
-                <label className="marp-setting">
-                  <span>Size</span>
-                  <select
-                    className="select"
-                    value={draftMarpSize}
-                    disabled={!draftMarpEnabled}
-                    onChange={(event) => {
-                      setDraftMarpSize(event.target.value as MarpSize);
-                      markDirty();
-                    }}
-                  >
-                    {MARP_SIZES.map((size) => (
-                      <option key={size} value={size}>
-                        {size}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="marp-setting">
-                  <span>Theme</span>
-                  <select
-                    className="select"
-                    value={draftMarpTheme}
-                    disabled={!draftMarpEnabled}
-                    onChange={(event) => {
-                      setDraftMarpTheme(event.target.value as MarpTheme);
-                      markDirty();
-                    }}
-                  >
-                    {MARP_THEMES.map((theme) => (
-                      <option key={theme} value={theme}>
-                        {theme}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="marp-toggle">
-                  <input
-                    type="checkbox"
-                    checked={draftMarpPaginate}
-                    disabled={!draftMarpEnabled}
-                    onChange={(event) => {
-                      setDraftMarpPaginate(event.target.checked);
-                      markDirty();
-                    }}
-                  />
-                  <span>Page numbers</span>
-                </label>
-              </div>
-            </div>
           </>
         ) : null}
         {activeTab === "edit" ? (
-          <div className="editor-section editor-body">
+          <div
+            className={`editor-section editor-body${
+              isEditorExpanded ? " is-expanded" : ""
+            }`}
+          >
             <div className="body-header">
               <div className="label" id="body-label">
                 Body
@@ -1952,7 +2165,7 @@ function App() {
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => handleWrap("**", "**", "bold")}
                 >
-                  B
+                  <Bold aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -1962,7 +2175,7 @@ function App() {
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => handleWrap("*", "*", "italic")}
                 >
-                  I
+                  <Italic aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -1972,7 +2185,7 @@ function App() {
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => handleWrap("~~", "~~", "strike")}
                 >
-                  S
+                  <Strikethrough aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -1982,7 +2195,7 @@ function App() {
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => handleWrap("`", "`", "code")}
                 >
-                  {"<>"}
+                  <Code aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -2012,7 +2225,7 @@ function App() {
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => handleToggleLine("- ")}
                 >
-                  -
+                  <List aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -2022,7 +2235,7 @@ function App() {
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => handleToggleLine("- [ ] ")}
                 >
-                  {"[ ]"}
+                  <ListTodo aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -2032,7 +2245,7 @@ function App() {
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => handleToggleLine("> ")}
                 >
-                  {">"}
+                  <Quote aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -2042,9 +2255,27 @@ function App() {
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={handleInsertLink}
                 >
-                  {"[]"}
+                  <Link aria-hidden="true" />
                 </button>
               </div>
+              <button
+                type="button"
+                className="editor-expand-button tooltip-button"
+                aria-label={
+                  isEditorExpanded ? "Restore editor" : "Expand editor"
+                }
+                aria-pressed={isEditorExpanded}
+                data-tooltip={
+                  isEditorExpanded ? "Restore editor" : "Expand editor"
+                }
+                onClick={() => updateEditorExpanded(!isEditorExpanded)}
+              >
+                {isEditorExpanded ? (
+                  <Minimize2 aria-hidden="true" />
+                ) : (
+                  <Maximize2 aria-hidden="true" />
+                )}
+              </button>
             </div>
             <textarea
               id="body"
@@ -2062,7 +2293,6 @@ function App() {
           </div>
         ) : activeTab === "preview" ? (
           <div className="preview-panel editor-body">
-            <div className="preview-label">Preview</div>
             {draftBody.trim().length === 0 ? (
               <div className="preview-empty">Nothing to preview.</div>
             ) : (
@@ -2158,6 +2388,7 @@ function App() {
           />
         )}
       </main>
+      </div>
       {isFilterDialogOpen ? (
         <div
           className="modal-backdrop"
@@ -2426,6 +2657,53 @@ function App() {
                 onClick={() => setOperationDialog(null)}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {deleteConfirmation ? (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeDeleteConfirmation();
+            }
+          }}
+        >
+          <div
+            className="delete-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-dialog-title"
+            aria-describedby="delete-dialog-description"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                closeDeleteConfirmation();
+              }
+            }}
+          >
+            <h2 id="delete-dialog-title">Delete note?</h2>
+            <p id="delete-dialog-description">
+              “{deleteConfirmation.note.title || "Untitled"}” will be deleted.
+              You can undo this action for a short time.
+            </p>
+            <div className="dialog-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                autoFocus
+                onClick={closeDeleteConfirmation}
+              >
+                Cancel
+              </button>
+              <button
+                className="danger-button"
+                type="button"
+                onClick={() => void confirmDelete()}
+              >
+                Delete Note
               </button>
             </div>
           </div>

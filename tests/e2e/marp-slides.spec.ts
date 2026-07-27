@@ -36,19 +36,41 @@ test.describe("A2 Marp slides", () => {
       ].join("\n")
     );
 
+    await expect(page.getByLabel("Slides settings")).toHaveCount(0);
+    const bodyValue = await page.getByLabel("Body").inputValue();
+    expect(bodyValue).not.toContain("marp: true");
+    expect(bodyValue).not.toContain("theme: gaia");
+
+    await page.getByRole("button", { name: "Preview" }).click();
+    const previewPanelBox = await page.locator(".preview-panel").boundingBox();
+    expect(previewPanelBox).not.toBeNull();
+
+    const slidesButton = page.getByRole("button", { name: "Slides" });
+    await slidesButton.click();
+    const slidesPanelBox = await page.locator(".slides-shell").boundingBox();
+    expect(slidesPanelBox).not.toBeNull();
+    expect(slidesPanelBox!.y).toBeCloseTo(previewPanelBox!.y, 0);
+    const slidesSettings = page.getByLabel("Slides settings");
+    await expect(slidesSettings).toBeVisible();
+    const [buttonBox, settingsBox] = await Promise.all([
+      slidesButton.boundingBox(),
+      slidesSettings.boundingBox(),
+    ]);
+    expect(buttonBox).not.toBeNull();
+    expect(settingsBox).not.toBeNull();
+    expect(
+      settingsBox!.x - (buttonBox!.x + buttonBox!.width)
+    ).toBeGreaterThanOrEqual(16);
+
     await page.getByLabel("Marp").check();
     await page.getByLabel("Size").selectOption("4:3");
     await page.getByLabel("Theme").selectOption("gaia");
     await page.getByLabel("Page numbers").uncheck();
 
-    const bodyValue = await page.getByLabel("Body").inputValue();
-    expect(bodyValue).not.toContain("marp: true");
-    expect(bodyValue).not.toContain("theme: gaia");
-
     await page.getByRole("button", { name: /^Save$/ }).click();
     await expect(page.getByText("Status: Saved")).toBeVisible();
 
-    await page.getByRole("button", { name: "Slides" }).click();
+    await expect(page.locator(".slides-toolbar .preview-label")).toHaveCount(0);
 
     await expect(page.getByText("1 / 2")).toBeVisible({ timeout: 15_000 });
     const slideViewportBox = await page.locator(".slides-viewport").boundingBox();
@@ -112,7 +134,8 @@ test.describe("A2 Marp slides", () => {
 
     await page.getByRole("button", { name: "Edit" }).click();
     const downloadPromise = page.waitForEvent("download");
-    await page.getByRole("button", { name: "Export" }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Export" }).click();
     const download = await downloadPromise;
     const path = await download.path();
     expect(path).toBeTruthy();
@@ -139,7 +162,7 @@ test.describe("A2 Marp slides", () => {
     await expect(
       page.getByText("Slides unavailable for this note.")
     ).toBeVisible();
-    await expect(page.getByText("Turn on Marp in Edit to use Slides.")).toBeVisible();
+    await expect(page.getByText("Turn on Marp in the Slides settings above.")).toBeVisible();
     await expect(page.getByText("Status: Saved")).toBeVisible();
   });
 
@@ -167,12 +190,12 @@ test.describe("A2 Marp slides", () => {
       ].join("\n")
     );
 
+    await page.getByRole("button", { name: "Slides" }).click();
     await page.getByLabel("Marp").check();
     await page.getByLabel("Size").selectOption("4:3");
     await page.getByLabel("Theme").selectOption("gaia");
     await page.getByLabel("Page numbers").uncheck();
 
-    await page.getByRole("button", { name: "Slides" }).click();
     await expect(page.getByText("1 / 2")).toBeVisible({ timeout: 15_000 });
 
     const firstSlideState = await page
