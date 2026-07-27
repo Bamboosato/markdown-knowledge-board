@@ -599,6 +599,32 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     expect(labelColumnWidths).toEqual({ metadata: "56px", body: "56px" });
   });
 
+  test("uses shared size tiers for primary, compact, and editor controls", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await page.goto("/");
+
+    const newNote = page.getByRole("button", { name: /new note/i });
+    const importMarkdown = page.getByRole("button", { name: "Import Markdown" });
+    await expect(newNote).toHaveCSS("height", "40px");
+    await expect(importMarkdown).toHaveCSS("height", "40px");
+    await expect(importMarkdown.locator("svg")).toHaveCSS("width", "18px");
+
+    await newNote.click();
+    for (const name of ["Edit", "Preview", "Slides"]) {
+      await expect(
+        page.getByRole("button", { name, exact: true })
+      ).toHaveCSS("height", "40px");
+    }
+    const moreActions = page.getByRole("button", { name: "More actions" });
+    await expect(moreActions).toHaveCSS("height", "36px");
+    await expect(moreActions.locator("svg")).toHaveCSS("width", "18px");
+    const bold = page.getByRole("button", { name: "Bold" });
+    await expect(bold).toHaveCSS("height", "30px");
+    await expect(bold.locator("svg")).toHaveCSS("width", "15px");
+  });
+
   test("summarizes duplicate and failed import results", async ({ page }) => {
     await mockBackupSavePicker(page);
     await page.goto("/");
