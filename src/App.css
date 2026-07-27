@@ -1,4 +1,10 @@
 ﻿.app {
+  --control-standard-height: 40px;
+  --control-compact-height: 36px;
+  --control-editor-height: 30px;
+  --control-radius: 8px;
+  --icon-standard-size: 18px;
+  --icon-editor-size: 15px;
   --icon-button-border: #b8b8b8;
   --icon-button-foreground: #3f3f3f;
   --icon-button-disabled-background: #f7f7f7;
@@ -51,11 +57,12 @@
 }
 
 .new-note-button {
-  border-radius: 10px;
+  height: var(--control-standard-height);
+  border-radius: var(--control-radius);
   border: 1px solid #1d1d1d;
   background: #1d1d1d;
   color: #ffffff;
-  padding: 10px 12px;
+  padding: 0 12px;
   font-size: 0.95rem;
   font-weight: 700;
   cursor: pointer;
@@ -82,11 +89,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 42px;
-  width: 42px;
-  min-height: 42px;
+  flex: 0 0 var(--control-standard-height);
+  width: var(--control-standard-height);
+  height: var(--control-standard-height);
   border: 1px solid var(--icon-button-border);
-  border-radius: 10px;
+  border-radius: var(--control-radius);
   background: #ffffff;
   color: var(--icon-button-foreground);
   cursor: pointer;
@@ -103,8 +110,8 @@
 }
 
 .markdown-import-button svg {
-  width: 20px;
-  height: 20px;
+  width: var(--icon-standard-size);
+  height: var(--icon-standard-size);
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -250,8 +257,8 @@
   align-items: center;
   justify-content: center;
   min-width: 80px;
-  min-height: 2.25rem;
-  border-radius: 8px;
+  height: var(--control-standard-height);
+  border-radius: var(--control-radius);
   border: 1px solid #c7c7c7;
   background: #ffffff;
   padding: 6px 14px;
@@ -772,11 +779,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: var(--control-compact-height);
+  height: var(--control-compact-height);
   padding: 0;
   border: 1px solid var(--icon-button-border);
-  border-radius: 8px;
+  border-radius: var(--control-radius);
   background: #ffffff;
   color: var(--icon-button-foreground);
   cursor: pointer;
@@ -789,8 +796,8 @@
 }
 
 .app-menu-button svg {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-standard-size);
+  height: var(--icon-standard-size);
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -862,9 +869,9 @@
 .icon-action-button {
   position: relative;
   display: inline-flex;
-  width: 36px;
-  min-width: 36px;
-  height: 36px;
+  width: var(--control-compact-height);
+  min-width: var(--control-compact-height);
+  height: var(--control-compact-height);
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -874,8 +881,10 @@
 }
 
 .icon-action-button svg {
-  width: 18px;
-  height: 18px;
+  flex: 0 0 var(--icon-standard-size);
+  width: var(--icon-standard-size);
+  min-width: var(--icon-standard-size);
+  height: var(--icon-standard-size);
   stroke-width: 2;
 }
 
@@ -1048,6 +1057,7 @@
 .editor-header .secondary-button,
 .editor-header .danger-button {
   flex: 0 0 auto;
+  min-height: var(--control-compact-height);
   padding: 6px 12px;
   font-size: 0.85rem;
 }
@@ -1271,9 +1281,9 @@
   position: relative;
   display: inline-flex;
   grid-column: 3;
-  width: 1.85rem;
-  min-width: 1.85rem;
-  height: 1.85rem;
+  width: var(--control-editor-height);
+  min-width: var(--control-editor-height);
+  height: var(--control-editor-height);
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -1291,8 +1301,8 @@
 }
 
 .editor-expand-button svg {
-  width: 15px;
-  height: 15px;
+  width: var(--icon-editor-size);
+  height: var(--icon-editor-size);
   stroke-width: 2;
 }
 
@@ -1322,12 +1332,12 @@
 
 .md-button {
   display: inline-flex;
-  flex: 0 0 1.85rem;
+  flex: 0 0 var(--control-editor-height);
   align-items: center;
   justify-content: center;
-  width: 1.85rem;
-  min-width: 1.85rem;
-  height: 1.85rem;
+  width: var(--control-editor-height);
+  min-width: var(--control-editor-height);
+  height: var(--control-editor-height);
   border: 1px solid var(--icon-button-border);
   background: #ffffff;
   border-radius: 6px;
@@ -1363,8 +1373,8 @@
 }
 
 .md-button svg {
-  width: 15px;
-  height: 15px;
+  width: var(--icon-editor-size);
+  height: var(--icon-editor-size);
   stroke-width: 2;
 }
 
