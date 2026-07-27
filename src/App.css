@@ -1404,6 +1404,29 @@
   display: none;
 }
 
+.editor-body.is-drag-active {
+  position: relative;
+  outline: 3px solid #4f8cff;
+  outline-offset: -3px;
+}
+
+.editor-body.is-drag-active::after {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(239, 246, 255, 0.94);
+  color: #174ea6;
+  content: "Drop Markdown or text files to import";
+  font-size: 1rem;
+  font-weight: 700;
+  pointer-events: none;
+  text-align: center;
+}
+
 .tab-marp-settings {
   margin-left: 8px;
 }

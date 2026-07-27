@@ -2,7 +2,7 @@
 import ReactMarkdown from "react-markdown";
 import { useLayoutEffect } from "react";
 import { isValidElement } from "react";
-import type { FocusEvent, KeyboardEvent, MouseEvent } from "react";
+import type { DragEvent, FocusEvent, KeyboardEvent, MouseEvent } from "react";
 import { flushSync } from "react-dom";
 import remarkGfm from "remark-gfm";
 import {
@@ -151,7 +151,7 @@ function extractTitle(content: string, fallback: string): string {
 }
 
 function filenameToTitle(name: string): string {
-  return name.replace(/\.md$/i, "").trim();
+  return name.replace(/\.(?:md|markdown|txt)$/i, "").trim();
 }
 
 function createId(): string {
@@ -293,7 +293,8 @@ function createBackupDocument(notes: Note[], createdAt: string): BackupDocument 
 function createNoteFromMarkdown(
   content: string,
   fileName: string,
-  overrides?: Partial<Pick<Note, "id" | "title" | "tags" | "updatedAt">>
+  overrides?: Partial<Pick<Note, "id" | "title" | "tags" | "updatedAt">>,
+  preferFileNameTitle = false
 ): Note {
   if (content.trim().length === 0) {
     throw new Error("File is empty.");
@@ -305,7 +306,7 @@ function createNoteFromMarkdown(
   const title =
     overrides?.title ??
     parsed.title ??
-    extractTitle(body, fallbackTitle);
+    (preferFileNameTitle ? fallbackTitle : extractTitle(body, fallbackTitle));
 
   return {
     id: overrides?.id ?? parsed.id ?? createId(),
@@ -358,14 +359,21 @@ function parseBackupNotes(content: string, fileName: string): Note[] {
   });
 }
 
-function parseImportFileContent(content: string, fileName: string): Note[] {
-  if (/\.json$/i.test(fileName)) {
+function parseImportFileContent(
+  content: string,
+  fileName: string,
+  importKind: "markdown" | "backup"
+): Note[] {
+  if (importKind === "backup") {
+    if (!/\.json$/i.test(fileName)) {
+      throw new Error("Only .json backup files can be imported here.");
+    }
     return parseBackupNotes(content, fileName);
   }
-  if (!/\.md$/i.test(fileName)) {
-    throw new Error("Only .md Markdown files and .json backups can be imported.");
+  if (!/\.(?:md|markdown|txt)$/i.test(fileName)) {
+    throw new Error("Only .md, .markdown, and .txt files can be imported here.");
   }
-  return [createNoteFromMarkdown(content, fileName)];
+  return [createNoteFromMarkdown(content, fileName, undefined, true)];
 }
 
 function getTaskLabelText(lineText: string): string {
@@ -495,6 +503,8 @@ function App() {
   const marpSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const markdownImportInputRef = useRef<HTMLInputElement | null>(null);
   const backupImportInputRef = useRef<HTMLInputElement | null>(null);
+  const bodyDragDepthRef = useRef(0);
+  const [isBodyDragActive, setIsBodyDragActive] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<PendingDeleteState | null>(
     null
   );
@@ -1019,22 +1029,20 @@ function App() {
     applyEdit(result.value, result.selectionStart, result.selectionEnd);
   };
 
-  const handleImport = async (
-    event: React.ChangeEvent<HTMLInputElement>
+  const importFiles = async (
+    files: File[],
+    importKind: "markdown" | "backup"
   ) => {
-    const input = event.currentTarget;
-    const files = Array.from(input.files ?? []);
     if (files.length === 0) {
       return;
     }
 
     const importTarget =
-      input.dataset.importKind === "backup"
+      importKind === "backup"
         ? "import a backup"
-        : "import Markdown files";
+        : "import Markdown or text files";
     const canContinue = await confirmUnsavedTransition(importTarget);
     if (!canContinue) {
-      input.value = "";
       return;
     }
 
@@ -1051,7 +1059,11 @@ function App() {
       for (const file of files) {
         try {
           const content = await file.text();
-          const candidates = parseImportFileContent(content, file.name);
+          const candidates = parseImportFileContent(
+            content,
+            file.name,
+            importKind
+          );
 
           for (const candidate of candidates) {
             const matchIndex = findImportMatchIndex(candidate, workingNotes);
@@ -1107,17 +1119,69 @@ function App() {
         failures,
       });
 
-      setDbError(
-        failures.length > 0
-          ? `Import completed with ${failures.length} failed file${
-              failures.length === 1 ? "" : "s"
-            }.`
-          : dbInitError
-      );
+      setDbError(dbInitError);
     } finally {
       setIsImporting(false);
+    }
+  };
+
+  const handleImport = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
+    const importKind =
+      input.dataset.importKind === "backup" ? "backup" : "markdown";
+    try {
+      await importFiles(files, importKind);
+    } finally {
       input.value = "";
     }
+  };
+
+  const hasDraggedFiles = (event: DragEvent<HTMLElement>) =>
+    Array.from(event.dataTransfer.types).includes("Files");
+
+  const handleBodyDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event) || isImporting) {
+      return;
+    }
+    event.preventDefault();
+    bodyDragDepthRef.current += 1;
+    setIsBodyDragActive(true);
+  };
+
+  const handleBodyDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event) || isImporting) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleBodyDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    bodyDragDepthRef.current = Math.max(0, bodyDragDepthRef.current - 1);
+    if (bodyDragDepthRef.current === 0) {
+      setIsBodyDragActive(false);
+    }
+  };
+
+  const handleBodyDrop = async (event: DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    bodyDragDepthRef.current = 0;
+    setIsBodyDragActive(false);
+    if (isImporting) {
+      return;
+    }
+    await importFiles(Array.from(event.dataTransfer.files), "markdown");
   };
 
   const handleNewNote = async () => {
@@ -1991,7 +2055,7 @@ function App() {
             ref={markdownImportInputRef}
             className="file-input"
             type="file"
-            accept=".md,text/markdown"
+            accept=".md,.markdown,.txt,text/markdown,text/plain"
             data-import-kind="markdown"
             multiple
             disabled={isImporting}
@@ -2368,7 +2432,11 @@ function App() {
             hidden={activeTab !== "edit"}
             className={`editor-section editor-body${
               isEditorExpanded ? " is-expanded" : ""
-            }`}
+            }${isBodyDragActive ? " is-drag-active" : ""}`}
+            onDragEnter={handleBodyDragEnter}
+            onDragOver={handleBodyDragOver}
+            onDragLeave={handleBodyDragLeave}
+            onDrop={handleBodyDrop}
           >
             <div className="body-header">
               <div className="label" id="body-label">

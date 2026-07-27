@@ -26,6 +26,31 @@ async function createSavedNote(
   await expect(page.getByText("Status: Saved")).toBeVisible();
 }
 
+async function dispatchFileDrag(
+  page: Page,
+  eventType: "dragenter" | "dragover" | "dragleave" | "drop",
+  files: Array<{ name: string; mimeType: string; content: string }>
+) {
+  return page.locator('.editor-body:not([hidden])').evaluate(
+    (element, payload) => {
+      const dataTransfer = new DataTransfer();
+      for (const file of payload.files) {
+        dataTransfer.items.add(
+          new File([file.content], file.name, { type: file.mimeType })
+        );
+      }
+      const event = new DragEvent(payload.eventType, {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer,
+      });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    },
+    { eventType, files }
+  );
+}
+
 async function expectResultValue(dialog: Locator, label: string, value: string) {
   await expect(dialog.locator(".result-summary div", { hasText: label }).locator("dd")).toHaveText(
     value
@@ -225,7 +250,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(markdownImport).toHaveAttribute("data-tooltip", "Import Markdown");
     await expect(page.locator("#import-markdown")).toHaveAttribute(
       "accept",
-      ".md,text/markdown"
+      ".md,.markdown,.txt,text/markdown,text/plain"
     );
     await expect(page.locator("#import-backup")).toHaveAttribute(
       "accept",
@@ -795,6 +820,90 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expectResultValue(mixedDialog, "Failed", "1");
     await mixedDialog.getByText("Failed files").click();
     await expect(mixedDialog.getByText("invalid-import.md")).toBeVisible();
+    await expect(page.locator(".db-error")).toHaveCount(0);
+  });
+
+  test("imports Markdown and text files dropped on the Body", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await createSavedNote(page, "Drop target", "# Drop target");
+
+    const validFiles = [
+      {
+        name: "source-document.markdown",
+        mimeType: "text/markdown",
+        content: "# Internal Heading\n\nImported body",
+      },
+      {
+        name: "plain-note.txt",
+        mimeType: "text/plain",
+        content: "Plain text imported as a note.",
+      },
+      {
+        name: "frontmatter-name.md",
+        mimeType: "text/markdown",
+        content: "---\ntitle: Explicit Title\n---\n# Another heading",
+      },
+    ];
+    const body = page.locator('.editor-body:not([hidden])');
+
+    expect(await dispatchFileDrag(page, "dragenter", validFiles)).toBe(true);
+    await expect(body).toHaveClass(/is-drag-active/);
+    expect(await dispatchFileDrag(page, "dragleave", validFiles)).toBe(true);
+    await expect(body).not.toHaveClass(/is-drag-active/);
+
+    const dropWasPrevented = await dispatchFileDrag(page, "drop", [
+      ...validFiles,
+      {
+        name: "empty.txt",
+        mimeType: "text/plain",
+        content: "",
+      },
+      {
+        name: "unsupported.pdf",
+        mimeType: "application/pdf",
+        content: "not a supported file",
+      },
+    ]);
+    expect(dropWasPrevented).toBe(true);
+
+    const dialog = page.getByRole("dialog", { name: "Import Complete" });
+    await expect(dialog).toBeVisible();
+    await expectResultValue(dialog, "Added", "3");
+    await expectResultValue(dialog, "Failed", "2");
+    await dialog.getByText("Failed files").click();
+    await expect(dialog.getByText("empty.txt")).toBeVisible();
+    await expect(dialog.getByText("unsupported.pdf")).toBeVisible();
+    await expect(body).not.toHaveClass(/is-drag-active/);
+    await expect(page.locator(".db-error")).toHaveCount(0);
+    await expect(page.locator(".note-title", { hasText: "source-document" })).toBeVisible();
+    await expect(page.locator(".note-title", { hasText: "plain-note" })).toBeVisible();
+    await expect(page.locator(".note-title", { hasText: "Explicit Title" })).toBeVisible();
+    await expect(page.locator(".note-title", { hasText: "Internal Heading" })).toHaveCount(0);
+  });
+
+  test("keeps an unsaved draft when a Body file drop is canceled", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /new note/i }).click();
+    await page.getByLabel("Title").fill("Unsaved drop source");
+    await page.getByLabel("Body").fill("Keep this draft");
+
+    await dispatchFileDrag(page, "drop", [
+      {
+        name: "cancelled.md",
+        mimeType: "text/markdown",
+        content: "# Must not import",
+      },
+    ]);
+    const unsavedDialog = page.getByRole("dialog", { name: "Unsaved Changes" });
+    await expect(unsavedDialog).toContainText("import Markdown or text files");
+    await unsavedDialog.getByRole("button", { name: "Cancel" }).click();
+
+    await expect(page.getByLabel("Title")).toHaveValue("Unsaved drop source");
+    await expect(page.getByLabel("Body")).toHaveValue("Keep this draft");
+    await expect(page.getByRole("dialog", { name: "Import Complete" })).toHaveCount(0);
   });
 
   test("updates preview tasks from the keyboard and marks the note unsaved", async ({
