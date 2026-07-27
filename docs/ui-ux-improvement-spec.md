@@ -634,7 +634,7 @@ Markdown ノートをプレゼンテーションとして表示するモード�
 
 Marp 記法を含む Markdown をスライドとして表示する専用モードを追加する。通常 Preview と Slides を切り替えられるようにし、ノート用途とプレゼン用途を混同しない。
 
-初期仕様では閲覧体験の拡張に限定し、スライド生成結果や現在のスライド番号はノート本文へ保存しない。一方で Marp の有効状態、size、theme、page number 表示はノートのメタデータとして YAML frontmatter に統合して保存する。
+初期仕様では閲覧体験の拡張に限定し、スライド生成結果や現在のスライド番号はノート本文へ保存しない。一方で Marp の有効状態、size、theme、page number 表示、heading divider はノートのメタデータとして YAML frontmatter に統合して保存する。
 
 #### 対象範囲
 
@@ -642,7 +642,7 @@ Marp 記法を含む Markdown をスライドとして表示する専用モー�
 - Marp 設定は Body には表示せず、Edit 画面の Slides 設定 UI から編集する。
 - YAML frontmatter は app metadata と Marp metadata を統合して扱う。
 - Import / Export / Backup では Marp metadata を frontmatter に含めて roundtrip する。
-- 外部 Marp Markdown の frontmatter に `marp`、`theme`、`size`、`paginate` が含まれる場合は、可能な範囲でノートの Marp 設定として取り込む。
+- 外部 Marp Markdown の frontmatter に `marp`、`theme`、`size`、`paginate`、`headingDivider` が含まれる場合は、可能な範囲でノートの Marp 設定として取り込む。
 - 既存互換として、本文先頭の HTML comment directive に `marp: true` がある Markdown を import した場合は、後続実装で frontmatter metadata へ変換することを検討する。
 - Slides は Preview と同じ draft body と draft Marp 設定を表示対象にする。Markdown toolbar、本文保存処理は変更しない。
 - PDF / PPTX export、presenter mode、speaker notes UI、custom theme 管理、fullscreen presentation は A2 初期仕様の対象外とする。
@@ -661,6 +661,7 @@ marp: true
 theme: default
 size: 16:9
 paginate: true
+headingDivider: 1
 ---
 # Slide 1
 ```
@@ -675,7 +676,8 @@ paginate: true
 - Size は select とし、初期候補は `16:9`、`4:3` とする。
 - Theme は select とし、初期候補は `default`、`gaia`、`uncover` とする。
 - Page numbers は toggle とし、frontmatter の `paginate` として保存する。
-- 初期値は Marp Off、size `16:9`、theme `default`、paginate `true` とする。
+- Heading divider は toggle と見出しレベル `1`〜`6` の select とし、On の場合は frontmatter の `headingDivider` として保存する。値が指定されている場合は On とみなす。
+- 初期値は Marp Off、size `16:9`、theme `default`、paginate `true`、heading divider Off とする。Heading divider を初めて On にした直後のレベルは `1` とし、一度レベルを選択した後は Off / On を切り替えても直前の値を保持する。
 - Marp Off の場合、size / theme / paginate は UI 上 disabled または補助設定として表示する。
 - custom theme CSS の追加・保存は対象外とする。
 - slide viewport の縦横比は size に合わせ、`16:9` では `16 / 9`、`4:3` では `4 / 3` に切り替える。
@@ -688,7 +690,7 @@ paginate: true
 #### 機能仕様案
 
 - draft Marp 設定の On/Off が On の場合に Slides を有効化する。
-- Marp On/Off、size、theme、paginate を変更した場合は未保存変更として扱う。
+- Marp On/Off、size、theme、paginate、heading divider を変更した場合は未保存変更として扱う。
 - `---` によるスライド区切りを解釈する。
 - Slides 表示では 1 枚表示、前後移動、先頭・最後移動、全体枚数表示を提供する。
 - 通常の Markdown Preview と Slides を切り替えられる。
@@ -704,7 +706,7 @@ paginate: true
 
 - エディタ上部の表示切替を `Edit` / `Preview` / `Slides` にする。
 - Edit 画面の metadata area に Slides 設定を表示する。
-- Slides 設定には `Marp` toggle、`Size` select、`Theme` select、`Page numbers` toggle を配置する。
+- Slides 設定には `Marp` toggle と設定アイコンを配置する。設定メニューには `Slide Settings` ヘッダーを設け、右揃えの固定幅コントロールとして `Size` select、`Theme` select、`Page Numbers` switch、`Heading Divider` checkbox と見出しレベル select を配置する。
 - Marp 設定は Body textarea の中には表示しない。
 - Slides では `First`、`Previous`、`Next`、`Last` ボタンで移動できる。
 - 現在のスライド番号を `3 / 12` のように表示する。

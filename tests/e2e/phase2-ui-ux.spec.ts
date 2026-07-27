@@ -271,6 +271,27 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
       page.getByRole("button", { name: "More actions" }),
       page.getByRole("button", { name: "Expand editor" }),
     ];
+    for (const button of iconButtons) {
+      await expect(button).toHaveAttribute("data-tooltip", /\S+/);
+    }
+    for (const name of [
+      "Bold",
+      "Italic",
+      "Strike",
+      "Code",
+      "Bullet",
+      "Task",
+      "Quote",
+      "Link",
+    ]) {
+      await expect(page.getByRole("button", { name })).toHaveAttribute(
+        "data-tooltip",
+        name
+      );
+    }
+    await expect(page.getByRole("button", { name: "H1" })).not.toHaveAttribute(
+      "data-tooltip"
+    );
     const visualStyles = await Promise.all(
       iconButtons.map((button) =>
         button.evaluate((element) => {
@@ -297,6 +318,14 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     expect(new Set(visualStyles.map((style) => style.iconStrokeWidth))).toEqual(
       new Set(["2px"])
     );
+    await iconButtons[0].hover();
+    await expect
+      .poll(() =>
+        iconButtons[0].evaluate(
+          (element) => getComputedStyle(element, "::after").opacity
+        )
+      )
+      .toBe("1");
     await expect(page.getByRole("button", { name: "Revert changes" })).toHaveCSS(
       "opacity",
       "1"
@@ -548,6 +577,97 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     });
   });
 
+  test("keeps Edit and Preview positions only within the current note", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    const longBody = Array.from(
+      { length: 80 },
+      (_, index) => `## Section ${index + 1}\n\nParagraph ${index + 1}`
+    ).join("\n\n");
+    await createSavedNote(page, "Scroll position A", longBody);
+
+    const edit = page.getByLabel("Body");
+    const editPosition = await edit.evaluate((element) => {
+      element.scrollTop = 240;
+      return element.scrollTop;
+    });
+    expect(editPosition).toBeGreaterThan(0);
+
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    const preview = page.locator(".mdPreview-scroll");
+    const previewPosition = await preview.evaluate((element) => {
+      element.scrollTop = 320;
+      element.dataset.scrollInstance = "preserved";
+      return element.scrollTop;
+    });
+    expect(previewPosition).toBeGreaterThan(0);
+    const previewAnchor = await preview.evaluate((element) => {
+      const rootTop = element.getBoundingClientRect().top;
+      const children = Array.from(element.children);
+      const index = children.findIndex(
+        (child) => child.getBoundingClientRect().bottom > rootTop
+      );
+      return {
+        index,
+        offset: children[index]?.getBoundingClientRect().top ?? 0,
+      };
+    });
+
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect.poll(() => edit.evaluate((element) => element.scrollTop)).toBe(
+      editPosition
+    );
+
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect
+      .poll(() => preview.evaluate((element) => element.scrollTop))
+      .toBe(previewPosition);
+    await expect(preview).toHaveAttribute("data-scroll-instance", "preserved");
+    const restoredPreviewAnchor = await preview.evaluate((element) => {
+      const rootTop = element.getBoundingClientRect().top;
+      const children = Array.from(element.children);
+      const index = children.findIndex(
+        (child) => child.getBoundingClientRect().bottom > rootTop
+      );
+      return {
+        index,
+        offset: children[index]?.getBoundingClientRect().top ?? 0,
+      };
+    });
+    expect(restoredPreviewAnchor.index).toBe(previewAnchor.index);
+    expect(restoredPreviewAnchor.offset).toBeCloseTo(previewAnchor.offset, 0);
+
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await preview.evaluate((element) => {
+      const firstChild = element.firstElementChild;
+      if (firstChild instanceof HTMLElement) {
+        firstChild.style.paddingBottom = "96px";
+      }
+    });
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    const relaidOutPreviewAnchor = await preview.evaluate((element) => {
+      const rootTop = element.getBoundingClientRect().top;
+      const children = Array.from(element.children);
+      const index = children.findIndex(
+        (child) => child.getBoundingClientRect().bottom > rootTop
+      );
+      return {
+        index,
+        offset: children[index]?.getBoundingClientRect().top ?? 0,
+      };
+    });
+    expect(relaidOutPreviewAnchor.index).toBe(previewAnchor.index);
+    expect(relaidOutPreviewAnchor.offset).toBeCloseTo(previewAnchor.offset, 0);
+
+    await createSavedNote(page, "Scroll position B", longBody);
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect
+      .poll(() => page.locator(".mdPreview-scroll").evaluate((element) => element.scrollTop))
+      .toBe(0);
+  });
+
   test("centers text in every button", async ({ page }) => {
     await page.goto("/");
 
@@ -774,7 +894,9 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     ).toHaveCount(0);
 
     await page.keyboard.press("Enter");
-    await expect(page.locator(".tag-chip", { hasText: "UI/UX" })).toBeVisible();
+    const selectedTagChip = page.locator(".tag-chip", { hasText: "UI/UX" });
+    await expect(selectedTagChip).toBeVisible();
+    await expect(selectedTagChip).toHaveCSS("border-radius", "8px");
     await expect(
       suggestions.getByRole("option", { name: "UI/UX" })
     ).toHaveCount(0);
@@ -1028,6 +1150,15 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(toolbar.getByText("Italic", { exact: true })).toHaveCount(0);
 
     await page.setViewportSize({ width: 390, height: 800 });
+    await expect(toolbar).toHaveCSS("overflow-x", "visible");
+    await expect(toolbar).toHaveCSS("overflow-y", "visible");
+    const toolbarOverflow = await toolbar.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(toolbarOverflow.scrollWidth).toBeLessThanOrEqual(
+      toolbarOverflow.clientWidth
+    );
     const mobileBodyLabelBox = await bodyLabel.boundingBox();
     const mobileToolbarBox = await toolbar.boundingBox();
     expect(mobileBodyLabelBox).not.toBeNull();

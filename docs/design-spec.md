@@ -165,6 +165,7 @@ sidebar には以下を配置する。
   - title/body の部分一致検索。
 - Tags
   - 選択済みタグをチップとして表示する。
+  - タグチップの角丸は共通の `8px` とし、カプセル型にはしない。
   - 各タグチップの `×` で個別解除できる。
   - 入力欄フォーカス時に既存ノート由来のタグ候補をドロップダウン表示する。
   - 候補は入力文字で絞り込み、選択済みタグを除外する。
@@ -427,6 +428,7 @@ Sidebar の `Import Markdown` から複数 Markdown ファイル、application m
 
 toolbar 操作は textarea の selection/cursor を基準に本文を変更する。
 toolbar は `lucide-react` の `Bold`、`Italic`、`Strikethrough`、`Code`、`List`、`ListTodo`、`Quote`、`Link` を使用し、スクリーンリーダーや tooltip では各操作名を維持する。見出しレベルは文字自体の識別性を優先し、`H1` / `H2` ラベルを維持する。
+toolbar は横スクロール領域にせず、幅が不足する場合はボタンを折り返す。これによりスクロールバーを表示せず、ボタンの tooltip を toolbar 外へクリップせずに表示する。
 toolbar は Body の編集補助であるため、Body 見出し行内に配置する。
 
 Body 見出し行の右端には集中編集モードの切替ボタンを配置する。
@@ -488,7 +490,7 @@ Preview では fenced code block の言語が `mermaid` の場合に Mermaid 図
 
 ### 7.16 Slides 表示
 
-Slides は Marp 対応 Markdown をプレゼンテーションとして閲覧する表示モードである。Slides 表示は表示専用であり、スライド生成結果や現在のスライド番号は保存しない。Marp On/Off、size、theme、page number 表示はノート metadata として YAML frontmatter に統合して保存する。
+Slides は Marp 対応 Markdown をプレゼンテーションとして閲覧する表示モードである。Slides 表示は表示専用であり、スライド生成結果や現在のスライド番号は保存しない。Marp On/Off、size、theme、page number 表示、heading divider はノート metadata として YAML frontmatter に統合して保存する。
 
 表示モード:
 
@@ -517,6 +519,7 @@ Marp 有効条件:
 - theme は `theme` として frontmatter に保存し、初期候補は `default` / `gaia` / `uncover` とする。
 - size は `size` として frontmatter に保存し、初期候補は `16:9` / `4:3` とする。
 - page number 表示は `paginate` として frontmatter に保存する。
+- heading divider は Off または `1`〜`6` とし、On の場合は `headingDivider` として frontmatter に保存する。On にした直後の既定値は `1` とする。
 - custom theme CSS の登録、保存、管理は初期仕様の対象外とする。
 - 本文変更後の render は 300ms debounce する。
 - 100KB を超える本文は自動 render せず、`Slide deck is too large to render automatically.` を表示する。
@@ -547,8 +550,8 @@ Marp 有効条件:
 - Slides 選択時のみ、Slides タブボタンの右側に設定 UI を表示する。Edit / Preview 選択時は表示しない。
 - Slides タブと設定群、各設定項目の間には識別しやすい余白を設け、横幅が不足する場合は折り返す。
 - タブボタンと Slides 設定コントロールの高さを揃え、Preview / Slides 切替時に表示領域の上端が移動しないようにする。
-- Slides 設定 UI は `Marp` toggle、`Size` select、`Theme` select、`Page numbers` toggle を持つ。
-- Marp Off の場合、Size / Theme / Page numbers は disabled または補助設定として表示する。
+- Slides 設定 UI は `Marp` toggle と設定アイコンを持つ。設定メニューは `Slide Settings` ヘッダーと右揃えの固定幅コントロールを持ち、`Size` select、`Theme` select、`Page Numbers` switch、`Heading Divider` checkbox と見出しレベル select を配置する。
+- Marp Off の場合、設定アイコンは disabled とする。Heading Divider Off の場合、見出しレベル select は disabled とするが、再度 On にした際に直前の選択値を復元する。初回の既定値は `1` とする。
 - Body textarea には Marp frontmatter を表示しない。
 - Slides では操作バーと slide viewport を表示する。
 - 選択中のタブで表示モードを判別できるため、操作バー内に重複する `Slides` 見出しは表示しない。
@@ -582,6 +585,7 @@ Markdown が `---` で始まり、2 つ目の `---` が存在する場合、そ�
 - `theme`: `default` / `gaia` / `uncover` の場合のみ採用
 - `size`: `16:9` / `4:3` の場合のみ採用
 - `paginate`: boolean の場合のみ採用。Marp page number 表示
+- `headingDivider`: `1`〜`6` の number の場合のみ採用。値が指定されている場合は Heading divider On
 
 frontmatter が存在しない、または閉じ delimiter が存在しない場合は、全文を body として扱う。
 未対応の Marp theme / size や型不一致の Marp fields は採用せず、既定値に fallback する。
@@ -609,7 +613,7 @@ paginate: true
 Body text
 ```
 
-Marp Off の場合、`marp` は `false` として出力するか、Marp fields を省略してよい。初期実装では frontmatter の簡潔さを優先し、Marp Off のノートでは `marp` / `theme` / `size` / `paginate` を省略する。
+Marp Off の場合、`marp` は `false` として出力するか、Marp fields を省略してよい。初期実装では frontmatter の簡潔さを優先し、Marp Off のノートでは `marp` / `theme` / `size` / `paginate` / `headingDivider` を省略する。Marp On かつ Heading divider Off の場合も `headingDivider` は省略する。
 
 ## 9. 状態管理
 
@@ -629,6 +633,7 @@ Marp Off の場合、`marp` は `false` として出力するか、Marp fields �
 | `draftMarpSize` | 編集中ノートの Marp size。`16:9` または `4:3` |
 | `draftMarpTheme` | 編集中ノートの Marp theme。`default` / `gaia` / `uncover` |
 | `draftMarpPaginate` | 編集中ノートの Marp page number 表示 |
+| `draftMarpHeadingDivider` | 編集中ノートの heading divider。Off または `1`〜`6` |
 | `draftUpdatedAt` | 編集中更新日時 |
 | `isDirty` | 未保存変更有無 |
 | `dbError` | IndexedDB 初期化エラー |

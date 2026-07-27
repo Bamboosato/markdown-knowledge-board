@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { KeyboardEvent } from "react";
 
-import type { MarpSize, MarpTheme } from "../lib/types";
+import type { MarpHeadingDivider, MarpSize, MarpTheme } from "../lib/types";
 
 const MARP_RENDER_DEBOUNCE_MS = 300;
 const MARP_BODY_SIZE_LIMIT_BYTES = 100 * 1024;
@@ -22,6 +22,7 @@ type MarpSlidesProps = {
   size: MarpSize;
   theme: MarpTheme;
   paginate: boolean;
+  headingDivider: MarpHeadingDivider | false;
   slideIndex: number;
   onSlideIndexChange: (index: number) => void;
 };
@@ -56,7 +57,7 @@ function stripLeadingMarpFrontmatter(markdown: string): string {
   }
 
   const frontmatter = match[1];
-  const hasMarpDirective = /^\s*(marp|theme|size|paginate)\s*:/m.test(
+  const hasMarpDirective = /^\s*(marp|theme|size|paginate|headingDivider)\s*:/m.test(
     frontmatter
   );
   if (!hasMarpDirective) {
@@ -117,18 +118,21 @@ function createMarpMarkdown(
   markdown: string,
   theme: MarpTheme,
   size: MarpSize,
-  paginate: boolean
+  paginate: boolean,
+  headingDivider: MarpHeadingDivider | false
 ): string {
   const bodyMarkdown = stripLeadingMarpFrontmatter(markdown);
-  return [
+  const frontmatter = [
     "---",
     "marp: true",
     `theme: ${theme}`,
     `size: ${size}`,
     `paginate: ${paginate ? "true" : "false"}`,
-    "---",
-    bodyMarkdown,
-  ].join("\n");
+  ];
+  if (headingDivider !== false) {
+    frontmatter.push(`headingDivider: ${headingDivider}`);
+  }
+  return [...frontmatter, "---", bodyMarkdown].join("\n");
 }
 
 function createSlideDocument(
@@ -194,6 +198,7 @@ export function MarpSlides({
   size,
   theme,
   paginate,
+  headingDivider,
   slideIndex,
   onSlideIndexChange,
 }: MarpSlidesProps) {
@@ -202,8 +207,8 @@ export function MarpSlides({
   });
 
   const marpMarkdown = useMemo(
-    () => createMarpMarkdown(markdown, theme, size, paginate),
-    [markdown, paginate, size, theme]
+    () => createMarpMarkdown(markdown, theme, size, paginate, headingDivider),
+    [headingDivider, markdown, paginate, size, theme]
   );
   const markdownByteLength = useMemo(
     () => getUtf8ByteLength(marpMarkdown),

@@ -62,10 +62,33 @@ test.describe("A2 Marp slides", () => {
       settingsBox!.x - (buttonBox!.x + buttonBox!.width)
     ).toBeGreaterThanOrEqual(16);
 
-    await page.getByLabel("Marp").check();
+    await page.getByLabel("Marp", { exact: true }).check();
+    await page.getByRole("button", { name: "Marp settings" }).click();
+    await expect(page.getByText("Slide Settings", { exact: true })).toBeVisible();
+    const settingSelectBoxes = await page
+      .locator(".marp-value-select")
+      .evaluateAll((selects) =>
+        selects.map((select) => {
+          const box = select.getBoundingClientRect();
+          return { right: box.right, width: box.width };
+        })
+      );
+    expect(settingSelectBoxes).toHaveLength(2);
+    expect(settingSelectBoxes[0].width).toBeCloseTo(
+      settingSelectBoxes[1].width,
+      0
+    );
+    expect(settingSelectBoxes[0].right).toBeCloseTo(
+      settingSelectBoxes[1].right,
+      0
+    );
     await page.getByLabel("Size").selectOption("4:3");
     await page.getByLabel("Theme").selectOption("gaia");
     await page.getByLabel("Page numbers").uncheck();
+    await expect(
+      page.getByLabel("Heading Divider", { exact: true })
+    ).not.toBeChecked();
+    await expect(page.getByLabel("Heading divider level")).toBeDisabled();
 
     await page.getByRole("button", { name: /^Save$/ }).click();
     await expect(page.getByText("Status: Saved")).toBeVisible();
@@ -144,7 +167,62 @@ test.describe("A2 Marp slides", () => {
     expect(exported).toContain("theme: gaia");
     expect(exported).toMatch(/size:\s+['"]?4:3['"]?/);
     expect(exported).toContain("paginate: false");
+    expect(exported).not.toContain("headingDivider");
     expect(exported).not.toContain("<!--");
+  });
+
+  test("automatically divides slides at the selected heading level", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await page.goto("/");
+
+    await createSavedNote(
+      page,
+      "Heading divider deck",
+      [
+        "# First Slide",
+        "",
+        "Intro content",
+        "",
+        "# Second Slide",
+        "",
+        "More content",
+      ].join("\n")
+    );
+
+    await page.getByRole("button", { name: "Slides" }).click();
+    const settingsButton = page.getByRole("button", { name: "Marp settings" });
+    await expect(settingsButton).toBeDisabled();
+
+    await page.getByLabel("Marp", { exact: true }).check();
+    await expect(settingsButton).toBeEnabled();
+    await expect(settingsButton).toHaveAttribute("data-tooltip", "Marp settings");
+    await settingsButton.click();
+    await expect(page.getByText("Slide Settings", { exact: true })).toBeVisible();
+    await page.getByLabel("Heading Divider", { exact: true }).check();
+    await expect(page.getByLabel("Heading divider level")).toHaveValue("1");
+    await page.getByLabel("Heading divider level").selectOption("3");
+    await page.getByLabel("Heading Divider", { exact: true }).uncheck();
+    await expect(page.getByLabel("Heading divider level")).toBeDisabled();
+    await expect(page.getByLabel("Heading divider level")).toHaveValue("3");
+    await page.getByLabel("Heading Divider", { exact: true }).check();
+    await expect(page.getByLabel("Heading divider level")).toBeEnabled();
+    await expect(page.getByLabel("Heading divider level")).toHaveValue("3");
+
+    await expect(page.getByText("1 / 2")).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: /^Save$/ }).click();
+    await expect(page.getByText("Status: Saved")).toBeVisible();
+
+    await page.getByRole("button", { name: "Edit" }).click();
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Export" }).click();
+    const download = await downloadPromise;
+    const path = await download.path();
+    expect(path).toBeTruthy();
+    const exported = await readFile(path!, "utf8");
+    expect(exported).toContain("headingDivider: 3");
   });
 
   test("shows guidance when a note is not a Marp deck", async ({ page }) => {
@@ -191,7 +269,8 @@ test.describe("A2 Marp slides", () => {
     );
 
     await page.getByRole("button", { name: "Slides" }).click();
-    await page.getByLabel("Marp").check();
+    await page.getByLabel("Marp", { exact: true }).check();
+    await page.getByRole("button", { name: "Marp settings" }).click();
     await page.getByLabel("Size").selectOption("4:3");
     await page.getByLabel("Theme").selectOption("gaia");
     await page.getByLabel("Page numbers").uncheck();
