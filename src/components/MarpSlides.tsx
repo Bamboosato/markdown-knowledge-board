@@ -347,7 +347,6 @@ export function MarpSlides({
         aria-label="Slide preview"
       >
         <div className="slides-toolbar">
-          <div className="preview-label">Slides</div>
           {renderState.status === "rendered" ? (
             <div className="slides-controls" aria-label="Slide navigation">
               <button
@@ -411,7 +410,7 @@ export function MarpSlides({
         ) : renderState.status === "unavailable" ? (
           <div className="slides-message">
             <strong>Slides unavailable for this note.</strong>
-            <span>Turn on Marp in Edit to use Slides.</span>
+            <span>Turn on Marp in the Slides settings above.</span>
           </div>
         ) : renderState.status === "too-large" ? (
           <div className="slides-message" role="alert">

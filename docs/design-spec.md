@@ -137,6 +137,7 @@ DB 初期化に失敗した場合は `dbInitError` にエラーメッセージ�
 
 desktop 幅では横並び。
 `max-width: 900px` 以下では `.app` を縦方向に切り替える。
+desktop 幅では document と workspace に縦横スクロールを発生させず、Sidebar と Editor の各領域内でスクロールを管理する。Sidebar はノート一覧が表示高を超えた場合のみ縦スクロールし、横スクロールは発生させない。Editor の本文・Preview・Slidesも必要な領域内だけを縦スクロールさせる。
 
 ### 6.2 Sidebar
 
@@ -144,11 +145,9 @@ sidebar には以下を配置する。
 
 - `+ New Note`
   - 新規ノートを作成し、編集状態にする。
-- `Backup All Notes`
-  - 全ノートを単一 JSON バックアップとして出力する。
-  - ノートが 0 件の場合も空バックアップを出力し、結果を表示する。
-- Import
-  - `.md` Markdown ファイルまたは `.json` バックアップファイルを複数選択して取り込む。
+  - 右隣に Markdown Import アイコンボタンを配置する。
+  - アイコンの accessible name と Tooltip は `Import Markdown` とし、`.md` ファイルのみ複数選択できる。
+  - アイコンは `lucide-react` の `FileDown` を使用する。
 - Notes
   - `Filter` ボタンを表示する。
   - Search または Tag filter が有効な場合、`Filter (n)` として有効条件数を表示する。
@@ -186,21 +185,34 @@ sidebar には以下を配置する。
 
 editor header には以下を配置する。
 
+デスクトップでは画面全幅の固定ヘッダーバーとして1行表示し、タイトル、保存・バックアップ状態、操作ボタンを配置する。Sidebar と Editor はヘッダーバーの下に並べる。幅が不足する場合は操作領域を横スクロール可能にしてボタンの折り返しを防ぐ。モバイルでは操作性を維持するため複数行を許容しつつ、画面上端への固定を維持する。
+
 - アプリタイトル: `Markdown Knowledge Board`
+- タイトル左の application menu
+  - トリガーには `lucide-react` の `Menu` を使用する。
+  - `Backup All Notes`: 全ノートを単一 JSON バックアップとして出力する。ノートが 0 件の場合も空バックアップを出力する。
+  - `Import Backup`: `.json` バックアップファイルのみ複数選択して取り込む。
 - 保存状態表示
-- `Save`
-- `Revert`
-- `Export`
-- `Delete`
+- `Save`: 最も使用頻度の高い主操作としてラベル付きボタンを維持する。
+- `Revert changes`: `RotateCcw` アイコンボタンとして `Save` の右側に配置し、未保存変更がない場合は無効にする。
+- `More actions`: `MoreHorizontal` アイコンボタンとして配置し、以下の低頻度操作をメニュー表示する。
+  - `Export`: `Download` アイコンとラベルを表示する。
+  - 区切り線の後に `Delete`: `Trash2` アイコンと赤いラベルを表示する。確認ダイアログと Undo の仕様は維持する。
+- アイコンボタンには同名の英語 accessible name と Tooltip を設定する。メニューは項目選択、外側クリック、Escape で閉じ、Escape 時はトリガーへフォーカスを戻す。
+- アイコンボタンの枠線は共通色・1px、Lucideアイコンは共通色・2pxの線幅に統一する。disabled時もアイコンのopacityは下げず、淡い背景色とカーソルで無効状態を表現して視認性を維持する。
 
 保存状態の表示仕様は以下。
 
 | 条件 | 表示 |
 | --- | --- |
-| IndexedDB エラーあり | `Status: IndexedDB error` |
-| 未保存変更あり | `Status: Unsaved changes` |
-| ノート選択中かつ未保存変更なし | `Status: Saved` |
-| ノート未選択 | `Status: No note` |
+| 保存失敗 | 赤色のドット + `Save failed` |
+| 保存処理中 | 青色のドット + `Saving` |
+| 新規ノート | 灰色のドット + `Draft` |
+| 未保存変更あり | 橙色のドット + `Unsaved` |
+| ノート選択中かつ未保存変更なし | 青色のドット + `Saved` |
+| ノート未選択 | 灰色のドット + `No note` |
+
+スクリーンリーダー向けには各表示の先頭へ `Status:` を付与し、色だけに依存せず状態名でも識別できるようにする。
 
 ### 6.4 編集フォーム
 
@@ -213,6 +225,7 @@ editor header には以下を配置する。
   - タグ未選択時は追加文言を表示せず、入力欄 placeholder のみで空状態を表現する。
   - 入力欄で Enter を押すとタグ追加。
   - 入力欄フォーカス時に既存ノート由来のタグ候補をドロップダウン表示する。
+  - Editor の候補ドロップダウンは入力欄の左端に合わせ、幅は最大 `360px`、入力欄が狭い場合は入力欄幅に収める。
   - 候補は選択済みタグを除外し、入力文字で絞り込む。
   - 候補表示は最大 8 件とする。
   - 候補はクリック、ArrowUp / ArrowDown、Enter で選択できる。
@@ -252,6 +265,7 @@ editor header には以下を配置する。
   - Markdown toolbar と textarea を表示する。
 - `Preview`
   - Preview 表示領域を広げるため、Title / Tags は表示しない。
+  - 選択中のタブで表示モードを判別できるため、表示領域内に重複する `Preview` 見出しは表示しない。
   - `ReactMarkdown` で `draftBody` を表示する。
   - `mermaid` fenced code block は Mermaid 図として表示する。
   - Mermaid 図は `Diagram` / `Code` を切り替えられる。
@@ -264,7 +278,8 @@ editor header には以下を配置する。
 1. IndexedDB から全ノートを取得する。
 2. `updatedAt` の降順で `notes` に保持する。
 3. IndexedDB 初期化エラーがあれば `dbError` に反映する。
-4. `localStorage.lastBackupAt` を確認し、未バックアップまたは 7 日以上経過している場合は、エディタ上部の Status と並べて小さな補助情報として `Backup: None` または経過日数を表示する。
+4. `localStorage.lastBackupAt` を確認し、アプリメニューの `Backup All Notes` の下に `Last backup` と分単位の日時を2段で表示する。未実施時は `No backups yet` と表示する。
+5. Backup項目のアイコンは複数行全体の中央ではなくタイトル行の上端へ揃え、メニュー項目間はコンパクトな余白を維持する。
 
 ### 7.2 新規ノート作成
 
@@ -337,6 +352,10 @@ Title、Tags、Body、Markdown toolbar の操作により draft state を更新�
 
 `Delete` を押すと以下を行う。
 
+- ブラウザ標準の確認ダイアログは使用せず、ノート名、`Cancel`、`Delete Note` を含むアプリ内 modal dialog を表示する。
+- `Cancel`、背景クリック、Esc では削除せずに閉じ、More actions ボタンへフォーカスを戻す。
+- `Delete Note` で削除を確定し、既存の Undo 可能時間を開始する。
+
 1. 選択中ノートまたは未保存 draft がなければ何もしない。
 2. `window.confirm` で削除確認する。
 3. OK の場合は `notes` から対象ノートを取り除く。
@@ -347,7 +366,7 @@ Title、Tags、Body、Markdown toolbar の操作により draft state を更新�
 
 ### 7.9 インポート
 
-`Import Markdown / Backup` から複数 Markdown ファイルまたは JSON バックアップファイルを選択できる。
+Sidebar の `Import Markdown` から複数 Markdown ファイル、application menu の `Import Backup` から複数 JSON バックアップファイルを選択できる。両導線は選択可能な拡張子を分離するが、取込後の重複判定と結果表示は共通とする。
 
 各ファイルについて以下を行う。
 
@@ -402,13 +421,21 @@ Title、Tags、Body、Markdown toolbar の操作により draft state を更新�
 - 保存完了を検知できた場合は `Backup Complete` を表示し、ファイル名、件数、完了時刻を表示する。
 - 保存ダイアログがキャンセルされた場合は結果ダイアログを表示せず、`localStorage.lastBackupAt` は更新しない。
 - 保存完了を検知できないブラウザ fallback では `Backup Ready` を表示し、ファイル生成と browser download 開始までを通知する。
-- `Backup Complete` または `Backup Ready` の場合のみ `localStorage.lastBackupAt` に現在時刻の ISO 文字列を保存し、`backupMessage` を消す。
+- `Backup Complete` または `Backup Ready` の場合のみ `localStorage.lastBackupAt` に現在時刻の ISO 文字列を保存し、メニュー内の最終バックアップ日時を更新する。
 
 ### 7.12 Markdown toolbar
 
 toolbar 操作は textarea の selection/cursor を基準に本文を変更する。
-toolbar の表示ラベルは短縮し、スクリーンリーダーや tooltip では各操作名を維持する。
+toolbar は `lucide-react` の `Bold`、`Italic`、`Strikethrough`、`Code`、`List`、`ListTodo`、`Quote`、`Link` を使用し、スクリーンリーダーや tooltip では各操作名を維持する。見出しレベルは文字自体の識別性を優先し、`H1` / `H2` ラベルを維持する。
 toolbar は Body の編集補助であるため、Body 見出し行内に配置する。
+
+Body 見出し行の右端には集中編集モードの切替ボタンを配置する。
+
+- 通常時は `Maximize2`、accessible name / Tooltip は `Expand editor` とする。
+- 拡大時は `Minimize2`、accessible name / Tooltip は `Restore editor` とする。
+- 拡大時は固定ヘッダーを残し、Sidebar、Edit / Preview / Slides タブ、Title / Tags / Slides 設定を隠して、Bodyパネルをヘッダー直下の workspace 全体へ拡大する。
+- 拡大／復帰には同一documentの View Transitions APIを使用する。API非対応時または `prefers-reduced-motion: reduce` の場合はアニメーションなしで状態を切り替える。
+- Escapeでも通常表示へ復帰できる。本文、未保存状態、selection、本文内スクロール位置は切替前後で維持する。
 
 - `wrapSelection`
   - 選択範囲に prefix/suffix を付与または解除する。
@@ -426,6 +453,7 @@ Phase 3 時点では Markdown toolbar の無選択時挙動明確化は保留と
 ### 7.14 Preview タスクチェック
 
 Preview では `remark-gfm` により task list を表示する。
+desktopでは `html` / `body` / `#root` のoverflowを固定し、Preview切替時を含めてdocument側のスクロールバーを表示しない。Previewが表示高を超える場合は `.mdPreview-scroll` の内部だけを縦スクロールさせる。mobileではdocumentの縦スクロールを維持する。
 
 実装仕様:
 
@@ -473,7 +501,7 @@ Slides は Marp 対応 Markdown をプレゼンテーションとして閲覧す
 Marp 有効条件:
 
 - YAML frontmatter の `marp: true` がある場合に Slides を有効扱いにする。
-- Marp 設定は Body には表示せず、Edit 画面の Slides 設定 UI で編集する。
+- Marp 設定は Body には表示せず、Slides 選択時にタブ列へ表示する設定 UI で編集する。
 - YAML frontmatter は app metadata と Marp metadata を統合して扱う。
 - Marp Off の場合、Slides では `Slides unavailable for this note.` を表示する。
 
@@ -510,11 +538,19 @@ Marp 有効条件:
 画面仕様:
 
 - `Edit` / `Preview` / `Slides` 切替は editor 上部に表示する。
-- Edit の metadata area に Slides 設定 UI を表示する。
+- タブボタンの角丸は入力欄・セレクトと同じ `8px` とし、カプセル型にはしない。
+- タブボタンは `min-width: 80px` とし、ラベルを左右中央に配置する。
+- Title / Tags / Body のラベルは維持し、`0.85rem`、`600`、`#666` で補助情報として表示する。ラベル列は `56px` とする。
+- モバイルの固定ヘッダーは2段構成とし、1段目にメニュー／Notes／省略可能なタイトル、2段目にステータス／通常幅のSave／アイコン操作を横並びで表示する。Saveは全幅化しない。
+- モバイルのBodyヘッダーはラベルを上段、Markdownツールバーと拡大ボタンを下段に配置する。ツールバーは左端から拡大ボタン手前まで使用し、末尾のLink操作まで欠けずに表示する。
+- Slides 選択時のみ、Slides タブボタンの右側に設定 UI を表示する。Edit / Preview 選択時は表示しない。
+- Slides タブと設定群、各設定項目の間には識別しやすい余白を設け、横幅が不足する場合は折り返す。
+- タブボタンと Slides 設定コントロールの高さを揃え、Preview / Slides 切替時に表示領域の上端が移動しないようにする。
 - Slides 設定 UI は `Marp` toggle、`Size` select、`Theme` select、`Page numbers` toggle を持つ。
 - Marp Off の場合、Size / Theme / Page numbers は disabled または補助設定として表示する。
 - Body textarea には Marp frontmatter を表示しない。
 - Slides では操作バーと slide viewport を表示する。
+- 選択中のタブで表示モードを判別できるため、操作バー内に重複する `Slides` 見出しは表示しない。
 - slide viewport は Marp size に合わせたステージとして表示し、`16:9` は `16 / 9`、`4:3` は `4 / 3` にする。
 - slide viewport は利用可能な横幅に合わせて縮小する。
 - PC では操作バーを slide viewport の上に置き、本文表示領域を圧迫しすぎない。
@@ -603,7 +639,7 @@ Marp Off の場合、`marp` は `false` として出力するか、Marp fields �
 | `filterTagInput` | Filter modal 内のタグ候補入力 |
 | `isTagFilterSuggestOpen` | Filter modal 内のタグ候補ドロップダウン表示有無 |
 | `activeTagFilterSuggestionIndex` | キーボード操作中の Filter modal タグ候補位置 |
-| `backupMessage` | バックアップ通知 |
+| `lastBackupAt` | 最終バックアップ日時。メニュー内の補助情報として表示 |
 | `operationDialog` | Backup / Import 結果ダイアログ。Backup は `complete` / `ready` を持つ |
 | `isBackupBusy` | Backup 処理中 |
 | `isImporting` | Import 処理中 |
