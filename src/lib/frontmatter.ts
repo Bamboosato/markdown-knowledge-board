@@ -2,11 +2,18 @@ import yaml from "js-yaml";
 
 import {
   DEFAULT_MARP_SETTINGS,
+  MARP_HEADING_DIVIDERS,
   MARP_SIZES,
   MARP_THEMES,
   getNoteMarpSettings,
 } from "./types";
-import type { MarpSettings, MarpSize, MarpTheme, Note } from "./types";
+import type {
+  MarpHeadingDivider,
+  MarpSettings,
+  MarpSize,
+  MarpTheme,
+  Note,
+} from "./types";
 
 type FrontmatterParseResult = {
   id?: string;
@@ -67,6 +74,13 @@ function isMarpSize(value: unknown): value is MarpSize {
   );
 }
 
+function isMarpHeadingDivider(value: unknown): value is MarpHeadingDivider {
+  return (
+    typeof value === "number" &&
+    (MARP_HEADING_DIVIDERS as readonly number[]).includes(value)
+  );
+}
+
 function parseMarpSettings(data: Record<string, unknown>): MarpSettings | undefined {
   if (typeof data.marp !== "boolean") {
     return undefined;
@@ -80,6 +94,9 @@ function parseMarpSettings(data: Record<string, unknown>): MarpSettings | undefi
       typeof data.paginate === "boolean"
         ? data.paginate
         : DEFAULT_MARP_SETTINGS.paginate,
+    headingDivider: isMarpHeadingDivider(data.headingDivider)
+      ? data.headingDivider
+      : DEFAULT_MARP_SETTINGS.headingDivider,
   };
 }
 
@@ -137,6 +154,9 @@ export function toMarkdownWithFrontmatter(note: Note): string {
     frontmatter.theme = marp.theme;
     frontmatter.size = marp.size;
     frontmatter.paginate = marp.paginate;
+    if (marp.headingDivider !== false) {
+      frontmatter.headingDivider = marp.headingDivider;
+    }
   }
 
   const body = note.body ?? "";
