@@ -357,6 +357,33 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     );
   });
 
+  test("keeps edge button tooltips inside a narrow viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await createSavedNote(page, "Tooltip bounds", "# Tooltip bounds");
+
+    for (const name of ["Open application menu", "More actions"]) {
+      const button = page.getByRole("button", { name });
+      await button.hover();
+      const bounds = await button.evaluate((element) => {
+        const style = getComputedStyle(element, "::after");
+        const buttonBox = element.getBoundingClientRect();
+        const outerWidth =
+          Number.parseFloat(style.width) +
+          Number.parseFloat(style.paddingLeft) +
+          Number.parseFloat(style.paddingRight);
+        const transformX = new DOMMatrix(style.transform).e;
+        const left =
+          style.left !== "auto"
+            ? buttonBox.left + Number.parseFloat(style.left) + transformX
+            : buttonBox.right - Number.parseFloat(style.right) - outerWidth + transformX;
+        return { left, right: left + outerWidth, viewportWidth: innerWidth };
+      });
+      expect(bounds.left).toBeGreaterThanOrEqual(-1);
+      expect(bounds.right).toBeLessThanOrEqual(bounds.viewportWidth + 1);
+    }
+  });
+
   test("keeps editor controls in a slim single-row sticky header", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");

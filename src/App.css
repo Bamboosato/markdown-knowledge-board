@@ -998,6 +998,28 @@
   transform: translateX(-50%) translateY(0);
 }
 
+.app-menu-button.tooltip-button::after {
+  right: auto;
+  left: 0;
+  transform: translateY(-2px);
+}
+
+.app-menu-button.tooltip-button:hover::after,
+.app-menu-button.tooltip-button:focus-visible::after {
+  transform: translateY(0);
+}
+
+.actions-menu .tooltip-button::after {
+  right: 0;
+  left: auto;
+  transform: translateY(-2px);
+}
+
+.actions-menu .tooltip-button:hover::after,
+.actions-menu .tooltip-button:focus-visible::after {
+  transform: translateY(0);
+}
+
 .sidebar .tooltip-button::after {
   right: 0;
   left: auto;

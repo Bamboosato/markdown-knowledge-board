@@ -429,6 +429,7 @@ Sidebar の `Import Markdown` から複数の `.md`、`.markdown`、`.txt` フ�
 toolbar 操作は textarea の selection/cursor を基準に本文を変更する。
 toolbar は `lucide-react` の `Bold`、`Italic`、`Strikethrough`、`Code`、`List`、`ListTodo`、`Quote`、`Link` を使用し、スクリーンリーダーや tooltip では各操作名を維持する。見出しレベルは文字自体の識別性を優先し、`H1` / `H2` ラベルを維持する。
 toolbar は横スクロール領域にせず、幅が不足する場合はボタンを折り返す。これによりスクロールバーを表示せず、ボタンの tooltip を toolbar 外へクリップせずに表示する。
+画面左右端にある操作の tooltip はボタンの内側端を基準に配置し、狭い画面でも viewport 外へはみ出さないようにする。
 toolbar は Body の編集補助であるため、Body 見出し行内に配置する。
 
 Body 見出し行の右端には集中編集モードの切替ボタンを配置する。
