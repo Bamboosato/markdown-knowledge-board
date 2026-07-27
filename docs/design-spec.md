@@ -146,7 +146,7 @@ sidebar には以下を配置する。
 - `+ New Note`
   - 新規ノートを作成し、編集状態にする。
   - 右隣に Markdown Import アイコンボタンを配置する。
-  - アイコンの accessible name と Tooltip は `Import Markdown` とし、`.md` ファイルのみ複数選択できる。
+  - アイコンの accessible name と Tooltip は `Import Markdown` とし、`.md`、`.markdown`、`.txt` ファイルを複数選択できる。
   - アイコンは `lucide-react` の `FileDown` を使用する。
 - Notes
   - `Filter` ボタンを表示する。
@@ -367,15 +367,15 @@ Title、Tags、Body、Markdown toolbar の操作により draft state を更新�
 
 ### 7.9 インポート
 
-Sidebar の `Import Markdown` から複数 Markdown ファイル、application menu の `Import Backup` から複数 JSON バックアップファイルを選択できる。両導線は選択可能な拡張子を分離するが、取込後の重複判定と結果表示は共通とする。
+Sidebar の `Import Markdown` から複数の `.md`、`.markdown`、`.txt` ファイル、application menu の `Import Backup` から複数 JSON バックアップファイルを選択できる。PC では Edit の Body 領域へ Markdown / text ファイルをドラッグ＆ドロップしても、`Import Markdown` と同じ処理を実行する。Body への挿入や置換ではなく、各ファイルをノートとして追加または更新する。両導線は選択可能な拡張子を分離するが、取込後の未保存確認、重複判定、保存、結果表示は共通とする。
 
 各ファイルについて以下を行う。
 
 1. file text を読む。
 2. `.json` の場合はバックアップ形式を検証し、含まれる各ノートの Markdown を parse する。
-3. `.md` の場合は YAML frontmatter を parse する。
+3. `.md`、`.markdown`、`.txt` の場合は YAML frontmatter を parse する。frontmatter がなければファイル全文を本文として扱う。
 4. `id` は frontmatter またはバックアップメタデータから復元し、なければ新規作成する。
-5. title は frontmatter の `title`、本文中の H1、ファイル名の順で決定する。
+5. `.md`、`.markdown`、`.txt` の title は frontmatter の `title`、ファイル名の順で決定する。本文中の H1 はTitle決定には使用せず本文に残す。JSONバックアップはバックアップメタデータ、Markdown frontmatter、本文中の H1、ファイル名の順で決定する。
 6. body は frontmatter 除去後の本文を使う。frontmatter がなければファイル全文を使う。
 7. tags は frontmatter の `tags` が文字列配列の場合のみ復元する。
 8. updatedAt は frontmatter の `updatedAt` を number または parse 可能な date string として復元する。なければ現在時刻。
