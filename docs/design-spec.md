@@ -195,6 +195,7 @@ editor header には以下を配置する。
   - `Import Backup`: `.json` バックアップファイルのみ複数選択して取り込む。
 - 保存状態表示
 - `Save`: 最も使用頻度の高い主操作としてラベル付きボタンを維持する。
+- `Save` には `Ctrl+S`（Windows / Linux）および `Command+S`（macOS）のキーボードショートカットを割り当て、ブラウザ標準のページ保存動作を抑止する。
 - `Revert changes`: `RotateCcw` アイコンボタンとして `Save` の右側に配置し、未保存変更がない場合は無効にする。
 - `More actions`: `MoreHorizontal` アイコンボタンとして配置し、以下の低頻度操作をメニュー表示する。
   - `Export`: `Download` アイコンとラベルを表示する。
@@ -337,6 +338,23 @@ Title、Tags、Body、Markdown toolbar の操作により draft state を更新�
 7. `selectedId` を保存したノート ID にする。
 8. `isDirty = false` にする。
 9. `draftTags` を保存後タグに更新し、`tagInput` を空にする。
+
+#### 7.6.1 キーボードショートカット
+
+主要操作には以下のキーボードショートカットを割り当てる。
+
+| 操作 | Windows / Linux | macOS | 動作 |
+| --- | --- | --- | --- |
+| Save | `Ctrl+S` | `Command+S` | `Save` ボタンと同じ保存処理を実行し、ブラウザ標準のページ保存を抑止する |
+| New Note | `Alt+N` | `Alt+N` | `+ New Note` ボタンと同じ新規作成処理を実行する |
+
+- 入力欄にフォーカスがある場合もショートカットを有効とする。
+- Save は `Shift` または `Alt`、New Note は `Control`、`Command` または `Shift` を同時に押した組み合わせを対象外とする。
+- キー長押しで発生する repeat イベントはブラウザ標準動作を抑止したうえで処理しない。
+- 保存処理中は Save / New Note の両ショートカットを処理しない。
+- modal dialog 表示中は背後の Save / New Note を実行しない。
+- 未保存変更がある状態で New Note を実行した場合は、通常の `+ New Note` と同じく `Save and Continue` / `Discard and Continue` / `Cancel` の確認を行う。
+- 対応するボタンには `aria-keyshortcuts` を設定し、支援技術へ割り当てを伝える。
 
 ### 7.7 Revert
 
@@ -710,6 +728,7 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 ### 13.1 機能観点
 
 - ノート作成、保存、選択、削除ができること。
+- `Ctrl+S` / `Command+S` で保存でき、`Alt+N` で新規ノートを作成できること。
 - title/body/tags の編集内容が保存後に復元できること。
 - search と tag filter が組み合わせて動作すること。
 - Markdown import/export が frontmatter を含めて動作すること。

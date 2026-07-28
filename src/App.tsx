@@ -1553,6 +1553,44 @@ function App() {
     }
   }
 
+  useEffect(() => {
+    const handleKeyboardShortcut = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.shiftKey) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      const isSaveShortcut =
+        key === "s" && (event.ctrlKey || event.metaKey) && !event.altKey;
+      const isNewNoteShortcut =
+        key === "n" && event.altKey && !event.ctrlKey && !event.metaKey;
+      if (!isSaveShortcut && !isNewNoteShortcut) {
+        return;
+      }
+
+      event.preventDefault();
+
+      const isDialogOpen =
+        unsavedDialog !== null ||
+        isFilterDialogOpen ||
+        operationDialog !== null ||
+        deleteConfirmation !== null;
+      if (event.repeat || saveStatus === "saving" || isDialogOpen) {
+        return;
+      }
+
+      if (isSaveShortcut) {
+        void handleSave();
+        return;
+      }
+
+      void handleNewNote();
+    };
+
+    window.addEventListener("keydown", handleKeyboardShortcut);
+    return () => window.removeEventListener("keydown", handleKeyboardShortcut);
+  });
+
   const handleSelectNote = async (note: Note) => {
     const canContinue = await confirmUnsavedTransition("open another note");
     if (!canContinue) {
@@ -1963,6 +2001,7 @@ function App() {
           <button
             className="primary-button"
             type="button"
+            aria-keyshortcuts="Control+S Meta+S"
             onClick={handleSave}
             disabled={saveStatus === "saving"}
           >
@@ -2036,6 +2075,7 @@ function App() {
           <button
             className="new-note-button"
             type="button"
+            aria-keyshortcuts="Alt+N"
             onClick={handleNewNote}
           >
             + New Note
