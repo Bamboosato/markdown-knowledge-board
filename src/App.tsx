@@ -428,6 +428,11 @@ function formatBackupTimestamp(value: string): string {
 }
 
 function App() {
+  const isMacPlatform = /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+  const saveTooltip = isMacPlatform ? "Save (⌘S)" : "Save (Ctrl+S)";
+  const newNoteTooltip = isMacPlatform
+    ? "New Note (Option+N)"
+    : "New Note (Alt+N)";
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
@@ -1999,9 +2004,11 @@ function App() {
             </span>
           </div>
           <button
-            className="primary-button"
+            className="primary-button tooltip-button"
             type="button"
+            aria-label="Save"
             aria-keyshortcuts="Control+S Meta+S"
+            data-tooltip={saveTooltip}
             onClick={handleSave}
             disabled={saveStatus === "saving"}
           >
@@ -2073,9 +2080,11 @@ function App() {
       <aside className="sidebar">
         <div className="sidebar-primary-actions">
           <button
-            className="new-note-button"
+            className="new-note-button tooltip-button"
             type="button"
+            aria-label="New Note"
             aria-keyshortcuts="Alt+N"
+            data-tooltip={newNoteTooltip}
             onClick={handleNewNote}
           >
             + New Note

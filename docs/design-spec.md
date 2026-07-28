@@ -196,6 +196,7 @@ editor header には以下を配置する。
 - 保存状態表示
 - `Save`: 最も使用頻度の高い主操作としてラベル付きボタンを維持する。
 - `Save` には `Ctrl+S`（Windows / Linux）および `Command+S`（macOS）のキーボードショートカットを割り当て、ブラウザ標準のページ保存動作を抑止する。
+- `Save` の Tooltip は Windows / Linux で `Save (Ctrl+S)`、macOS で `Save (⌘S)` と表示する。
 - `Revert changes`: `RotateCcw` アイコンボタンとして `Save` の右側に配置し、未保存変更がない場合は無効にする。
 - `More actions`: `MoreHorizontal` アイコンボタンとして配置し、以下の低頻度操作をメニュー表示する。
   - `Export`: `Download` アイコンとラベルを表示する。
@@ -355,6 +356,9 @@ Title、Tags、Body、Markdown toolbar の操作により draft state を更新�
 - modal dialog 表示中は背後の Save / New Note を実行しない。
 - 未保存変更がある状態で New Note を実行した場合は、通常の `+ New Note` と同じく `Save and Continue` / `Discard and Continue` / `Cancel` の確認を行う。
 - 対応するボタンには `aria-keyshortcuts` を設定し、支援技術へ割り当てを伝える。
+- `New Note` の Tooltip は Windows / Linux で `New Note (Alt+N)`、macOS で `New Note (Option+N)` と表示する。Tooltip のOS差は表示上の呼称のみとし、実装上はいずれも `Alt` modifier を使用する。
+- Tooltip はマウス hover またはキーボード focus で表示し、狭い viewport でも左右端からはみ出さない。
+- Tooltip の生成コンテンツにかかわらず、ボタンの accessible name はそれぞれ `Save` / `New Note` に固定する。
 
 ### 7.7 Revert
 
@@ -729,6 +733,7 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 
 - ノート作成、保存、選択、削除ができること。
 - `Ctrl+S` / `Command+S` で保存でき、`Alt+N` で新規ノートを作成できること。
+- Save / New Note の Tooltip に実行環境に応じたショートカット表記が表示されること。
 - title/body/tags の編集内容が保存後に復元できること。
 - search と tag filter が組み合わせて動作すること。
 - Markdown import/export が frontmatter を含めて動作すること。
