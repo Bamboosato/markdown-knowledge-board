@@ -280,6 +280,11 @@ editor header には以下を配置する。
   - 相対パスの `.md` / `.markdown` リンクを押すと、リンク先ファイル名から拡張子を除いた文字列とタイトルが完全一致する保存済みノートを検索し、そのノートのPreview先頭へ移動する。URL queryとfragmentはタイトル照合に使用しない。
   - 対象ノートがない場合は `Note not found: {title}`、同名ノートが複数ある場合は `Multiple notes found: {title}` と通知し、画面遷移しない。外部URL、絶対パス、ページ内リンク、対象外拡張子は通常リンクとして扱う。
   - リンク元に未保存変更がある場合は既存の未保存確認を表示し、SaveまたはDiscardの完了後のみ移動する。Cancelではリンク元のPreviewを維持する。現在のFilter条件は変更しない。
+  - editor tab row右端に、H1〜H3を文書順に抽出する `Table of contents` アイコンボタンを表示する。見出しがない場合はdisabledとし、Tooltipを `No headings` とする。EditとSlidesでは表示しない。
+  - TOCは本文領域を狭めないカード型ポップオーバーとし、見出しlevelに応じてH1、H2、H3をインデントする。最大高は320pxとし、超過分はポップオーバー内でスクロールする。
+  - TOC項目選択時は、desktopでは `.mdPreview-scroll` 内、mobileではdocumentを対象見出しまで移動し、固定ヘッダーで見出しが隠れないoffsetを確保する。通常はsmooth、`prefers-reduced-motion: reduce` では即時移動とする。
+  - TOCは項目選択、外側pointer選択、Escape、表示mode変更、選択ノートまたは本文変更で閉じる。keyboardで開いた場合は最初の項目、Escapeではトリガー、項目選択後は移動先見出しへフォーカスする。
+  - TOCの生成、開閉、移動はdirty状態および保存データを変更しない。詳細は [Preview目次（TOC）要件定義](./preview-toc-requirements.md) と [Preview目次（TOC）詳細設計](./preview-toc-design.md) に従う。
   - `mermaid` fenced code block は Mermaid 図として表示する。
   - Mermaid 図は `Diagram` / `Code` を切り替えられる。
   - 本文が空の場合は `プレビューする内容がありません` を表示する。
