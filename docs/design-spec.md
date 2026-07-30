@@ -2,6 +2,8 @@
 
 作成日: 2026-07-09
 
+最終更新日: 2026-07-30
+
 ## 1. 概要
 
 Markdown Knowledge Board は、Markdown 形式のノートをブラウザ内で管理するローカル専用の React アプリケーションである。
@@ -767,4 +769,29 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 - 保存状態がユーザーに誤解されないこと。
 - 削除、未保存変更、バックアップなどの確認/通知が十分であること。
 - キーボード操作とスクリーンリーダー利用に必要な semantics があること。
+
+## 14. フェーズ2拡張設計（未実装）
+
+任意の GitHub ログインと暗号化 Gist バックアップは、現行ローカル機能を維持した追加機能として設計する。本節の機能は現時点では未実装であり、上記 1～13 は現行実装の仕様を表す。
+
+### 14.1 方針
+
+- IndexedDB を引き続きローカルデータの正本とする。
+- 未ログイン、認証確認中、認証エラー、オフラインでもローカル編集・保存・import/export を妨げない。
+- GitHub App の認証と Gist 操作は Vercel Functions を経由し、token と client secret をブラウザ JavaScript へ渡さない。
+- Markdown はブラウザ内で AES-GCM により暗号化し、Gist とサーバーには暗号文だけを渡す。
+- backup/restore は利用者の明示操作だけで開始し、ログイン完了や通信復旧で自動実行しない。
+- restore は preview 後の安全な merge と単一 IndexedDB transaction を使用し、無警告の上書き・削除・部分反映を防ぐ。
+- Sign out と GitHub 連携解除で IndexedDB と Gist を削除しない。
+- `https://mkb.bamboosato.com/` と `https://markdown-knowledge-board.vercel.app/` を有効な別 Origin として扱う。
+- GitHub認証・クラウド機能はVercel Productionだけで提供し、Preview deploymentとlocalhostでは無効化する。Previewに本番秘密情報を配布せず、ローカル機能だけを利用可能とする。
+
+### 14.2 設計文書
+
+- [フェーズ2 認証・クラウドバックアップ要件定義](./phase2-auth-cloud-backup-requirements.md)
+- [フェーズ2 認証・クラウドバックアップ基本設計](./phase2-auth-cloud-backup-architecture.md)
+- [フェーズ2 API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)
+- [フェーズ2 フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)
+
+実装時は上記文書の要件 ID とテスト観点をトレースし、実装完了後に本書 1～13 の技術構成、データ設計、画面仕様、状態管理、エラー仕様を実装内容へ同期する。
 
