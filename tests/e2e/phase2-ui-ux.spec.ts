@@ -422,8 +422,43 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await createSavedNote(
       page,
       "A-very-long-note-title-without-breakable-spaces-that-must-stay-inside-the-sidebar",
-      "# Header overflow note"
+      "# Header overflow note",
+      [
+        "a-very-long-tag-without-breakable-spaces-that-must-be-truncated",
+        "mobile",
+        "design",
+      ]
     );
+
+    const noteCard = page.locator(".note-item:not(.empty)");
+    const noteTitle = noteCard.locator(".note-title");
+    const noteTags = noteCard.locator(".note-tags");
+    const longTag = noteCard.locator(".note-tag").first();
+    await expect(noteTitle).toHaveAttribute(
+      "title",
+      "A-very-long-note-title-without-breakable-spaces-that-must-stay-inside-the-sidebar"
+    );
+    await expect(noteTitle).toHaveCSS("white-space", "nowrap");
+    await expect(noteTitle).toHaveCSS("text-overflow", "ellipsis");
+    await expect(noteTags).toHaveCSS("flex-wrap", "nowrap");
+    await expect(noteTags).toHaveCSS("overflow-x", "hidden");
+    await expect(noteCard.locator(".note-tag")).toHaveCount(3);
+    await expect(longTag).toHaveAttribute(
+      "title",
+      "a-very-long-tag-without-breakable-spaces-that-must-be-truncated"
+    );
+    await expect(longTag).toHaveCSS("border-radius", "4px");
+    await expect(longTag).toHaveCSS("text-overflow", "ellipsis");
+    const truncationMetrics = await noteCard.evaluate((card) => {
+      const title = card.querySelector<HTMLElement>(".note-title")!;
+      const tag = card.querySelector<HTMLElement>(".note-tag")!;
+      return {
+        titleIsTruncated: title.scrollWidth > title.clientWidth,
+        tagIsTruncated: tag.scrollWidth > tag.clientWidth,
+      };
+    });
+    expect(truncationMetrics.titleIsTruncated).toBe(true);
+    expect(truncationMetrics.tagIsTruncated).toBe(true);
 
     const overflowMetrics = await page.evaluate(() => {
       const sidebar = document.querySelector<HTMLElement>(".sidebar");
@@ -1032,7 +1067,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await page.keyboard.press("Enter");
     const selectedTagChip = page.locator(".tag-chip", { hasText: "UI/UX" });
     await expect(selectedTagChip).toBeVisible();
-    await expect(selectedTagChip).toHaveCSS("border-radius", "8px");
+    await expect(selectedTagChip).toHaveCSS("border-radius", "4px");
     await expect(
       suggestions.getByRole("option", { name: "UI/UX" })
     ).toHaveCount(0);
@@ -1108,7 +1143,9 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     ).toHaveCount(0);
 
     await page.keyboard.press("Enter");
-    await expect(dialog.locator(".tag-chip", { hasText: "UI/UX" })).toBeVisible();
+    const filterTagChip = dialog.locator(".tag-chip", { hasText: "UI/UX" });
+    await expect(filterTagChip).toBeVisible();
+    await expect(filterTagChip).toHaveCSS("border-radius", "4px");
     await expect(tagFilterInput).toHaveValue("");
     await expect(
       filterSuggestions.getByRole("option", { name: "UI/UX" })

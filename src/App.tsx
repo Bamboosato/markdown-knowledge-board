@@ -1645,6 +1645,7 @@ function App() {
     if (!canContinue) {
       return;
     }
+    setIsEditorExpanded(false);
     setMobileView("notes");
   };
 
@@ -1986,16 +1987,7 @@ function App() {
               onChange={handleImport}
             />
           </div>
-          <button
-            className="mobile-back-button secondary-button"
-            type="button"
-            onClick={handleShowNotes}
-          >
-            Notes
-          </button>
           <h1 className="app-title">Markdown Knowledge Board</h1>
-        </div>
-        <div className="editor-actions">
           <div className="editor-status" aria-label="Editor status" aria-live="polite">
             <span className={`status-indicator status-${editorStatus.tone}`}>
               <span className="sr-only">Status: </span>
@@ -2003,6 +1995,16 @@ function App() {
               <span>{editorStatus.label}</span>
             </span>
           </div>
+        </div>
+        <div className="editor-actions">
+          <button
+            className="mobile-back-button secondary-button"
+            type="button"
+            aria-label="Notes"
+            onClick={handleShowNotes}
+          >
+            ＜ NOTES
+          </button>
           <button
             className="primary-button tooltip-button"
             type="button"
@@ -2174,7 +2176,18 @@ function App() {
                     }
                   }}
                 >
-                  <div className="note-title">{note.title || "Untitled"}</div>
+                  <div className="note-title" title={note.title || "Untitled"}>
+                    {note.title || "Untitled"}
+                  </div>
+                  {note.tags.length > 0 ? (
+                    <div className="note-tags">
+                      {note.tags.map((tag) => (
+                        <span className="note-tag" key={tag} title={tag}>
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="note-meta">{formatDate(note.updatedAt)}</div>
                 </li>
               ))
