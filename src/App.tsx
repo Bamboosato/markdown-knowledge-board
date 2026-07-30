@@ -154,6 +154,31 @@ function filenameToTitle(name: string): string {
   return name.replace(/\.(?:md|markdown|txt)$/i, "").trim();
 }
 
+function getPreviewNoteLinkTitle(href: string): string | null {
+  if (
+    href.startsWith("#") ||
+    href.startsWith("/") ||
+    href.startsWith("//") ||
+    /^[a-z][a-z\d+.-]*:/i.test(href)
+  ) {
+    return null;
+  }
+
+  const pathname = href.split(/[?#]/, 1)[0];
+  const encodedFilename = pathname.split("/").pop();
+  if (!encodedFilename || !/\.(?:md|markdown)$/i.test(encodedFilename)) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(encodedFilename)
+      .replace(/\.(?:md|markdown)$/i, "")
+      .trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 function createId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -461,6 +486,7 @@ function App() {
   const isDirtyRef = useRef(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [lastSaveError, setLastSaveError] = useState<string | null>(null);
+  const [previewLinkNotice, setPreviewLinkNotice] = useState<string | null>(null);
   const [mobileView, setMobileView] = useState<MobileView>("notes");
   const [unsavedDialog, setUnsavedDialog] =
     useState<UnsavedDialogState | null>(null);
@@ -532,6 +558,14 @@ function App() {
     () => new Set(getTaskLineIndexes(draftBody)),
     [draftBody]
   );
+
+  useEffect(() => {
+    if (!previewLinkNotice) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => setPreviewLinkNotice(null), 4000);
+    return () => window.clearTimeout(timeoutId);
+  }, [previewLinkNotice]);
 
   useLayoutEffect(() => {
     if (scrollPositionNoteIdRef.current !== selectedId) {
@@ -1608,6 +1642,38 @@ function App() {
     setSlideIndex(0);
   };
 
+  const handlePreviewNoteLink = async (targetTitle: string) => {
+    const matches = notes.filter((note) => note.title === targetTitle);
+    if (matches.length === 0) {
+      setPreviewLinkNotice(`Note not found: ${targetTitle}`);
+      return;
+    }
+    if (matches.length > 1) {
+      setPreviewLinkNotice(`Multiple notes found: ${targetTitle}`);
+      return;
+    }
+
+    const canContinue = await confirmUnsavedTransition("open the linked note");
+    if (!canContinue) {
+      return;
+    }
+
+    const targetNote = matches[0];
+    previewScrollTopRef.current = 0;
+    previewAnchorRef.current = null;
+    if (previewRef.current) {
+      previewRef.current.scrollTop = 0;
+    }
+    setPreviewLinkNotice(null);
+    setIsEditorExpanded(false);
+    setSelectedId(targetNote.id);
+    resetDraft(targetNote);
+    setMobileView("editor");
+    setActiveTab("preview");
+    setPreviewMountedForNoteId(targetNote.id);
+    setSlideIndex(0);
+  };
+
   const handleChangeTab = (nextTab: ActiveTab) => {
     if (activeTab === "edit" && bodyRef.current) {
       editScrollTopRef.current = bodyRef.current.scrollTop;
@@ -2650,6 +2716,24 @@ function App() {
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
+                    a: ({ href, onClick, ...props }) => (
+                      <a
+                        {...props}
+                        href={href}
+                        onClick={(event) => {
+                          onClick?.(event);
+                          if (event.defaultPrevented || !href) {
+                            return;
+                          }
+                          const targetTitle = getPreviewNoteLinkTitle(href);
+                          if (!targetTitle) {
+                            return;
+                          }
+                          event.preventDefault();
+                          void handlePreviewNoteLink(targetTitle);
+                        }}
+                      />
+                    ),
                     input: () => null,
                     pre: ({ children }) => {
                       const codeElement = Array.isArray(children)
@@ -3071,6 +3155,11 @@ function App() {
           >
             Undo
           </button>
+        </div>
+      ) : null}
+      {previewLinkNotice ? (
+        <div className="preview-link-toast" role="status" aria-live="polite">
+          {previewLinkNotice}
         </div>
       ) : null}
     </div>

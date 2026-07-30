@@ -1002,6 +1002,104 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     );
   });
 
+  test("opens a matching relative Markdown link in the linked note preview", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await createSavedNote(
+      page,
+      "phase2-auth-cloud-backup-architecture",
+      "# Linked architecture preview\n\nDestination content"
+    );
+    await createSavedNote(
+      page,
+      "Link source",
+      "[基本設計](./phase2-auth-cloud-backup-architecture.md?view=preview#top)"
+    );
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole("button", { name: "Preview" }).click();
+    await page.getByRole("link", { name: "基本設計" }).click();
+
+    await expect(
+      page.getByRole("heading", { name: "Linked architecture preview" })
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Preview" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    await expect(page.getByRole("button", { name: "Notes" })).toBeVisible();
+  });
+
+  test("keeps the current preview when a note link is missing or ambiguous", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await createSavedNote(page, "Duplicate", "# First duplicate");
+    await createSavedNote(page, "Duplicate", "# Second duplicate");
+    await createSavedNote(
+      page,
+      "Link diagnostics",
+      [
+        "# Link diagnostics preview",
+        "",
+        "[Missing](./Missing.md)",
+        "[Duplicate](../notes/Duplicate.markdown)",
+        "[External](https://example.com/reference.md)",
+      ].join("\n")
+    );
+    await page.getByRole("button", { name: "Preview" }).click();
+    const currentUrl = page.url();
+
+    await page.getByRole("link", { name: "Missing" }).click();
+    await expect(page.getByRole("status")).toHaveText("Note not found: Missing");
+    expect(page.url()).toBe(currentUrl);
+    await expect(
+      page.getByRole("heading", { name: "Link diagnostics preview" })
+    ).toBeVisible();
+
+    await page.getByRole("link", { name: "Duplicate" }).click();
+    await expect(page.getByRole("status")).toHaveText(
+      "Multiple notes found: Duplicate"
+    );
+    expect(page.url()).toBe(currentUrl);
+    await expect(page.getByRole("link", { name: "External" })).toHaveAttribute(
+      "href",
+      "https://example.com/reference.md"
+    );
+  });
+
+  test("honors unsaved confirmation before following a note preview link", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await createSavedNote(page, "Linked target", "# Confirmed destination");
+    await createSavedNote(
+      page,
+      "Unsaved link source",
+      "# Source preview\n\n[Target](./Linked%20target.md)"
+    );
+    await page.getByLabel("Body").fill(
+      "# Source preview\n\nUnsaved text\n\n[Target](./Linked%20target.md)"
+    );
+    await page.getByRole("button", { name: "Preview" }).click();
+
+    await page.getByRole("link", { name: "Target" }).click();
+    await expect(page.getByRole("dialog", { name: "Unsaved Changes" })).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByText("Unsaved text", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Confirmed destination" })).toHaveCount(0);
+
+    await page.getByRole("link", { name: "Target" }).click();
+    await page.getByRole("button", { name: "Discard and Continue" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Confirmed destination" })
+    ).toBeVisible();
+  });
+
   test("shows tag suggestions as a focused dropdown with filtering", async ({
     page,
   }) => {
