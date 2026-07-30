@@ -89,6 +89,8 @@ export type Note = {
   body: string;
   tags: string[];
   updatedAt: number;
+  marp?: MarpSettings;
+  customMetadata?: CustomMetadata;
 };
 ```
 
@@ -101,6 +103,8 @@ export type Note = {
 | `body` | `string` | Markdown 本文。 |
 | `tags` | `string[]` | ノートに紐づくタグ。重複判定は小文字化した値で行う。 |
 | `updatedAt` | `number` | 更新日時。Unix epoch milliseconds。 |
+| `marp` | `MarpSettings`（任意） | Slides表示とExportに使用するMarp metadata。 |
+| `customMetadata` | `Record<string, FrontmatterValue>`（任意） | 標準属性以外の安全な任意frontmatter属性。Bodyとは分離して保持する。 |
 
 ## 5. 保存設計
 
@@ -241,8 +245,10 @@ editor header には以下を配置する。
   - 候補はクリック、ArrowUp / ArrowDown、Enter で選択できる。
   - Escape または入力欄外フォーカスで候補を閉じる。
 - Title / Tags
-  - 入力内容を読み取りやすくするため縦2行に配置する。
-  - 各行はラベルと入力欄を横並びにして、Body 上部の占有高さを抑える。
+  - Editor内容領域が760px以上の場合は、`Title`ラベル、Title入力欄、`Tags`ラベル、Tags入力欄の順で、ラベルを含めて同じ1行へ配置する。
+  - 入力欄へ配分する利用可能幅はTitle約40%、Tags約60%とし、ラベルと入力欄を垂直中央に揃える。
+  - Editor内容領域が760px未満の場合は、Title行とTags行を分け、各行でラベルと入力欄を横並びにする。
+  - Tags chipはTags入力欄内で折り返し、画面全体の横スクロールを発生させない。
   - 編集画面の表示ラベルをタップしても入力欄へフォーカスさせない。
   - 入力欄へのフォーカスは入力欄自体をタップした場合のみ行う。
 - Body
@@ -272,6 +278,9 @@ editor header には以下を配置する。
 
 - `Edit`
   - Title / Tags を表示する。
+  - desktopではTagsとBodyの間に折りたたみ式のFrontmatterセクションを表示する。Export previewはTitle、Tagsを含むExport完成形をread-onlyで示し、Custom metadataだけをYAMLで編集可能にする。
+  - Export previewとCustom metadataは各160px固定高・欄内スクロールとし、有効なCustom metadataはSave前にリアルタイム反映する。不正YAMLでは最後の有効previewを維持してSaveを抑止する。
+  - `max-width: 900px`ではFrontmatterセクションを表示しない。mobileで他項目を保存してもCustom metadataは保持する。
   - Markdown toolbar と textarea を表示する。
 - `Preview`
   - Preview 表示領域を広げるため、Title / Tags は表示しない。
@@ -416,10 +425,11 @@ Sidebar の `Import Markdown` から複数の `.md`、`.markdown`、`.txt` フ�
 6. body は frontmatter 除去後の本文を使う。frontmatter がなければファイル全文を使う。
 7. tags は frontmatter の `tags` が文字列配列の場合のみ復元する。
 8. updatedAt は frontmatter の `updatedAt` を number または parse 可能な date string として復元する。なければ現在時刻。
-9. 重複判定は `id` を優先し、次に現行データモデルで扱える `title + updatedAt` の一致を見る。
-10. 同一内容なら skipped、差分があれば updated、重複がなければ added として IndexedDB に保存する。
-11. import 結果ダイアログで added / updated / skipped / failed を表示する。
-12. 失敗したファイルはファイル名と理由を表示し、成功分は保存する。
+9. 対応済みの標準属性とMarp属性を除いた未知属性は、安全な値型であればCustom metadataとして復元する。
+10. 重複判定は `id` を優先し、次に現行データモデルで扱える `title + updatedAt` の一致を見る。
+11. 同一内容なら skipped、差分があれば updated、重複がなければ added として IndexedDB に保存する。
+12. import 結果ダイアログで added / updated / skipped / failed を表示する。
+13. 失敗したファイルはファイル名と理由を表示し、成功分は保存する。
 
 ### 7.10 エクスポート
 
@@ -432,6 +442,8 @@ Sidebar の `Import Markdown` から複数の `.md`、`.markdown`、`.txt` フ�
   - `title`
   - `tags`
   - `updatedAt`
+  - 有効なMarp属性
+  - Custom metadata
 - body
   - body が H1 で始まらない場合、`# {note.title}` を本文先頭に追加する。
 
@@ -452,6 +464,7 @@ Sidebar の `Import Markdown` から複数の `.md`、`.markdown`、`.txt` フ�
   - `title`
   - `tags`
   - `updatedAt`
+  - `customMetadata`
   - `markdown`: Markdown export と同じ frontmatter 付き本文
 
 実行後:
@@ -627,6 +640,9 @@ Markdown が `---` で始まり、2 つ目の `---` が存在する場合、そ�
 
 frontmatter が存在しない、または閉じ delimiter が存在しない場合は、全文を body として扱う。
 未対応の Marp theme / size や型不一致の Marp fields は採用せず、既定値に fallback する。
+対応済み属性を除く未知属性はCustom metadataとして保持する。Custom metadataはYAML mappingをrootとし、string、number、boolean、null、配列、入れ子mappingを許可する。危険なkeyまたは安全に保持できない値は拒否する。
+
+次のkeyはアプリまたは既存UIが管理する予約属性とし、Custom metadataからの指定を許可しない: `id`、`title`、`tags`、`updatedAt`、`marp`、`theme`、`size`、`paginate`、`headingDivider`。
 
 ### 8.2 export
 
@@ -645,6 +661,8 @@ marp: true
 theme: default
 size: 16:9
 paginate: true
+author: Bamboo
+status: draft
 ---
 # Example
 
@@ -652,6 +670,8 @@ Body text
 ```
 
 Marp Off の場合、`marp` は `false` として出力するか、Marp fields を省略してよい。初期実装では frontmatter の簡潔さを優先し、Marp Off のノートでは `marp` / `theme` / `size` / `paginate` / `headingDivider` を省略する。Marp On かつ Heading divider Off の場合も `headingDivider` は省略する。
+
+Edit画面のFrontmatter機能は、標準属性とCustom metadataを統合した同じ生成処理をExport previewと実Exportで共有する。詳細は [Frontmatter表示・編集 要件定義](./frontmatter-editor-requirements.md) と [Frontmatter表示・編集 詳細設計](./frontmatter-editor-design.md) に従う。
 
 ## 9. 状態管理
 
@@ -673,6 +693,9 @@ Marp Off の場合、`marp` は `false` として出力するか、Marp fields �
 | `draftMarpPaginate` | 編集中ノートの Marp page number 表示 |
 | `draftMarpHeadingDivider` | 編集中ノートの heading divider。Off または `1`〜`6` |
 | `draftUpdatedAt` | 編集中更新日時 |
+| `draftCustomYaml` | Custom metadata編集欄のYAML文字列。syntax error時も入力値を保持する。 |
+| `draftCustomMetadata` | 最後にparse成功したCustom metadata。Export preview生成に使用する。 |
+| `customMetadataError` | YAML syntax、root型、予約属性、安全性検証のerror。 |
 | `isDirty` | 未保存変更有無 |
 | `dbError` | IndexedDB 初期化エラー |
 | `searchQuery` | 適用済み検索語 |
@@ -696,6 +719,7 @@ Marp Off の場合、`marp` は `false` として出力するか、Marp fields �
 `MarpSlides` component は Slides render 状態として loading / rendered / unavailable / error / empty / too-large を局所 state に保持する。
 
 Marp 設定を変更した場合は本文編集と同じく dirty 状態にする。保存時は `Note` の Marp metadata として保持し、Export / Backup では YAML frontmatter に出力する。
+Custom metadataを変更した場合もdirty状態にする。有効な変更は保存対象とし、errorがある場合はSave、Save and Continueを抑止してFrontmatter入力へ誘導する。RevertまたはDiscardは保存済みCustom metadataへ戻す。
 
 ## 10. エラー/異常系仕様
 
@@ -742,6 +766,13 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 - ノート切替時の未保存確認は `保存して移動` と `移動中止` の 2 択であり、破棄して移動する選択肢はない。
 - mobile 幅では editor の高さ/overflow 仕様により、操作領域の扱いを見直す余地がある。
 
+### 10.2 Custom metadata不正
+
+- YAML syntax error、mapping以外のroot、予約属性、安全でないkeyまたは過大な構造をerrorとする。
+- error時は入力を失わず、最後に有効だったExport previewを維持する。
+- Saveを実行せず、desktopではFrontmatterセクションを展開して入力欄へfocusする。
+- mobileでは編集UIを表示しないため、既に保存済みのCustom metadataをそのまま維持する。
+
 ## 13. 検証観点
 
 ### 13.1 機能観点
@@ -752,6 +783,8 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 - title/body/tags の編集内容が保存後に復元できること。
 - search と tag filter が組み合わせて動作すること。
 - Markdown import/export が frontmatter を含めて動作すること。
+- FrontmatterのExport previewがTitle、Tags、Marp設定、Custom metadataのdraftをリアルタイムに反映すること。
+- Custom metadataの保存、Revert、Import／Export／Backup roundtripと、不正YAML時のSave抑止が動作すること。
 - Preview で Markdown と GFM task list が表示されること。
 - Preview のタスクチェック切替が本文の該当行を更新すること。
 
@@ -760,17 +793,23 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 - IndexedDB が使えない場合に UI が破綻しないこと。
 - build/lint/audit が通ること。
 - 大量ノートまたは長文 Markdown でも操作不能にならないこと。
+- 多数または長いCustom metadataでも入力と欄内スクロールが継続でき、入力タイミングで古いparse結果が反映されないこと。
 
 ### 13.3 データ観点
 
-- `Note` の `id`, `title`, `body`, `tags`, `updatedAt` が欠けないこと。
+- `Note` の `id`, `title`, `body`, `tags`, `updatedAt`, Custom metadata が欠けないこと。
 - frontmatter の invalid data を誤って採用しないこと。
+- 予約属性と危険なkeyをCustom metadataとして採用せず、未知の安全な属性はroundtripで保持すること。
 - 同名タグ、大小文字違いタグの重複扱いが一貫すること。
 - import/export 後に Markdown 本文が意図せず変形しないこと。
 
 ### 13.4 UI 観点
 
 - desktop と mobile で主要操作に到達できること。
+- desktopではFrontmatterがTagsとBodyの間に表示され、read-onlyとeditable領域を識別できること。
+- Export previewとCustom metadataが各160px固定高で内部スクロールし、900px以下ではFrontmatter UIがfocus順を含めて非表示になること。
+- Editor内容領域760px以上ではTitle／Tagsがラベルを含む1行4要素となり、760px未満では2行へ戻ること。
+- Title／Tagsの垂直中央揃え、Tags chipの欄内折り返し、横overflow非発生を確認すること。
 - 保存状態がユーザーに誤解されないこと。
 - 削除、未保存変更、バックアップなどの確認/通知が十分であること。
 - キーボード操作とスクリーンリーダー利用に必要な semantics があること。
