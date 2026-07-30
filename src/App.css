@@ -142,7 +142,7 @@
 }
 
 .note-count {
-  margin-top: 3px;
+  margin-top: 2px;
   color: #666;
   font-size: 0.82rem;
 }
@@ -222,7 +222,34 @@
 
 .note-title {
   font-weight: 600;
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-tags {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.note-tag {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(12rem, 100%);
+  overflow: hidden;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: #ededed;
+  color: #444;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
 }
 
 .note-meta {
@@ -1655,7 +1682,7 @@
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: 4px;
   background: #1d1d1d;
   color: #ffffff;
   font-size: 0.85rem;
@@ -1929,7 +1956,7 @@
     padding: 6px 16px 8px;
   }
 
-  .app.mobile-notes .mobile-back-button,
+  .app.mobile-notes .editor-status,
   .app.mobile-notes .editor-actions {
     display: none;
   }
@@ -1942,10 +1969,32 @@
 
   .mobile-back-button {
     display: inline-flex;
+    margin-right: auto;
     width: fit-content;
   }
 
+  .editor-actions > .mobile-back-button {
+    align-items: center;
+    justify-content: flex-start;
+    min-width: 0;
+    min-height: var(--control-compact-height);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #3f3f3f;
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.06em;
+  }
+
+  .editor-actions > .mobile-back-button:hover {
+    background: transparent;
+    text-decoration: underline;
+  }
+
   .app-title {
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     font-size: 1.1rem;
@@ -1964,7 +2013,8 @@
     min-width: 88px;
   }
 
-  .editor-actions .editor-status {
+  .editor-title-row .editor-status {
+    flex: 0 0 auto;
     white-space: nowrap;
   }
 

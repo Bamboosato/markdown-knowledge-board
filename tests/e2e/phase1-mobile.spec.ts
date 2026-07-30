@@ -6,22 +6,47 @@ test.describe("Phase 1 mobile workflow", () => {
   }) => {
     await page.goto("/");
 
+    const notesLabelBox = await page.locator(".section-title", { hasText: "Notes" }).boundingBox();
+    const noteCountBox = await page.locator(".note-count").boundingBox();
+    expect(notesLabelBox).not.toBeNull();
+    expect(noteCountBox).not.toBeNull();
+    expect(noteCountBox!.y - (notesLabelBox!.y + notesLabelBox!.height)).toBe(2);
+
     await page.getByRole("button", { name: /new note/i }).click();
     await expect(
       page.getByRole("heading", { name: "Markdown Knowledge Board" })
     ).toBeVisible();
     await expect(page.getByText("Status: Draft")).toBeVisible();
 
-    const [statusBox, saveBox] = await Promise.all([
+    const [titleBox, statusBox, notesBox, saveBox] = await Promise.all([
+      page.getByRole("heading", { name: "Markdown Knowledge Board" }).boundingBox(),
       page.getByLabel("Editor status").boundingBox(),
+      page.getByRole("button", { name: "Notes" }).boundingBox(),
       page.getByRole("button", { name: /^Save$/ }).boundingBox(),
     ]);
+    expect(titleBox).not.toBeNull();
     expect(statusBox).not.toBeNull();
+    expect(notesBox).not.toBeNull();
     expect(saveBox).not.toBeNull();
+    const titleCenterY = titleBox!.y + titleBox!.height / 2;
     const statusCenterY = statusBox!.y + statusBox!.height / 2;
     const saveCenterY = saveBox!.y + saveBox!.height / 2;
-    expect(Math.abs(statusCenterY - saveCenterY)).toBeLessThanOrEqual(1);
+    const notesCenterY = notesBox!.y + notesBox!.height / 2;
+    expect(Math.abs(titleCenterY - statusCenterY)).toBeLessThanOrEqual(1);
+    expect(Math.abs(notesCenterY - saveCenterY)).toBeLessThanOrEqual(1);
+    expect(statusBox!.x).toBeGreaterThan(titleBox!.x);
+    expect(notesBox!.x).toBeLessThan(saveBox!.x);
+    expect(notesBox!.y).toBeGreaterThan(titleBox!.y);
     expect(saveBox!.width).toBeLessThan(140);
+    const notesLink = page.getByRole("button", { name: "Notes" });
+    await expect(notesLink).toHaveText("＜ NOTES");
+    await expect(notesLink).toHaveCSS("border-top-width", "0px");
+    await expect(notesLink).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(notesLink).toHaveCSS("align-items", "center");
+    await expect(notesLink).toHaveCSS("font-size", "14.4px");
+    await expect(notesLink).toHaveCSS("font-weight", "600");
+    await expect(notesLink).toHaveCSS("letter-spacing", "0.864px");
+    await expect(notesLink).toHaveCSS("line-height", "14.4px");
     const headerBounds = await page.evaluate(() => {
       const header = document.querySelector<HTMLElement>(".editor-header")!;
       const titleRow = document.querySelector<HTMLElement>(".editor-title-row")!;
@@ -88,5 +113,51 @@ test.describe("Phase 1 mobile workflow", () => {
     await expect(page.getByLabel("Body")).toHaveValue(
       "# Phase 1\n\n- [ ] Verify mobile editor"
     );
+  });
+
+  test("keeps the desktop title, status, and save action on one row", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await page.getByRole("button", { name: /new note/i }).click();
+
+    const [titleBox, statusBox, saveBox] = await Promise.all([
+      page.getByRole("heading", { name: "Markdown Knowledge Board" }).boundingBox(),
+      page.getByLabel("Editor status").boundingBox(),
+      page.getByRole("button", { name: /^Save$/ }).boundingBox(),
+    ]);
+    expect(titleBox).not.toBeNull();
+    expect(statusBox).not.toBeNull();
+    expect(saveBox).not.toBeNull();
+
+    const centers = [titleBox!, statusBox!, saveBox!].map(
+      (box) => box.y + box.height / 2
+    );
+    expect(Math.max(...centers) - Math.min(...centers)).toBeLessThanOrEqual(1);
+    expect(statusBox!.x).toBeGreaterThan(titleBox!.x);
+    await expect(page.getByRole("button", { name: "Notes" })).toBeHidden();
+  });
+
+  test("restores the notes list when leaving an expanded mobile editor", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /new note/i }).click();
+    await page.getByRole("button", { name: "Expand editor" }).click();
+    await expect(page.locator(".app")).toHaveClass(/editor-expanded/);
+
+    await page.getByRole("button", { name: "Notes" }).click();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.locator(".app")).toHaveClass(/editor-expanded/);
+    await expect(page.getByRole("button", { name: "Restore editor" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Notes" }).click();
+    await page.getByRole("button", { name: "Discard and Continue" }).click();
+
+    await expect(page.locator(".app")).not.toHaveClass(/editor-expanded/);
+    await expect(page.locator(".sidebar")).toBeVisible();
+    await expect(page.getByRole("button", { name: /new note/i })).toBeVisible();
+    await expect(page.getByRole("main")).toBeHidden();
   });
 });
