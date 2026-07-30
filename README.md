@@ -41,7 +41,17 @@ npm run build
 
 - ブラウザの IndexedDB（DB名: `markdown-knowledge-board`）に保存します。
 
+## 設計ドキュメント
+
+- [現行設計仕様](./docs/design-spec.md)
+- [フェーズ2 認証・クラウドバックアップ要件定義](./docs/phase2-auth-cloud-backup-requirements.md)
+- [フェーズ2 認証・クラウドバックアップ基本設計](./docs/phase2-auth-cloud-backup-architecture.md)
+- [フェーズ2 API・認証詳細設計](./docs/phase2-auth-cloud-backup-api-design.md)
+- [フェーズ2 フロントエンド詳細設計](./docs/phase2-auth-cloud-backup-frontend-design.md)
+
+フェーズ2の認証・クラウドバックアップは設計段階であり、現行アプリには未実装です。実装後も IndexedDB をローカルデータの正本とし、GitHub ログインは任意とします。GitHub認証・クラウド機能はVercel Productionの2つの本番Originだけで提供し、Preview環境ではローカル機能だけを有効にする方針です。
+
 ## 制限事項
 
-- 外部API通信は行いません（完全ローカル）。
+- 現行実装では外部API通信は行いません（完全ローカル）。
 - ブラウザのストレージ容量の制限に依存します。

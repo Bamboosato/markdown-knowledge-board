@@ -47,7 +47,7 @@
 | --- | --- |
 | 正常系 | 未ログインでの全ローカル操作、ログイン成功、クラウドバックアップ成功、安全なマージ復元、Sign out、再ログイン |
 | 異常系 | 認証キャンセル、認証エラー、401、403、404、通信切断、タイムアウト、API 制限、暗号パスフレーズ誤り、Gist 破損、IndexedDB 書き込み失敗 |
-| 境界値 | 0件、1件、多数ノート、空本文、長文、1 MB 超、10 MB 上限、同一 ID・同一日時・異内容、複数候補 Gist、別 GitHub アカウント |
+| 境界値 | 0件、1件、多数ノート、空本文、長文、1 MB 超、4.5 MB 上限、同一 ID・同一日時・異内容、複数候補 Gist、別 GitHub アカウント |
 | 状態遷移 | 認証状態、未保存状態、バックアップ処理状態、復元処理状態、オンライン／オフライン切替、再認証 |
 
 ### 3.3 前提条件と実行方針
@@ -154,7 +154,7 @@ flowchart LR
 - callback URL を任意の query、未検証の `Host` / `X-Forwarded-Host`、任意の環境変数値から組み立てない。
 - session Cookie は各 origin の host-only Cookie とし、`Domain=.bamboosato.com` を指定しない。
 - IndexedDB、localStorage、session Cookie は origin ごとに分離される。2つの URL 間でローカルノート、バックアップ日時、認証状態が自動共有されると利用者へ誤認させない。
-- Preview deployment とローカル開発の callback URL は、本番用2 URL と分離した明示的な allowlist で管理する。
+- GitHub認証とクラウドバックアップは上記2つのProduction Originだけで提供する。Vercel Preview deploymentとlocalhostはcallback allowlistへ登録しない。
 
 ## 7. 機能要件
 
@@ -248,7 +248,7 @@ flowchart LR
 | BACKUP-015 | キャンセル、暗号化失敗、通信失敗、API 失敗の場合はクラウド最終バックアップ日時を更新しない。 |
 | BACKUP-016 | バックアップ失敗時に IndexedDB のノートを変更しない。 |
 | BACKUP-017 | Gist 上には暗号化エンベロープだけを保存し、Markdown 平文を保存しない。 |
-| BACKUP-018 | 1ファイルの暗号化後サイズは 10,000,000 bytes 以下とする。上限超過時はアップロードせず、ローカル JSON バックアップを案内する。 |
+| BACKUP-018 | 1ファイルの暗号化後サイズは 4,500,000 bytes 以下（4.5 MB）とする。上限超過時はアップロードせず、ローカル JSON バックアップを案内する。 |
 | BACKUP-019 | Gist の自動削除機能を実装しない。 |
 
 ### 7.7 クラウドからの復元
@@ -285,6 +285,16 @@ flowchart LR
 | OFFLINE-003 | オフライン時はクラウド操作を実行せず、`Offline` と再試行可能であることを表示する。 |
 | OFFLINE-004 | 通信復旧時に自動バックアップまたは自動復元を開始しない。 |
 | OFFLINE-005 | 完全オフラインでの新規起動または再読み込みは本フェーズの保証対象外とする。 |
+
+### 7.9 環境・デプロイ
+
+| ID | 要件 |
+| --- | --- |
+| ENV-001 | GitHub認証、Gistバックアップ、Gist復元を提供する環境はVercel Productionとし、6.3に記載した2つのProduction Originだけを許可する。 |
+| ENV-002 | Vercel Preview deploymentをPhase 2の認証・クラウド機能の検証環境または運用環境として使用しない。Preview URLをGitHub Appのcallback URLへ登録しない。 |
+| ENV-003 | Preview deploymentが自動生成される場合も、GitHubセクションを非表示または利用不可とし、認証・クラウドAPIはOriginを拒否する。Markdownのローカル機能は利用可能とする。 |
+| ENV-004 | GitHub client secret、session鍵などの本番秘密情報はVercelのProduction環境だけへ設定し、Preview環境へ配布しない。 |
+| ENV-005 | ローカル開発では実GitHub OAuthを使用せず、stub/mockで認証・クラウドフローを検証する。実GitHub結合確認は専用テストアカウントを用いてProductionで直列実行する。 |
 
 ## 8. データ・暗号化要件
 
@@ -491,7 +501,7 @@ validating -> conflicted
 | Gist リビジョン変更 | Remote backup changed | 変更しない | 復元または明示的置換 |
 | 暗号パスフレーズ誤り／改ざん | 復号エラー | 変更しない | 再入力または別バックアップ確認 |
 | 非対応 envelopeVersion | Unsupported backup | 変更しない | 対応版アプリを案内 |
-| 暗号文が10 MB超 | Size limit | 変更しない | ローカル JSON バックアップを案内 |
+| 暗号文が4.5 MB超 | Size limit | 変更しない | ローカル JSON バックアップを案内 |
 | IndexedDB restore failure | Restore failed | transaction rollback | 容量・ブラウザ設定確認後に再試行 |
 
 ## 12. 非機能要件
@@ -578,7 +588,7 @@ validating -> conflicted
 | T-BD-005 | ローカル側が新しい場合を検証する | 同一 ID、local updatedAt が新しい | ローカルを無確認で上書きしない |
 | T-BD-006 | 同一時刻・異内容の競合を検証する | 同一 ID・同一 updatedAt・異内容 | conflicted、明示確認なしに変更しない |
 | T-BD-007 | 1 MB 超の Gist 取得を検証する | `truncated: true` | raw_url から暗号文全体を取得し復号できる |
-| T-BD-008 | 10 MB 上限を検証する | 暗号化後 10,000,001 bytes | アップロードせず、ローカルバックアップを案内する |
+| T-BD-008 | 4.5 MB 上限を検証する | 暗号化後 4,500,001 bytes | アップロードせず、ローカルバックアップを案内する |
 | T-BD-009 | Unicode roundtrip を検証する | 日本語、絵文字、結合文字、改行 | backup/restore 後に本文と title が一致する |
 | T-BD-010 | 複数 Gist 候補を検証する | 同じ description/filename が2件 | 自動選択せず候補を表示する |
 | T-BD-011 | 別アカウント分離を検証する | Account A 保存後に Account B ログイン | A の Gist ID を B の操作に使用しない |
@@ -606,6 +616,7 @@ validating -> conflicted
 | T-UI-006 | ネットワーク差異を検証する | offline、低速、高遅延、timeout | ローカル編集継続、無限 spinner なし、原因に合う表示 |
 | T-UI-007 | ブラウザ差異を検証する | Chromium、Firefox、WebKit 系 | Web Crypto、Cookie、IndexedDB の主要フローが成立する |
 | T-UI-008 | 本番2 origin の認証境界を検証する | 独自ドメインと Vercel URL | どちらからもログインでき、開始元と異なる callback や外部 return URL が拒否される |
+| T-UI-009 | Vercel Previewの環境境界を検証する | Preview deployment URL | ローカル機能は利用できるがGitHubセクションは無効で、認証・クラウドAPIが拒否され、本番秘密情報が配布されない |
 
 ## 14. 優先度
 
@@ -630,15 +641,19 @@ validating -> conflicted
 - GitHub API をスタブ化した正常系・異常系・境界値・状態遷移 E2E が成功する。
 - 専用 GitHub テストアカウントによる、ログイン、バックアップ、別ブラウザ復元、Sign out、連携解除の結合確認が成功する。
 - `https://mkb.bamboosato.com/` と `https://markdown-knowledge-board.vercel.app/` の両方でアプリが正常応答し、それぞれの許可済み callback URL から認証フローを完了できる。
+- Vercel Preview deploymentではGitHub認証・クラウド機能が無効で、本番秘密情報が設定されず、既存ローカル機能だけを利用できる。
 - desktop と mobile の viewport-aware E2E で、メニュー、ダイアログ、結果表示が viewport 内に収まる。
 - Gist、ネットワーク payload、ブラウザストレージ、サーバーログに Markdown 平文、パスフレーズ、鍵、GitHub token が存在しないことを確認する。
-- 1 MB 超の Gist ファイル取得と 10 MB 上限の境界テストが成功する。
+- 1 MB 超の Gist ファイル取得と 4.5 MB 上限の境界テストが成功する。
 - 既存ローカル JSON バックアップ version 1 の roundtrip が維持される。
 - 実装完了後に README と現行 [design-spec.md](./design-spec.md) を実装内容へ同期する。
 
 ## 16. 参照資料
 
 - [Markdown Knowledge Board 現行設計仕様](./design-spec.md)
+- [フェーズ2 認証・クラウドバックアップ基本設計](./phase2-auth-cloud-backup-architecture.md)
+- [フェーズ2 API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)
+- [フェーズ2 フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)
 - [GitHub Docs: REST API endpoints for gists](https://docs.github.com/en/rest/gists/gists)
 - [GitHub Docs: Choosing permissions for a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app)
 - [GitHub Docs: Best practices for creating a GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/best-practices-for-creating-a-github-app)
