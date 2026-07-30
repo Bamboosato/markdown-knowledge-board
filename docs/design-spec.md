@@ -275,6 +275,9 @@ editor header には以下を配置する。
   - Preview 表示領域を広げるため、Title / Tags は表示しない。
   - 選択中のタブで表示モードを判別できるため、表示領域内に重複する `Preview` 見出しは表示しない。
   - `ReactMarkdown` で `draftBody` を表示する。
+  - 相対パスの `.md` / `.markdown` リンクを押すと、リンク先ファイル名から拡張子を除いた文字列とタイトルが完全一致する保存済みノートを検索し、そのノートのPreview先頭へ移動する。URL queryとfragmentはタイトル照合に使用しない。
+  - 対象ノートがない場合は `Note not found: {title}`、同名ノートが複数ある場合は `Multiple notes found: {title}` と通知し、画面遷移しない。外部URL、絶対パス、ページ内リンク、対象外拡張子は通常リンクとして扱う。
+  - リンク元に未保存変更がある場合は既存の未保存確認を表示し、SaveまたはDiscardの完了後のみ移動する。Cancelではリンク元のPreviewを維持する。現在のFilter条件は変更しない。
   - `mermaid` fenced code block は Mermaid 図として表示する。
   - Mermaid 図は `Diagram` / `Code` を切り替えられる。
   - 本文が空の場合は `プレビューする内容がありません` を表示する。
