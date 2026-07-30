@@ -1002,6 +1002,161 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     );
   });
 
+  test("builds an accessible H1-H3 table of contents and scrolls the desktop preview", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    const filler = Array.from(
+      { length: 32 },
+      (_, index) => `Paragraph ${index + 1}: preview table of contents content.`
+    ).join("\n\n");
+    await createSavedNote(
+      page,
+      "TOC desktop",
+      `# Overview\n\n## Duplicate\n\n### Details\n\n#### Excluded level\n\n\`\`\`md\n## Excluded code\n\`\`\`\n\n${filler}\n\n## Duplicate`
+    );
+
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    const trigger = page.getByRole("button", { name: "Table of contents" });
+    await expect(trigger).toBeEnabled();
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    await trigger.focus();
+    await expect(trigger).toBeFocused();
+    await expect
+      .poll(() =>
+        page
+          .locator(".preview-toc-trigger")
+          .evaluate((element) => getComputedStyle(element, "::after").opacity)
+      )
+      .toBe("1");
+    const tooltipStyle = await page.locator(".preview-toc-trigger").evaluate((element) => {
+      const tooltip = getComputedStyle(element, "::after");
+      return {
+        content: tooltip.content,
+        opacity: tooltip.opacity,
+        width: Number.parseFloat(tooltip.width),
+        whiteSpace: tooltip.whiteSpace,
+      };
+    });
+    expect(tooltipStyle.content).toContain("Table of contents");
+    expect(tooltipStyle.opacity).toBe("1");
+    expect(tooltipStyle.width).toBeGreaterThan(80);
+    expect(tooltipStyle.whiteSpace).toBe("nowrap");
+    await page.keyboard.press("Enter");
+    const toc = page.getByRole("navigation", { name: "Table of contents" });
+    await expect(toc).toBeVisible();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("button", { name: "Heading level 1: Overview" })).toBeFocused();
+    await expect(toc.getByText("Excluded level")).toHaveCount(0);
+    await expect(toc.getByText("Excluded code")).toHaveCount(0);
+    await expect(toc.getByRole("button", { name: /Heading level 2: Duplicate/ })).toHaveCount(2);
+    await expect(page.getByRole("button", { name: "Heading level 3: Details" })).toHaveAttribute(
+      "data-level",
+      "3"
+    );
+    await expect(page.getByRole("button", { name: "Heading level 1: Overview" })).toHaveCSS(
+      "text-align",
+      "left"
+    );
+    const tocIndents = await toc.locator(".preview-toc-item").evaluateAll((items) =>
+      items.slice(0, 3).map((item) => Number.parseFloat(getComputedStyle(item).paddingLeft))
+    );
+    expect(tocIndents[0]).toBeLessThan(tocIndents[1]);
+    expect(tocIndents[1]).toBeLessThan(tocIndents[2]);
+
+    const documentScrollBefore = await page.evaluate(() => window.scrollY);
+    await toc.getByRole("button", { name: "Heading level 2: Duplicate" }).last().click();
+    await expect(toc).toHaveCount(0);
+    await expect
+      .poll(() => page.locator(".mdPreview-scroll").evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(documentScrollBefore);
+    await expect(page.locator(".mdPreview h2", { hasText: "Duplicate" }).last()).toBeFocused();
+    await expect(page.getByText("Status: Saved")).toBeVisible();
+  });
+
+  test("closes the table of contents on Escape, outside click, and tab changes", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await createSavedNote(page, "TOC close behavior", "# First\n\n## Second");
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    const trigger = page.getByRole("button", { name: "Table of contents" });
+
+    await trigger.click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("navigation", { name: "Table of contents" })).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+
+    await trigger.click();
+    await page.locator(".preview-panel").click({ position: { x: 10, y: 10 } });
+    await expect(page.getByRole("navigation", { name: "Table of contents" })).toHaveCount(0);
+
+    await trigger.click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Table of contents" })).toHaveCount(0);
+  });
+
+  test("disables an empty table of contents and scrolls the mobile document", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await createSavedNote(page, "No TOC headings", "Plain paragraph only");
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Table of contents" })).toBeDisabled();
+    await expect(page.locator(".preview-toc-trigger")).toHaveAttribute("data-tooltip", "No headings");
+
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    const filler = Array.from({ length: 40 }, (_, index) => `Mobile paragraph ${index + 1}.`).join(
+      "\n\n"
+    );
+    await page.getByLabel("Body").fill(`# Mobile start\n\n${filler}\n\n## Mobile target`);
+    await page.getByRole("button", { name: /^Save$/ }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    const mobileTocTrigger = page.getByRole("button", { name: "Table of contents" });
+    await page.evaluate(() => window.scrollTo(0, 72));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    const stickyLayering = await mobileTocTrigger.evaluate((button) => {
+      const buttonRect = button.getBoundingClientRect();
+      const header = document.querySelector<HTMLElement>(".editor-header");
+      const headerRect = header?.getBoundingClientRect();
+      const pointX = buttonRect.left + buttonRect.width / 2;
+      const pointY = Math.max(1, Math.min(buttonRect.bottom - 1, (headerRect?.bottom ?? 1) - 1));
+      const topElement = document.elementFromPoint(pointX, pointY);
+      return {
+        overlapsHeader: Boolean(headerRect && buttonRect.top < headerRect.bottom),
+        coveredByHeader: Boolean(header && topElement && header.contains(topElement)),
+      };
+    });
+    expect(stickyLayering).toEqual({ overlapsHeader: true, coveredByHeader: true });
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    await mobileTocTrigger.click();
+    await expect(page.getByRole("navigation", { name: "Table of contents" })).toHaveCSS(
+      "transition-duration",
+      "0s"
+    );
+    await page.getByRole("button", { name: "Heading level 2: Mobile target" }).click();
+
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY))
+      .toBeGreaterThan(0);
+    await expect(page.getByRole("navigation", { name: "Table of contents" })).toHaveCount(0);
+    const alignment = await page.locator(".mdPreview h2").evaluate((heading) => {
+      const header = document.querySelector<HTMLElement>(".editor-header");
+      return {
+        headingTop: heading.getBoundingClientRect().top,
+        headerBottom: header?.getBoundingClientRect().bottom ?? 0,
+      };
+    });
+    expect(alignment.headingTop).toBeGreaterThanOrEqual(alignment.headerBottom - 1);
+  });
+
   test("opens a matching relative Markdown link in the linked note preview", async ({
     page,
   }) => {

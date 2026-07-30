@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { useCallback } from "react";
 import { useLayoutEffect } from "react";
 import { isValidElement } from "react";
 import type { DragEvent, FocusEvent, KeyboardEvent, MouseEvent } from "react";
@@ -14,6 +15,7 @@ import {
   Italic,
   Link,
   List,
+  ListTree,
   ListTodo,
   Maximize2,
   Menu,
@@ -55,6 +57,15 @@ type SaveStatus = "idle" | "draft" | "unsaved" | "saving" | "saved" | "error";
 type MobileView = "notes" | "editor";
 type ActiveTab = "edit" | "preview" | "slides";
 type UnsavedChoice = "save" | "discard" | "cancel";
+type TocHeadingLevel = 1 | 2 | 3;
+type TocVisibilityState = "closed" | "opening" | "open" | "closing";
+
+type TocItem = {
+  key: string;
+  index: number;
+  level: TocHeadingLevel;
+  text: string;
+};
 
 type UnsavedDialogState = {
   actionLabel: string;
@@ -548,6 +559,14 @@ function App() {
   const [previewMountedForNoteId, setPreviewMountedForNoteId] = useState<
     string | null
   >(null);
+  const [tocItems, setTocItems] = useState<TocItem[]>([]);
+  const [tocVisibility, setTocVisibility] =
+    useState<TocVisibilityState>("closed");
+  const tocRootRef = useRef<HTMLDivElement | null>(null);
+  const tocButtonRef = useRef<HTMLButtonElement | null>(null);
+  const tocFirstItemRef = useRef<HTMLButtonElement | null>(null);
+  const tocCloseTimerRef = useRef<number | null>(null);
+  const tocOpenFrameRef = useRef<number | null>(null);
   const [slideIndex, setSlideIndex] = useState(0);
   const [isTagSuggestOpen, setIsTagSuggestOpen] = useState(false);
   const [activeTagSuggestionIndex, setActiveTagSuggestionIndex] = useState(0);
@@ -557,6 +576,59 @@ function App() {
   const taskLineIndexes = useMemo(
     () => new Set(getTaskLineIndexes(draftBody)),
     [draftBody]
+  );
+  const isTocRendered = tocVisibility !== "closed";
+  const isTocOpen = tocVisibility === "opening" || tocVisibility === "open";
+
+  const clearTocTimers = useCallback(() => {
+    if (tocCloseTimerRef.current !== null) {
+      window.clearTimeout(tocCloseTimerRef.current);
+      tocCloseTimerRef.current = null;
+    }
+    if (tocOpenFrameRef.current !== null) {
+      window.cancelAnimationFrame(tocOpenFrameRef.current);
+      tocOpenFrameRef.current = null;
+    }
+  }, []);
+
+  const closeToc = useCallback(
+    (options: { returnFocus?: boolean; immediate?: boolean } = {}) => {
+      clearTocTimers();
+      const reducedMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)"
+      ).matches;
+      const finishClose = () => {
+        setTocVisibility("closed");
+        tocCloseTimerRef.current = null;
+        if (options.returnFocus) {
+          window.requestAnimationFrame(() => tocButtonRef.current?.focus());
+        }
+      };
+
+      if (options.immediate || reducedMotion) {
+        finishClose();
+        return;
+      }
+
+      setTocVisibility("closing");
+      tocCloseTimerRef.current = window.setTimeout(finishClose, 160);
+    },
+    [clearTocTimers]
+  );
+
+  const openToc = useCallback(
+    (focusFirstItem: boolean) => {
+      clearTocTimers();
+      setTocVisibility("opening");
+      tocOpenFrameRef.current = window.requestAnimationFrame(() => {
+        setTocVisibility("open");
+        tocOpenFrameRef.current = null;
+        if (focusFirstItem) {
+          window.requestAnimationFrame(() => tocFirstItemRef.current?.focus());
+        }
+      });
+    },
+    [clearTocTimers]
   );
 
   useEffect(() => {
@@ -605,6 +677,73 @@ function App() {
       };
     }
   }, [activeTab, selectedId]);
+
+  useLayoutEffect(() => {
+    if (activeTab !== "preview" || !previewRef.current || !selectedId) {
+      setTocItems([]);
+      closeToc({ immediate: true });
+      return;
+    }
+
+    let tocIndex = 0;
+    const items = Array.from(
+      previewRef.current.querySelectorAll<HTMLElement>("h1, h2, h3")
+    ).flatMap((heading) => {
+      const text = heading.textContent?.trim() ?? "";
+      if (!text) {
+        return [];
+      }
+      const level = Number(heading.tagName.slice(1)) as TocHeadingLevel;
+      const index = tocIndex;
+      tocIndex += 1;
+      heading.dataset.tocIndex = String(index);
+      heading.tabIndex = -1;
+      return [
+        {
+          key: `${selectedId}:${level}:${index}`,
+          index,
+          level,
+          text,
+        },
+      ];
+    });
+    setTocItems(items);
+    closeToc({ immediate: true });
+  }, [activeTab, closeToc, draftBody, previewMountedForNoteId, selectedId]);
+
+  useEffect(() => {
+    if (!isTocOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !tocRootRef.current?.contains(target)) {
+        closeToc();
+      }
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      closeToc({ returnFocus: true });
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [closeToc, isTocOpen]);
+
+  useEffect(
+    () => () => {
+      clearTocTimers();
+    },
+    [clearTocTimers]
+  );
 
   useEffect(() => {
     if (!isAppMenuOpen) {
@@ -1674,6 +1813,49 @@ function App() {
     setSlideIndex(0);
   };
 
+  const handleTocItemClick = (item: TocItem) => {
+    const preview = previewRef.current;
+    const heading = preview?.querySelector<HTMLElement>(
+      `[data-toc-index="${item.index}"]`
+    );
+    if (!preview || !heading) {
+      closeToc({ immediate: true });
+      return;
+    }
+
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+    const behavior: ScrollBehavior = reducedMotion ? "auto" : "smooth";
+    const isMobile = window.matchMedia("(max-width: 900px)").matches;
+
+    if (isMobile) {
+      const header = document.querySelector<HTMLElement>(".editor-header");
+      const headerBottom = header?.getBoundingClientRect().bottom ?? 0;
+      const top = Math.max(
+        0,
+        window.scrollY +
+          heading.getBoundingClientRect().top -
+          headerBottom -
+          12
+      );
+      window.scrollTo({ top, behavior });
+    } else {
+      const previewRect = preview.getBoundingClientRect();
+      const headingRect = heading.getBoundingClientRect();
+      const top = Math.max(
+        0,
+        preview.scrollTop + headingRect.top - previewRect.top - 12
+      );
+      preview.scrollTo({ top, behavior });
+      previewScrollTopRef.current = top;
+      previewAnchorRef.current = { element: heading, offsetTop: 12 };
+    }
+
+    closeToc();
+    heading.focus({ preventScroll: true });
+  };
+
   const handleChangeTab = (nextTab: ActiveTab) => {
     if (activeTab === "edit" && bodyRef.current) {
       editScrollTopRef.current = bodyRef.current.scrollTop;
@@ -2452,6 +2634,64 @@ function App() {
                   </div>
                 ) : null}
               </div>
+            </div>
+          ) : null}
+          {activeTab === "preview" ? (
+            <div
+              className={`preview-toc${isTocRendered ? " is-open" : ""}`}
+              ref={tocRootRef}
+            >
+              <span
+                className="preview-toc-trigger tooltip-button"
+                data-tooltip={
+                  tocItems.length === 0 ? "No headings" : "Table of contents"
+                }
+              >
+                <button
+                  ref={tocButtonRef}
+                  type="button"
+                  className="preview-toc-button"
+                  aria-label="Table of contents"
+                  aria-expanded={isTocOpen}
+                  aria-controls="preview-toc-popover"
+                  disabled={tocItems.length === 0}
+                  onClick={(event) => {
+                    if (isTocOpen) {
+                      closeToc();
+                    } else {
+                      openToc(event.detail === 0);
+                    }
+                  }}
+                >
+                  <ListTree aria-hidden="true" />
+                </button>
+              </span>
+              {isTocRendered ? (
+                <nav
+                  id="preview-toc-popover"
+                  className="preview-toc-popover"
+                  data-state={tocVisibility}
+                  aria-label="Table of contents"
+                >
+                  <div className="preview-toc-header">Table of contents</div>
+                  <ol className="preview-toc-list">
+                    {tocItems.map((item, index) => (
+                      <li key={item.key}>
+                        <button
+                          ref={index === 0 ? tocFirstItemRef : undefined}
+                          type="button"
+                          className="preview-toc-item"
+                          data-level={item.level}
+                          aria-label={`Heading level ${item.level}: ${item.text}`}
+                          onClick={() => handleTocItemClick(item)}
+                        >
+                          {item.text}
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </nav>
+              ) : null}
             </div>
           ) : null}
         </div>
