@@ -9,6 +9,7 @@ import remarkGfm from "remark-gfm";
 import {
   Archive,
   Bold,
+  Braces,
   Code,
   Download,
   FileDown,
@@ -31,6 +32,7 @@ import {
 
 import "./App.css";
 import { MarpSlides } from "./components/MarpSlides";
+import { MetadataDialog } from "./components/MetadataDialog";
 import { MermaidBlock } from "./components/MermaidBlock";
 import {
   DEFAULT_MARP_SETTINGS,
@@ -40,6 +42,7 @@ import {
   getNoteMarpSettings,
 } from "./lib/types";
 import type {
+  CustomMetadataEntry,
   MarpHeadingDivider,
   MarpSize,
   MarpTheme,
@@ -47,6 +50,9 @@ import type {
 } from "./lib/types";
 import { dbInitError, deleteNote, getAllNotes, saveNote } from "./lib/db";
 import {
+  areCustomMetadataEqual,
+  buildFrontmatterEntries,
+  cloneCustomMetadata,
   parseMarkdownWithFrontmatter,
   toMarkdownWithFrontmatter,
 } from "./lib/frontmatter";
@@ -126,6 +132,7 @@ type BackupDocument = {
     title: string;
     tags: string[];
     updatedAt: number;
+    customMetadata?: CustomMetadataEntry[];
     markdown: string;
   }>;
 };
@@ -321,6 +328,7 @@ function createBackupDocument(notes: Note[], createdAt: string): BackupDocument 
       title: note.title,
       tags: note.tags,
       updatedAt: note.updatedAt,
+      customMetadata: cloneCustomMetadata(note.customMetadata),
       markdown: toMarkdownWithFrontmatter(note),
     })),
   };
@@ -329,7 +337,9 @@ function createBackupDocument(notes: Note[], createdAt: string): BackupDocument 
 function createNoteFromMarkdown(
   content: string,
   fileName: string,
-  overrides?: Partial<Pick<Note, "id" | "title" | "tags" | "updatedAt">>,
+  overrides?: Partial<
+    Pick<Note, "id" | "title" | "tags" | "updatedAt" | "customMetadata">
+  >,
   preferFileNameTitle = false
 ): Note {
   if (content.trim().length === 0) {
@@ -352,6 +362,8 @@ function createNoteFromMarkdown(
     updatedAt:
       overrides?.updatedAt ?? parsed.updatedAt ?? getCurrentTimestamp(),
     marp: parsed.marp,
+    customMetadata:
+      overrides?.customMetadata ?? cloneCustomMetadata(parsed.customMetadata),
   };
 }
 
@@ -385,12 +397,16 @@ function parseBackupNotes(content: string, fileName: string): Note[] {
       typeof item.updatedAt === "number" && Number.isFinite(item.updatedAt)
         ? item.updatedAt
         : undefined;
+    const customMetadata = Array.isArray(item.customMetadata)
+      ? cloneCustomMetadata(item.customMetadata as CustomMetadataEntry[])
+      : undefined;
 
     return createNoteFromMarkdown(item.markdown, `${fileName}#${index + 1}`, {
       id,
       title,
       tags,
       updatedAt,
+      customMetadata,
     });
   });
 }
@@ -443,7 +459,8 @@ function areNotesEquivalent(left: Note, right: Note): boolean {
     left.body === right.body &&
     left.updatedAt === right.updatedAt &&
     areStringArraysEqual(left.tags, right.tags) &&
-    areMarpSettingsEqual(left, right)
+    areMarpSettingsEqual(left, right) &&
+    areCustomMetadataEqual(left.customMetadata, right.customMetadata)
   );
 }
 
@@ -493,6 +510,9 @@ function App() {
   const [draftMarpHeadingDividerLevel, setDraftMarpHeadingDividerLevel] =
     useState<MarpHeadingDivider>(1);
   const [draftUpdatedAt, setDraftUpdatedAt] = useState<number>(0);
+  const [draftCustomMetadata, setDraftCustomMetadata] = useState<
+    CustomMetadataEntry[]
+  >([]);
   const [isDirty, setIsDirty] = useState(false);
   const isDirtyRef = useRef(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
@@ -538,6 +558,7 @@ function App() {
   const appMenuRef = useRef<HTMLDivElement | null>(null);
   const appMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+  const [isMetadataDialogOpen, setIsMetadataDialogOpen] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const actionsMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const [isMarpSettingsOpen, setIsMarpSettingsOpen] = useState(false);
@@ -970,6 +991,8 @@ function App() {
       setDraftMarpHeadingDividerLevel(1);
       setDraftMarpHeadingDivider(DEFAULT_MARP_SETTINGS.headingDivider);
       setDraftUpdatedAt(0);
+      setDraftCustomMetadata([]);
+      setIsMetadataDialogOpen(false);
       setIsDirty(false);
       isDirtyRef.current = false;
       setSaveStatus("idle");
@@ -991,6 +1014,8 @@ function App() {
     );
     setDraftMarpHeadingDivider(marp.headingDivider);
     setDraftUpdatedAt(note.updatedAt);
+    setDraftCustomMetadata(cloneCustomMetadata(note.customMetadata));
+    setIsMetadataDialogOpen(false);
     setIsDirty(false);
     isDirtyRef.current = false;
     setSaveStatus("saved");
@@ -1045,6 +1070,7 @@ function App() {
       body: draftBody,
       tags: getEffectiveTags(),
       updatedAt: draftUpdatedAt || getCurrentTimestamp(),
+      customMetadata: cloneCustomMetadata(draftCustomMetadata),
     };
     const marp = getDraftMarpSettings();
     if (marp) {
@@ -1132,6 +1158,7 @@ function App() {
       );
       setDraftMarpHeadingDivider(marp.headingDivider);
       setDraftUpdatedAt(pending.note.updatedAt);
+      setDraftCustomMetadata(cloneCustomMetadata(pending.note.customMetadata));
       setIsDirty(true);
       isDirtyRef.current = true;
       setSaveStatus("draft");
@@ -1387,6 +1414,7 @@ function App() {
     setDraftMarpHeadingDividerLevel(1);
     setDraftMarpHeadingDivider(DEFAULT_MARP_SETTINGS.headingDivider);
     setDraftUpdatedAt(note.updatedAt);
+    setDraftCustomMetadata([]);
     setIsDirty(true);
     isDirtyRef.current = true;
     setSaveStatus("draft");
@@ -1693,6 +1721,7 @@ function App() {
       body: draftBody,
       tags: trimmedTags,
       updatedAt: now,
+      customMetadata: cloneCustomMetadata(draftCustomMetadata),
     };
     const marp = getDraftMarpSettings();
     if (marp) {
@@ -1752,7 +1781,8 @@ function App() {
         unsavedDialog !== null ||
         isFilterDialogOpen ||
         operationDialog !== null ||
-        deleteConfirmation !== null;
+        deleteConfirmation !== null ||
+        isMetadataDialogOpen;
       if (event.repeat || saveStatus === "saving" || isDialogOpen) {
         return;
       }
@@ -1897,6 +1927,20 @@ function App() {
     setMobileView("notes");
   };
 
+  const closeMetadataDialog = () => {
+    setIsMetadataDialogOpen(false);
+    window.requestAnimationFrame(() => actionsMenuButtonRef.current?.focus());
+  };
+
+  const applyMetadata = (entries: CustomMetadataEntry[]) => {
+    const nextEntries = cloneCustomMetadata(entries);
+    if (!areCustomMetadataEqual(draftCustomMetadata, nextEntries)) {
+      setDraftCustomMetadata(nextEntries);
+      markDirty();
+    }
+    closeMetadataDialog();
+  };
+
   const hasPendingTagInput = tagInput.trim().length > 0;
   const hasDraftChanges = isDirty || hasPendingTagInput;
   const isDraftDifferentFromInitial =
@@ -1910,6 +1954,10 @@ function App() {
         draftMarpHeadingDivider !==
           getNoteMarpSettings(initialDraft).headingDivider ||
         !areStringArraysEqual(draftTags, initialDraft.tags) ||
+        !areCustomMetadataEqual(
+          draftCustomMetadata,
+          initialDraft.customMetadata
+        ) ||
         hasPendingTagInput
       : false;
   const canRevertDraft =
@@ -1952,6 +2000,7 @@ function App() {
       );
       setDraftMarpHeadingDivider(marp.headingDivider);
       setDraftUpdatedAt(initialDraft.updatedAt);
+      setDraftCustomMetadata(cloneCustomMetadata(initialDraft.customMetadata));
       setIsDirty(true);
       isDirtyRef.current = true;
       setSaveStatus("draft");
@@ -2296,6 +2345,18 @@ function App() {
                 role="menu"
                 aria-label="More actions"
               >
+                <button
+                  className="actions-menu-item"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsActionsMenuOpen(false);
+                    setIsMetadataDialogOpen(true);
+                  }}
+                >
+                  <Braces aria-hidden="true" />
+                  Metadata
+                </button>
                 <button
                   className="actions-menu-item"
                   type="button"
@@ -3039,7 +3100,7 @@ function App() {
                           >
                             {checked ? "☑" : "☐"}
                           </button>
-                          {children}
+                          <span className="taskText">{children}</span>
                         </li>
                       );
                     },
@@ -3251,6 +3312,16 @@ function App() {
           </div>
         </div>
         ) : null}
+      {isMetadataDialogOpen ? (
+        <MetadataDialog
+          managedEntries={buildFrontmatterEntries(getDraftSnapshot()).filter(
+            (entry) => entry.source !== "custom"
+          )}
+          customMetadata={draftCustomMetadata}
+          onApply={applyMetadata}
+          onClose={closeMetadataDialog}
+        />
+      ) : null}
       {operationDialog ? (
         <div className="modal-backdrop">
           <div

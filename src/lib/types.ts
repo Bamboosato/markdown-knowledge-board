@@ -6,6 +6,19 @@ export type MarpTheme = (typeof MARP_THEMES)[number];
 export type MarpSize = (typeof MARP_SIZES)[number];
 export type MarpHeadingDivider = (typeof MARP_HEADING_DIVIDERS)[number];
 
+export type FrontmatterValue =
+  | string
+  | number
+  | boolean
+  | null
+  | FrontmatterValue[]
+  | { [key: string]: FrontmatterValue };
+
+export type CustomMetadataEntry = {
+  key: string;
+  value: FrontmatterValue;
+};
+
 export type MarpSettings = {
   enabled: boolean;
   theme: MarpTheme;
@@ -29,6 +42,7 @@ export type Note = {
   tags: string[];
   updatedAt: number;
   marp?: MarpSettings;
+  customMetadata?: CustomMetadataEntry[];
 };
 
 export function getNoteMarpSettings(note?: Pick<Note, "marp">): MarpSettings {

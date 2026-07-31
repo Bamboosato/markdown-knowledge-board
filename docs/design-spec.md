@@ -90,7 +90,7 @@ export type Note = {
   tags: string[];
   updatedAt: number;
   marp?: MarpSettings;
-  customMetadata?: CustomMetadata;
+  customMetadata?: Array<{ key: string; value: FrontmatterValue }>;
 };
 ```
 
@@ -104,7 +104,7 @@ export type Note = {
 | `tags` | `string[]` | ノートに紐づくタグ。重複判定は小文字化した値で行う。 |
 | `updatedAt` | `number` | 更新日時。Unix epoch milliseconds。 |
 | `marp` | `MarpSettings`（任意） | Slides表示とExportに使用するMarp metadata。 |
-| `customMetadata` | `Record<string, FrontmatterValue>`（任意） | 標準属性以外の安全な任意frontmatter属性。Bodyとは分離して保持する。 |
+| `customMetadata` | `{ key: string; value: FrontmatterValue }[]`（任意） | 標準属性以外の安全な任意frontmatter属性。Bodyとは分離し、Export順を維持して保持する。 |
 
 ## 5. 保存設計
 
@@ -209,6 +209,7 @@ editor header には以下を配置する。
 - `Save` の Tooltip は Windows / Linux で `Save (Ctrl+S)`、macOS で `Save (⌘S)` と表示する。
 - `Revert changes`: `RotateCcw` アイコンボタンとして `Save` の右側に配置し、未保存変更がない場合は無効にする。
 - `More actions`: `MoreHorizontal` アイコンボタンとして配置し、以下の低頻度操作をメニュー表示する。
+  - `Metadata`: frontmatterを参照し、Custom metadataを編集するmodal dialogを開く。
   - `Export`: `Download` アイコンとラベルを表示する。
   - 区切り線の後に `Delete`: `Trash2` アイコンと赤いラベルを表示する。確認ダイアログと Undo の仕様は維持する。
 - アイコンボタンには同名の英語 accessible name と Tooltip を設定する。メニューは項目選択、外側クリック、Escape で閉じ、Escape 時はトリガーへフォーカスを戻す。
@@ -245,10 +246,8 @@ editor header には以下を配置する。
   - 候補はクリック、ArrowUp / ArrowDown、Enter で選択できる。
   - Escape または入力欄外フォーカスで候補を閉じる。
 - Title / Tags
-  - Editor内容領域が760px以上の場合は、`Title`ラベル、Title入力欄、`Tags`ラベル、Tags入力欄の順で、ラベルを含めて同じ1行へ配置する。
-  - 入力欄へ配分する利用可能幅はTitle約40%、Tags約60%とし、ラベルと入力欄を垂直中央に揃える。
-  - Editor内容領域が760px未満の場合は、Title行とTags行を分け、各行でラベルと入力欄を横並びにする。
-  - Tags chipはTags入力欄内で折り返し、画面全体の横スクロールを発生させない。
+  - 既存どおり縦2行に配置する。
+  - 各行はラベルと入力欄を横並びにして、Body上部の占有高さを抑える。
   - 編集画面の表示ラベルをタップしても入力欄へフォーカスさせない。
   - 入力欄へのフォーカスは入力欄自体をタップした場合のみ行う。
 - Body
@@ -278,9 +277,7 @@ editor header には以下を配置する。
 
 - `Edit`
   - Title / Tags を表示する。
-  - desktopではTagsとBodyの間に折りたたみ式のFrontmatterセクションを表示する。Export previewはTitle、Tagsを含むExport完成形をread-onlyで示し、Custom metadataだけをYAMLで編集可能にする。
-  - Export previewとCustom metadataは各160px固定高・欄内スクロールとし、有効なCustom metadataはSave前にリアルタイム反映する。不正YAMLでは最後の有効previewを維持してSaveを抑止する。
-  - `max-width: 900px`ではFrontmatterセクションを表示しない。mobileで他項目を保存してもCustom metadataは保持する。
+  - Metadata機能の追加によってTitle、Tags、Bodyの配置を変更せず、常設のfrontmatter入力欄を追加しない。
   - Markdown toolbar と textarea を表示する。
 - `Preview`
   - Preview 表示領域を広げるため、Title / Tags は表示しない。
@@ -297,6 +294,30 @@ editor header には以下を配置する。
   - `mermaid` fenced code block は Mermaid 図として表示する。
   - Mermaid 図は `Diagram` / `Code` を切り替えられる。
   - 本文が空の場合は `プレビューする内容がありません` を表示する。
+
+#### Preview基本カラー
+
+Previewはモノクロ基調を維持し、リンクとkeyboard focusだけに青のaccentを使用する。errorは赤系とし、色だけで状態や意味を伝えない。
+
+| Token | 値 | 用途 |
+| --- | --- | --- |
+| `--preview-bg` | `#fafafa` | Preview背景 |
+| `--preview-text` | `#1f1f1f` | 本文・見出し |
+| `--preview-muted-text` | `#555555` | 引用・補助文 |
+| `--preview-completed-text` | `#666666` | 完了task。取消線を併用する |
+| `--preview-link` | `#1d4ed8` | link。下線を併用する |
+| `--preview-link-hover` | `#1e40af` | link hover |
+| `--preview-code-bg` | `#eef1f4` | inline code、code block、Mermaid code |
+| `--preview-table-header-bg` | `#f1f3f5` | table header |
+| `--preview-border` | `#c7cbd1` | code block、table、blockquote、Mermaid境界 |
+| `--preview-focus` | `#2563eb` | link、task、TOCのfocus ring |
+| `--preview-error-bg` / `--preview-error-text` | `#fff1f1` / `#5a1f1f` | Mermaid error |
+
+- linkは通常、visited、hover、focusで識別可能とし、常にunderlineを維持する。
+- code blockは背景色とborderの両方で本文領域から区別し、inline codeとは余白・形状で区別する。
+- table headerは背景色と太字でdata rowから区別する。
+- 完了taskは要素全体の`opacity`を下げず、専用文字色と取消線を使用する。
+- Preview色は上記tokenから参照し、同じ意味の色をcomponentごとに直接定義しない。
 
 ## 7. 機能仕様
 
@@ -426,6 +447,7 @@ Sidebar の `Import Markdown` から複数の `.md`、`.markdown`、`.txt` フ�
 7. tags は frontmatter の `tags` が文字列配列の場合のみ復元する。
 8. updatedAt は frontmatter の `updatedAt` を number または parse 可能な date string として復元する。なければ現在時刻。
 9. 対応済みの標準属性とMarp属性を除いた未知属性は、安全な値型であればCustom metadataとして復元する。
+   - frontmatter内の出現順を維持し、string、number、boolean、null、sequence、mappingの型を保持する。
 10. 重複判定は `id` を優先し、次に現行データモデルで扱える `title + updatedAt` の一致を見る。
 11. 同一内容なら skipped、差分があれば updated、重複がなければ added として IndexedDB に保存する。
 12. import 結果ダイアログで added / updated / skipped / failed を表示する。
@@ -434,6 +456,8 @@ Sidebar の `Import Markdown` から複数の `.md`、`.markdown`、`.txt` フ�
 ### 7.10 エクスポート
 
 `Export` は選択中ノートを Markdown ファイルとして出力する。
+
+frontmatterはMetadata dialogと共通のcanonical order（`id`、`title`、`tags`、`updatedAt`、対象Marp属性、Custom metadata）で生成する。
 
 出力内容:
 
@@ -640,7 +664,7 @@ Markdown が `---` で始まり、2 つ目の `---` が存在する場合、そ�
 
 frontmatter が存在しない、または閉じ delimiter が存在しない場合は、全文を body として扱う。
 未対応の Marp theme / size や型不一致の Marp fields は採用せず、既定値に fallback する。
-対応済み属性を除く未知属性はCustom metadataとして保持する。Custom metadataはYAML mappingをrootとし、string、number、boolean、null、配列、入れ子mappingを許可する。危険なkeyまたは安全に保持できない値は拒否する。
+対応済み属性を除く未知属性はCustom metadataとして出現順を維持して保持する。Custom metadataはstring、number、boolean、null、配列、入れ子mappingを許可する。危険なkeyまたは安全に保持できない値は拒否する。
 
 次のkeyはアプリまたは既存UIが管理する予約属性とし、Custom metadataからの指定を許可しない: `id`、`title`、`tags`、`updatedAt`、`marp`、`theme`、`size`、`paginate`、`headingDivider`。
 
@@ -671,7 +695,7 @@ Body text
 
 Marp Off の場合、`marp` は `false` として出力するか、Marp fields を省略してよい。初期実装では frontmatter の簡潔さを優先し、Marp Off のノートでは `marp` / `theme` / `size` / `paginate` / `headingDivider` を省略する。Marp On かつ Heading divider Off の場合も `headingDivider` は省略する。
 
-Edit画面のFrontmatter機能は、標準属性とCustom metadataを統合した同じ生成処理をExport previewと実Exportで共有する。詳細は [Frontmatter表示・編集 要件定義](./frontmatter-editor-requirements.md) と [Frontmatter表示・編集 詳細設計](./frontmatter-editor-design.md) に従う。
+Metadata dialogとExportは、標準属性、Marp属性、Custom metadataをcanonical orderへ統合する同じentry生成処理を共有する。Dialogでは`id`、`title`、`tags`、`updatedAt`、Marp属性をread-only表示し、Custom metadataだけをKey／Value行で編集する。詳細は [Metadataダイアログ 要件定義](./frontmatter-editor-requirements.md) と [Metadataダイアログ 詳細設計](./frontmatter-editor-design.md) に従う。
 
 ## 9. 状態管理
 
@@ -693,9 +717,8 @@ Edit画面のFrontmatter機能は、標準属性とCustom metadataを統合し�
 | `draftMarpPaginate` | 編集中ノートの Marp page number 表示 |
 | `draftMarpHeadingDivider` | 編集中ノートの heading divider。Off または `1`〜`6` |
 | `draftUpdatedAt` | 編集中更新日時 |
-| `draftCustomYaml` | Custom metadata編集欄のYAML文字列。syntax error時も入力値を保持する。 |
-| `draftCustomMetadata` | 最後にparse成功したCustom metadata。Export preview生成に使用する。 |
-| `customMetadataError` | YAML syntax、root型、予約属性、安全性検証のerror。 |
+| `draftCustomMetadata` | 適用済みCustom metadata。順序と値型を維持し、メインSaveの対象にする。 |
+| `isMetadataDialogOpen` | Metadata modal dialogの表示有無。 |
 | `isDirty` | 未保存変更有無 |
 | `dbError` | IndexedDB 初期化エラー |
 | `searchQuery` | 適用済み検索語 |
@@ -719,7 +742,7 @@ Edit画面のFrontmatter機能は、標準属性とCustom metadataを統合し�
 `MarpSlides` component は Slides render 状態として loading / rendered / unavailable / error / empty / too-large を局所 state に保持する。
 
 Marp 設定を変更した場合は本文編集と同じく dirty 状態にする。保存時は `Note` の Marp metadata として保持し、Export / Backup では YAML frontmatter に出力する。
-Custom metadataを変更した場合もdirty状態にする。有効な変更は保存対象とし、errorがある場合はSave、Save and Continueを抑止してFrontmatter入力へ誘導する。RevertまたはDiscardは保存済みCustom metadataへ戻す。
+Metadata dialog内の編集はdialog local stateだけを変更する。Applyで内容が変わった場合にCustom metadata draftを更新してdirty状態にし、メインSaveで永続化する。RevertまたはメインのDiscardは保存済みCustom metadataへ戻す。
 
 ## 10. エラー/異常系仕様
 
@@ -768,10 +791,10 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 
 ### 10.2 Custom metadata不正
 
-- YAML syntax error、mapping以外のroot、予約属性、安全でないkeyまたは過大な構造をerrorとする。
-- error時は入力を失わず、最後に有効だったExport previewを維持する。
-- Saveを実行せず、desktopではFrontmatterセクションを展開して入力欄へfocusする。
-- mobileでは編集UIを表示しないため、既に保存済みのCustom metadataをそのまま維持する。
+- 空key、重複key、予約key、安全でないkey、不正なYAML valueまたは過大な構造をrow errorとする。
+- 1件以上のerrorがある場合はMetadata dialogのApplyをdisabledにし、メインdraftへ反映しない。
+- 未適用変更がある状態でCancel、Escape、dialog外pointer選択を行った場合は破棄確認を表示する。
+- dialogを開かずに他のdraft項目を保存しても、既存Custom metadataを維持する。
 
 ## 13. 検証観点
 
@@ -783,8 +806,8 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 - title/body/tags の編集内容が保存後に復元できること。
 - search と tag filter が組み合わせて動作すること。
 - Markdown import/export が frontmatter を含めて動作すること。
-- FrontmatterのExport previewがTitle、Tags、Marp設定、Custom metadataのdraftをリアルタイムに反映すること。
-- Custom metadataの保存、Revert、Import／Export／Backup roundtripと、不正YAML時のSave抑止が動作すること。
+- More actionsからMetadata dialogを開き、Exportと同じ順序でread-only属性とCustom metadataを参照できること。
+- Custom fieldの追加・変更・削除、Apply／Cancel、メインSave／Revert、Import／Export／Backup roundtripが動作すること。
 - Preview で Markdown と GFM task list が表示されること。
 - Preview のタスクチェック切替が本文の該当行を更新すること。
 
@@ -793,7 +816,7 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 - IndexedDB が使えない場合に UI が破綻しないこと。
 - build/lint/audit が通ること。
 - 大量ノートまたは長文 Markdown でも操作不能にならないこと。
-- 多数または長いCustom metadataでも入力と欄内スクロールが継続でき、入力タイミングで古いparse結果が反映されないこと。
+- 多数または長いCustom metadataでもdialog内部スクロール、validation、Apply／Cancel操作を継続できること。
 
 ### 13.3 データ観点
 
@@ -806,10 +829,9 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 ### 13.4 UI 観点
 
 - desktop と mobile で主要操作に到達できること。
-- desktopではFrontmatterがTagsとBodyの間に表示され、read-onlyとeditable領域を識別できること。
-- Export previewとCustom metadataが各160px固定高で内部スクロールし、900px以下ではFrontmatter UIがfocus順を含めて非表示になること。
-- Editor内容領域760px以上ではTitle／Tagsがラベルを含む1行4要素となり、760px未満では2行へ戻ること。
-- Title／Tagsの垂直中央揃え、Tags chipの欄内折り返し、横overflow非発生を確認すること。
+- Metadata追加前後で既存Edit画面のTitle、Tags、Body配置が変わらないこと。
+- PCとmobileでMetadata dialogのread-only属性、Custom row、内部scroll、footer、focus管理へ到達できること。
+- Dialogの項目順が実際のExport frontmatterと一致すること。
 - 保存状態がユーザーに誤解されないこと。
 - 削除、未保存変更、バックアップなどの確認/通知が十分であること。
 - キーボード操作とスクリーンリーダー利用に必要な semantics があること。

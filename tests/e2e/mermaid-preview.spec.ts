@@ -39,9 +39,105 @@ test.describe("A1 Mermaid preview", () => {
 
     const codeBlock = page.locator("pre code.language-text");
     await expect(codeBlock).toContainText(codeLines.join("\n"));
+    await expect(codeBlock).toHaveCSS("padding", "0px");
+    await expect(codeBlock).toHaveCSS("border-radius", "0px");
+    await expect(codeBlock).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    const lineStarts = await codeBlock.evaluate((element) => {
+      const textNode = element.firstChild;
+      if (!(textNode instanceof Text)) {
+        return [];
+      }
+      const offsets = [0, ...Array.from(textNode.data.matchAll(/\n/g), (match) => match.index + 1)]
+        .filter((offset) => offset < textNode.length);
+      return offsets.map((offset) => {
+        const range = document.createRange();
+        range.setStart(textNode, offset);
+        range.setEnd(textNode, offset + 1);
+        return range.getBoundingClientRect().left;
+      });
+    });
+    expect(new Set(lineStarts.map((left) => Math.round(left))).size).toBe(1);
     const codeBlockBox = await page.locator(".mdPreview pre").boundingBox();
     expect(codeBlockBox).not.toBeNull();
     expect(codeBlockBox!.height).toBeGreaterThan(120);
+  });
+
+  test("uses the semantic Preview palette for content and interaction states", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1200, height: 720 });
+    await page.goto("/");
+    await createSavedNote(
+      page,
+      "Preview palette",
+      [
+        "# Preview palette",
+        "",
+        "Body with [Example link](https://example.com) and `inline code`.",
+        "",
+        "> Quoted text",
+        "",
+        "- [x] Completed task",
+        "",
+        "```text",
+        "code block",
+        "```",
+        "",
+        "| Header | Value |",
+        "| --- | --- |",
+        "| A | B |",
+      ].join("\n")
+    );
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+
+    const panel = page.locator(".preview-panel");
+    const tokens = await panel.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        background: style.getPropertyValue("--preview-bg").trim(),
+        text: style.getPropertyValue("--preview-text").trim(),
+        link: style.getPropertyValue("--preview-link").trim(),
+        focus: style.getPropertyValue("--preview-focus").trim(),
+      };
+    });
+    expect(tokens).toEqual({
+      background: "#fafafa",
+      text: "#1f1f1f",
+      link: "#1d4ed8",
+      focus: "#2563eb",
+    });
+    await expect(panel).toHaveCSS("background-color", "rgb(250, 250, 250)");
+    await expect(panel).toHaveCSS("color", "rgb(31, 31, 31)");
+
+    const link = page.getByRole("link", { name: "Example link" });
+    await expect(link).toHaveCSS("color", "rgb(29, 78, 216)");
+    await link.hover();
+    await expect(link).toHaveCSS("color", "rgb(30, 64, 175)");
+    await link.focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(link).toHaveCSS("outline-color", "rgb(37, 99, 235)");
+
+    await expect(page.locator(".mdPreview code").filter({ hasText: "inline code" })).toHaveCSS(
+      "background-color",
+      "rgb(238, 241, 244)"
+    );
+    const codeBlock = page.locator(".mdPreview pre");
+    await expect(codeBlock).toHaveCSS("background-color", "rgb(238, 241, 244)");
+    await expect(codeBlock).toHaveCSS("border-color", "rgb(199, 203, 209)");
+
+    const tableHeader = page.getByRole("columnheader", { name: "Header" });
+    await expect(tableHeader).toHaveCSS("background-color", "rgb(241, 243, 245)");
+    await expect(tableHeader).toHaveCSS("font-weight", "700");
+
+    const quote = page.locator(".mdPreview blockquote");
+    await expect(quote).toHaveCSS("color", "rgb(85, 85, 85)");
+    const completedText = page.locator(".mdPreview li.task-list-item .taskText", {
+      hasText: "Completed task",
+    });
+    await expect(completedText).toHaveCSS("color", "rgb(102, 102, 102)");
+    await expect(completedText).toHaveCSS("opacity", "1");
+    await expect(completedText).toHaveCSS("text-decoration-line", "line-through");
   });
 
   test("renders a Mermaid diagram and keeps code view accessible", async ({

@@ -1,90 +1,101 @@
-# Markdown Knowledge Board Frontmatter表示・編集 詳細設計
+# Markdown Knowledge Board Metadataダイアログ 詳細設計
 
 作成日: 2026-07-30
 
-状態: 実装前設計
+更新日: 2026-07-31
 
-関連要件: [Frontmatter表示・編集 要件定義](./frontmatter-editor-requirements.md)
+状態: 実装済み
+
+関連要件: [Metadataダイアログ 要件定義](./frontmatter-editor-requirements.md)
 
 ## 1. 設計目的
 
-現在の`Note`、frontmatter parse／export、Edit画面へCustom metadataを追加し、既存のTitle、Tags、Marp設定と衝突しない編集・保存・roundtripを実現する。
+既存Edit画面のレイアウトを変更せず、More actionsから開くmodal dialogでfrontmatterのcanonical orderを参照し、Custom metadataだけを編集できるようにする。
+
+DialogのApplyは現在のNote draftへの反映とし、IndexedDBへの永続化は既存のメインSaveへ統合する。
 
 ## 2. 画面構成
 
-desktopのEdit画面を次の順序にする。
+### 2.1 導線
 
-1. Title／Tags metadata row
-2. Frontmatter accordion
-3. Body
-
-Editor内容領域が760px以上の場合、metadata rowはラベルを含む1行4要素とする。
+既存More actionsメニューを次の順にする。
 
 ```text
-Title [ Basic design             ]  Tags [ architecture ][ phase2 ]
+More actions
+├─ Metadata
+├─ Export
+└─ Delete
 ```
 
-- grid列は`auto minmax(0, 2fr) auto minmax(0, 3fr)`を基本とする。
-- 入力欄へ配分する幅はTitle約40%、Tags約60%とする。
-- ラベルと入力欄は垂直中央を揃える。
-- Tags chipはTags欄内で折り返し、metadata row外へ横overflowさせない。
-- Editor内容領域が760px未満の場合はTitle行、Tags行の2行へ戻す。
+`Metadata`選択でmenuを閉じ、Metadata dialogを開く。Edit画面には新しい入力欄、accordion、常設ボタンを追加しない。
 
-collapsed時:
+### 2.2 Dialog
 
 ```text
-› Frontmatter
-```
+Metadata
+──────────────────────────────────────
+ID          note-123                  Read-only
+Title       Basic design              Read-only
+Tags        architecture, phase2      Read-only
+Updated at  2026-07-31T10:30:00.000Z  Read-only
 
-expanded時:
-
-```text
-⌄ Frontmatter
-
-Export preview (read-only)
-┌────────────────────────────────────┐
-│ id: ...                            │
-│ title: Basic design                │
-│ tags:                              │
-│   - architecture                   │
-│ author: Bamboo                     │
-└────────────────────────────────────┘
+Marp        true                      Read-only
+Theme       default                   Read-only
+Size        16:9                      Read-only
+Paginate    true                      Read-only
 
 Custom metadata
-┌────────────────────────────────────┐
-│ author: Bamboo                     │
-└────────────────────────────────────┘
+[ author ] [ Bamboo ]             [Delete]
+[ status ] [ draft  ]             [Delete]
+
+[ Add custom field ]
+──────────────────────────────────────
+                         [Cancel] [Apply]
 ```
 
-`max-width: 900px`ではaccordionをrenderしないか、CSS非表示だけに依存せず操作・focus対象から除外する。
+- 項目はcanonical export orderで表示する。
+- Marp属性は実Export対象のものだけ表示する。
+- Custom metadataは保持順で表示し、新規行は末尾へ追加する。
+- Dialog bodyだけをスクロールさせ、headerとfooterを操作可能な位置に維持する。
 
-## 3. コンポーネント設計
+## 3. Component設計
 
-新規componentを`src/components/FrontmatterEditor.tsx`へ分離する。
+新規component:
+
+- `src/components/MetadataDialog.tsx`
+- 必要に応じて`src/components/CustomMetadataRow.tsx`
 
 ```ts
-type FrontmatterEditorProps = {
-  managedMetadata: ManagedFrontmatter;
-  customYaml: string;
-  customMetadata: CustomMetadata;
-  error: FrontmatterEditorError | null;
-  onCustomYamlChange: (value: string) => void;
+type MetadataDialogProps = {
+  isOpen: boolean;
+  managedEntries: FrontmatterEntry[];
+  customMetadata: CustomMetadataEntry[];
+  onApply: (entries: CustomMetadataEntry[]) => void;
+  onClose: () => void;
 };
 ```
 
-責務:
+`MetadataDialog`の責務:
 
-- accordionの開閉
-- Export previewのread-only表示
-- Custom metadata textarea
-- parse／予約語errorの表示
-- keyboardとARIA
+- modal、focus trap、responsive layout
+- managed entryのread-only表示
+- Custom fieldのlocal state
+- 行追加、変更、削除
+- validationとApply可否
+- 未適用変更の破棄確認
+- Apply／Cancel／keyboard shortcut
 
-`App.tsx`はdraft state、dirty、Save／Revert、ノート切替、mobile判定との接続を担当する。
+`App.tsx`の責務:
+
+- More actionsへの導線
+- dialog open時の現在draftからmanaged entries生成
+- ApplyされたCustom metadataのdraft反映とdirty更新
+- Save／Revert／未保存遷移
+- open元へのfocus復帰
 
 ## 4. データモデル
 
-### 4.1 型
+### 4.1 Note
 
 ```ts
 export type FrontmatterValue =
@@ -95,7 +106,11 @@ export type FrontmatterValue =
   | FrontmatterValue[]
   | { [key: string]: FrontmatterValue };
 
-export type CustomMetadata = Record<string, FrontmatterValue>;
+export type CustomMetadataEntry = {
+  id: string; // UI row identity。Exportしない。
+  key: string;
+  value: FrontmatterValue;
+};
 
 export type Note = {
   id: string;
@@ -104,31 +119,100 @@ export type Note = {
   tags: string[];
   updatedAt: number;
   marp?: MarpSettings;
-  customMetadata?: CustomMetadata;
+  customMetadata?: Array<Omit<CustomMetadataEntry, "id">>;
 };
 ```
 
-既存ノートで`customMetadata`がない場合は空objectとして扱う。IndexedDB schema versionは、object store構造やindexを変更しないため原則据え置く。
+Custom metadataを配列で保持し、明示的に順序を維持する。UI用`id`はdialog open時に生成し、Note／Exportへ保存しない。
 
-### 4.2 draft state
+既存Noteで`customMetadata`がない場合は空配列として扱う。IndexedDB object storeやindexは変えないためDB versionは原則据え置く。
+
+### 4.2 Frontmatter entry
 
 ```ts
-const [draftCustomYaml, setDraftCustomYaml] = useState("");
-const [draftCustomMetadata, setDraftCustomMetadata] =
-  useState<CustomMetadata>({});
-const [customMetadataError, setCustomMetadataError] =
-  useState<FrontmatterEditorError | null>(null);
+type FrontmatterEntry = {
+  key: string;
+  value: FrontmatterValue;
+  source: "system" | "edit" | "slides" | "custom";
+  includedInExport: boolean;
+  editable: boolean;
+};
 ```
 
-- `draftCustomYaml`: ユーザー入力をそのまま保持する。
-- `draftCustomMetadata`: 最後にparse成功した構造化値。Export previewの正本にする。
-- `customMetadataError`: parse、root型、予約属性、安全性検証のerror。
+DialogとExportはこの共通entry列を使用する。
 
-ノート読込時は保存済み`customMetadata`を安定したYAMLへserializeし、両draftへ設定する。
+## 5. Canonical order
 
-## 5. frontmatter責務の拡張
+`src/lib/frontmatter.ts`へ、順序を持つentry列を返す共通処理を追加する。
 
-`src/lib/frontmatter.ts`を次の責務へ拡張する。
+```ts
+function buildFrontmatterEntries(note: NoteLike): FrontmatterEntry[];
+```
+
+生成順:
+
+1. `id`
+2. `title`
+3. `tags`
+4. `updatedAt`
+5. `marp`
+6. `theme`
+7. `size`
+8. `paginate`
+9. `headingDivider`
+10. Custom metadata
+
+省略可能な属性は`includedInExport`で管理する。YAML exportは`true`のentryだけを順番にmappingへ追加する。Dialogで省略項目を表示する場合は、Exportされないことを明示する。
+
+現行export実装のkey追加順と異なる場合は、後方互換性を保ったまま上記canonical orderへ統一する。YAML mappingの意味はkey順に依存しないが、snapshot／E2Eは新しい順序へ更新する。
+
+## 6. Read-only表示
+
+- `id`はsystem管理としてread-only表示する。
+- `title`と`tags`はdialog open時点の`draftTitle`とeffective draft tagsを表示する。
+- `updatedAt`は現在のdraft値をISO 8601で表示する。実Save時に更新されることを補助表示する。
+- Marp属性は現在のdraft Marp設定から生成し、Slides settingsで管理されることを示す。
+- 値は選択・コピー可能なtextとして描画し、inputへしない。
+- Tagsは順序を維持し、配列と認識できる表示にする。
+
+## 7. Dialog local state
+
+```ts
+type EditableCustomRow = {
+  rowId: string;
+  keyText: string;
+  valueText: string;
+  parsedValue?: FrontmatterValue;
+  errors: Array<"empty-key" | "duplicate-key" | "reserved-key" | "invalid-value" | "unsafe-key">;
+};
+```
+
+open時:
+
+1. 現在のdraft Custom metadataをcloneする。
+2. 各valueを安定したYAML表現へserializeする。
+3. `initialRows`と`rows`へ別cloneとして保持する。
+4. `rows`と`initialRows`の構造比較でdialog dirtyを判定する。
+
+Apply前は`App.tsx`のdraft Custom metadataを変更しない。
+
+## 8. Value parse／serialize
+
+### 8.1 入力
+
+- Value欄のplain textはstringとして扱う。
+- quoted string、number、boolean、null、flow sequence、flow mappingはYAML valueとしてparseする。
+- Imported valueは型を失わない安定した1行YAML表現へ変換する。
+- block scalarなど1行で安全に表せない値もflow形式またはquoted stringへ正規化する。
+
+### 8.2 安全性
+
+- `__proto__`、`prototype`、`constructor`を拒否する。
+- parsed objectはplain dataへ再帰的に正規化する。
+- 最大key長、value長、field件数、nest深度、serialized sizeを制限する。
+- Dialog表示はReact text node／input valueを使用し、HTMLとして挿入しない。
+
+### 8.3 予約key
 
 ```ts
 const RESERVED_FRONTMATTER_KEYS = new Set([
@@ -144,245 +228,178 @@ const RESERVED_FRONTMATTER_KEYS = new Set([
 ]);
 ```
 
-追加する主な関数:
+## 9. 行操作・validation
 
-```ts
-parseCustomMetadataYaml(text: string):
-  | { ok: true; value: CustomMetadata }
-  | { ok: false; error: FrontmatterEditorError };
+### 9.1 Add
 
-serializeCustomMetadata(value: CustomMetadata): string;
+- 空key／空valueのrowを末尾へ追加する。
+- 新規Key入力へfocusする。
+- 空keyのためApplyはdisabledになる。
 
-buildFrontmatterRecord(noteLike: DraftNote): Record<string, unknown>;
+### 9.2 Edit
 
-buildFrontmatterPreview(noteLike: DraftNote): string;
-```
+- keyとvalueの変更をlocal rowsへ反映する。
+- key変更ではrow位置とrowIdを維持する。
+- 変更ごとに全rowの重複keyと対象rowのparseを再評価する。
 
-`toMarkdownWithFrontmatter`も`buildFrontmatterRecord`を使用し、画面previewと実Exportで別々の統合ロジックを持たない。
+### 9.3 Delete
 
-## 6. parse・検証設計
+- 対象rowをlocal rowsから除去する。
+- 次のrow、なければAdd buttonへfocusを移す。
+- Apply前はNote draftを変更しない。
 
-### 6.1 parse手順
+### 9.4 Error
 
-1. 空白だけなら空objectを返す。
-2. `js-yaml`でparseする。
-3. rootがplain mappingであることを確認する。
-4. keyがstringであることを確認する。
-5. 予約属性の存在を確認する。
-6. 許可する値型だけで再帰的に構成されることを確認する。
-7. 危険なkey、過剰な深さ、循環参照相当を拒否する。
-8. 成功時のみ`draftCustomMetadata`を更新する。
+Errorはrow単位で表示し、Value errorにはparse可能な説明を使用する。1件以上のerrorがあればApplyをdisabledにする。error summaryをdialog上部またはfooter近辺へ設け、支援技術へ通知する。
 
-### 6.2 安全性制限
+## 10. Apply・Cancel・close
 
-- `__proto__`、`prototype`、`constructor`をkeyとして許可しない。
-- objectは`Object.getPrototypeOf(value)`を確認し、plain objectだけを許可する。
-- 最大nest深度は20を目安とする。
-- YAML aliasによる過剰展開を抑止できるparse optionを使用し、変換後のnode数またはserialized sizeへ上限を設ける。
-- HTMLやscript文字列はデータとして保持するが、Export previewはtextとして描画し、HTML挿入しない。
+### 10.1 Apply
 
-### 6.3 error型
+1. 全rowを再検証する。
+2. errorがあれば適用せず、最初のerrorへfocusする。
+3. row順を維持したCustom metadataへ変換する。
+4. `onApply`でApp draftへ一括反映する。
+5. 初期値と異なる場合だけ`markDirty()`する。
+6. dialogを閉じ、More actions triggerへfocusを戻す。
 
-```ts
-type FrontmatterEditorError = {
-  kind: "syntax" | "root" | "reserved" | "unsafe" | "too-large";
-  message: string;
-  line?: number;
-  column?: number;
-};
-```
+`Ctrl+Enter`／`Command+Enter`はdialog内だけでApplyとして処理し、メインSave shortcutを発火させない。
 
-内部例外文をそのまま表示せず、入力修正に必要な範囲へ正規化する。
+### 10.2 Cancel／Escape／outside pointer
 
-## 7. Export preview生成
+- dialog dirtyでなければ即時closeする。
+- dialog dirtyなら`Discard metadata changes?`確認を開く。
+- Discard確定でlocal rowsを破棄してcloseする。
+- 確認CancelではMetadata dialogへ戻り、入力とfocus文脈を維持する。
+- 背面pointer操作はclose判断以外へ伝播させない。
 
-### 7.1 統合順序
+### 10.3 メインdirty状態
 
-frontmatter recordは次の順で組み立てる。
+- dialog内編集だけではメインをdirtyにしない。
+- Applyで値が変わった場合にメインをdirtyにする。
+- メインSaveでIndexedDBへ保存する。
+- Revert／DiscardはCustom metadataも保存済み状態へ戻す。
+- Save and ContinueはCustom metadataを他のdraft fieldと同じtransactionへ含める。
 
-1. `id`
-2. `title`（空でなければ）
-3. `tags`（1件以上なら）
-4. `updatedAt`
-5. Marp属性（有効なものだけ）
-6. Custom metadata
+## 11. Import／Export／Backup
 
-Custom metadataは予約属性を含められないため、標準属性の上書きは発生しない。
+### 11.1 Import
 
-### 7.2 リアルタイム更新
+1. frontmatter mappingをkey順に走査する。
+2. 標準／Marp属性を既存fieldへ取り込む。
+3. 残りの安全なentryをCustom metadata配列へ順序付きで格納する。
+4. 危険keyまたは上限超過はfile failureとして理由を返す。
+5. Bodyはfrontmatter除去後の本文とする。
 
-- Title、Tags、Marp draftまたは`draftCustomMetadata`が変わるたびに`useMemo`でYAMLを再生成する。
-- Custom YAMLのparseは入力eventごとに行う。通常規模のYAMLではdebounceしない。
-- 性能計測で必要になった場合のみ短いdebounceを追加し、テストは非同期更新を待つ。
-- parse失敗時は`draftCustomMetadata`を変更しないため、Export previewは最後の有効状態を維持する。
-- `updatedAt`は入力のたびに現在時刻へ変化させず、draftがSaveされた場合に出力される値を安定して表示する。Save実行時の確定値との差異を仕様上許容する場合は補足表示する。
+### 11.2 Export
 
-### 7.3 表示
+- `buildFrontmatterEntries`から`includedInExport`のentryを順番にYAML mappingへ追加する。
+- DialogとExportで別の並び順を持たない。
+- Custom metadataの値型と順序を保持する。
+- 標準属性とCustom metadataのkey衝突は保存前validationにより発生させない。
 
-- `pre`と`code`またはread-only textareaを使用する。
-- 高さ160px、`overflow: auto`、`white-space: pre`とする。
-- accessible nameを`Export preview`とする。
-- 選択・コピーは可能、編集は不可とする。
+### 11.3 Backup／Restore
 
-## 8. Custom metadata編集
+- JSON Note objectへ順序付きCustom metadataを含める。
+- `markdown`にもcanonical orderの統合frontmatterを含める。
+- Restore後のdialog、再Exportで順序と値型が維持されることを確認する。
 
-- textareaの高さは160px、resizeは`none`、overflowは`auto`とする。
-- monospace fontを使用する。
-- accessible nameを`Custom metadata`とする。
-- 変更時に`markDirty()`を呼ぶ。
-- error領域は入力欄と`aria-describedby`で関連付ける。
-- error領域は`role="status"`または適切な`aria-live`を持つ。
-- Tabキーの扱いは初期実装ではbrowser標準とし、YAML用Tab挿入は対象外とする。
+## 12. Preview・TOC
 
-## 9. 保存・遷移
+- `ReactMarkdown`へ渡す値はBodyだけとする。
+- frontmatterをBodyへ連結しない。
+- TOCは描画済みBodyのH1〜H3だけを抽出する。
+- Metadata ApplyではPreview本文とPreview scroll位置を変更しない。
+- Bodyへ直接貼り付けた`---` blockの自動抽出は行わない。
 
-### 9.1 Save
+## 13. Responsive・accessibility
 
-1. `customMetadataError`を確認する。
-2. errorがあればSaveを中止する。
-3. Frontmatter accordionを展開する。
-4. Custom metadata入力へfocusし、errorを通知する。
-5. errorがなければ`draftCustomMetadata`をNoteへ含めて保存する。
+### 13.1 Desktop
 
-### 9.2 Revert／ノート切替
+- dialog widthは内容を読みやすい上限を持ち、viewport左右へ安全余白を確保する。
+- Key／Value／Deleteを1行gridで表示する。
 
-- Revertは保存済みCustom metadataからYAMLを再生成する。
-- 未保存確認のDiscardも同じreset処理を使用する。
-- Save and Continueは通常Saveと同じ検証を通す。
-- ノート切替完了時にaccordionをcollapsedへ戻す。
-- Cancelでは入力、error、accordion状態を維持する。
+### 13.2 Mobile
 
-### 9.3 mobile
+- dialog widthは`calc(100vw - 24px)`以下とする。
+- Key／Value／Deleteは利用可能幅に応じてgridまたは複数行へ切り替える。
+- dialog max-heightをviewport内に収め、bodyを内部スクロールする。
+- footerのCancel／Applyへ常に到達できるようにする。
 
-- mobileでは編集componentをrenderしない。
-- `draftCustomMetadata`は選択ノートから通常どおり読み込む。
-- mobile SaveでもNoteへ既存値を含める。
-- mobileでTitle、Tags、Body、Marp設定を変更してもCustom metadataを空objectで上書きしない。
+### 13.3 Accessibility
 
-## 10. Import／Export／Backup
+- `role="dialog"`、`aria-modal="true"`、dialog titleとの関連を設定する。
+- focus trap、Escape、close後focus復帰を実装する。
+- Deleteは対象keyを含むaccessible nameを持つ。
+- read-only属性は視覚だけでなくtextで識別可能にする。
+- validation errorは入力と関連付け、色だけに依存しない。
 
-### 10.1 Import
+## 14. テスト設計
 
-`parseMarkdownWithFrontmatter`は対応済み標準属性を取り出した後、残りのkeyを`customMetadata`へ格納する。
+### 14.1 機能観点
 
-- 予約属性の型が不正な場合は既存fallback方針に従う。
-- 未知属性は値型が安全なら保持する。
-- 危険なkeyまたは安全に保持できない値があるファイルはfailedとして理由を表示する。
-- bodyは従来どおりfrontmatter除去後の本文とする。
-
-### 10.2 Export
-
-- `buildFrontmatterRecord`を使用する。
-- 1つの`---` blockへ標準、Marp、Custom metadataを統合する。
-- Export previewと同じkey順・serialize optionを使用する。
-
-### 10.3 Backup／Restore
-
-- JSON Note objectへ`customMetadata`を含める。
-- backup内のMarkdownにも統合済みfrontmatterを含める。
-- RestoreはCustom metadata欠落を既存ノートの空値による削除として扱わない。
-
-## 11. Markdown Preview・TOC
-
-- `ReactMarkdown`へ渡す値は従来どおりbodyだけとする。
-- frontmatterをbodyへ連結しない。
-- TOC抽出は描画済みbody内のH1〜H3だけを対象とするため、metadataは対象外になる。
-- Bodyへ直接入力された`---` blockの自動抽出は行わず、Markdown本文として扱う。Custom metadataの編集は専用欄、外部ファイルはImportを使用する。
-
-## 12. Responsive・CSS
-
-想定class:
-
-```css
-.editor-metadata-layout {
-  container-type: inline-size;
-}
-
-.editor-metadata-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-@container (min-width: 760px) {
-  .editor-metadata-row {
-    grid-template-columns: auto minmax(0, 2fr) auto minmax(0, 3fr);
-    align-items: center;
-  }
-}
-
-.frontmatter-editor { }
-.frontmatter-toggle { }
-.frontmatter-panel { }
-.frontmatter-export-preview { height: 160px; overflow: auto; }
-.frontmatter-custom-input { height: 160px; resize: none; overflow: auto; }
-.frontmatter-error { }
-
-@media (max-width: 900px) {
-  .frontmatter-editor { display: none; }
-}
-```
-
-実装ではCSS非表示だけでなく、mobile時に不要なtextareaをfocus順へ含めないことを確認する。
-
-## 13. テスト設計
-
-### 13.1 機能観点
-
-- accordion開閉とノート切替時reset
-- Title／Tags／Marp／Custom metadataの即時preview反映
-- 有効YAMLの保存、Revert、再読込
-- error時のSave抑止とfocus誘導
+- More actionsからのopen、Apply、Cancel、keyboard shortcut
+- Custom field追加・変更・削除
+- メインdirty、Save、Revert、未保存確認
 - Import／Export／Backup roundtrip
 
-### 13.2 非機能観点
+### 14.2 非機能観点
 
-- 多数属性、長い値、深い入れ子でUIが操作可能であること
-- previewとtextareaが各160pxで内部スクロールすること
-- parse中の連続入力で古い結果が新しい結果を上書きしないこと
-- desktop／mobile切替後もデータを失わないこと
+- 多数row、長いkey／value、深い値でdialog操作を継続できること
+- desktop／mobileでheader、body scroll、footer、focusが成立すること
+- dialog連続openで古いlocal stateが残らないこと
+- parseとvalidationの結果が新しい入力を古い処理で上書きしないこと
 
-### 13.3 データ観点
+### 14.3 データ観点
 
-- string、number、boolean、null、配列、mapping
-- 空metadata、Unicode、改行文字列
-- 予約属性、危険なkey、root sequence、syntax error
+- canonical orderとCustom metadata順序
+- string、number、boolean、null、sequence、mapping
+- 空key、重複key、予約key、危険key、不正Value
 - 既存Noteとの後方互換
 
-### 13.4 UI観点
+### 14.4 UI観点
 
-- TagsとBodyの間の配置
-- collapsed初期状態
-- read-onlyとeditableの識別
-- error、focus-visible、ARIA
-- 900px超で表示、900px以下で非表示
-- Editor内容領域760px以上でTitle／Tagsがラベルを含む1行4要素となり、未満で2行へ戻ること
-- Title／Tagsのラベル、入力欄の垂直中央揃え、Tags chip折り返し、横overflow非発生
+- 既存Edit画面のgeometryが変わらないこと
+- read-only項目とCustom rowの識別
+- Exportとdialogの項目順一致
+- responsive layout、内部scroll、error、focus-visible
 
-### 13.5 実行順序と証跡
+### 14.5 正常・異常・境界・状態遷移
 
-- unitでparse、validate、merge、serializeを先に検証する。
-- E2Eは新規Note、保存済みNote、Import Note、mobile保持の順に独立データで実行する。
-- 通し回帰では既存Import、Export、Backup、Marp、Preview、TOCテストを実行する。
-- 失敗時は入力YAML、error kind、preview YAML、保存Note、export fileを取得する。
+- 正常: open、参照、追加、Apply、メインSave、再open、Export
+- 異常: validation error、Import error、IndexedDB error
+- 境界: 0件、1件、最大件数、長い値、狭いviewport
+- 状態遷移: clean open／close、dirty Apply、dirty Cancel／Discard、メインUnsaved／Saved
 
-## 14. 要件トレース
+### 14.6 実行順序と証跡
+
+- unitでparse、validate、order、serializeを先に固定する。
+- component testでdialog local state、focus、discard確認を検証する。
+- E2Eはdesktopとmobileを同一実機上で並列実行しない。
+- 通し回帰で既存Edit、More actions、Save、Import、Export、Backup、Preview、TOCを確認する。
+- failure時はdialog snapshot、active element、rows、errors、draft Note、export YAMLを保存する。
+
+## 15. 要件トレース
 
 | 要件 | 設計章 |
 | --- | --- |
-| FM-UI-001〜024 | 2、3、7、8、12 |
-| FM-FUNC-001〜009 | 5、6、7 |
-| FM-SAVE-001〜005 | 4、8、9 |
-| FM-DATA-001〜006 | 4、10 |
-| FM-PREVIEW-001〜003 | 11 |
-| FM-AC-001〜009 | 2、7〜13 |
+| MD-UI-001〜008 | 2、3、13 |
+| MD-ORDER-001〜004 | 5、11 |
+| MD-READ-001〜004 | 5、6 |
+| MD-CUSTOM-001〜007 | 7〜9 |
+| MD-VAL-001〜007 | 8、9 |
+| MD-STATE-001〜009 | 7、10 |
+| MD-DATA-001〜007 | 4、11 |
+| MD-PREVIEW-001〜003 | 12 |
+| MD-AC-001〜009 | 2〜14 |
 
-## 15. 実装順序
+## 16. 実装順序
 
-1. `Note`型とfrontmatter parse／validate／merge／serializeを拡張する。
-2. unit testで未知属性、予約語、危険key、roundtripを固定する。
-3. draft stateとSave／Revert／遷移へCustom metadataを接続する。
-4. desktop FrontmatterEditorを追加する。
-5. mobile非表示とmetadata保持を追加する。
-6. Export／Backup／Restoreを同期する。
+1. canonical entry、Custom metadata型、parse／validation／serializeを実装する。
+2. unit testでorder、型、予約key、安全制限、roundtripを固定する。
+3. MetadataDialogとlocal stateを実装する。
+4. More actions、Apply、main dirty／Save／Revertへ接続する。
+5. mobile responsive、focus trap、discard確認を実装する。
+6. Import／Export／Backup／Restoreを統合する。
 7. E2Eと既存全回帰を実行する。
 8. 実装結果を本設計と`design-spec.md`へ同期する。
