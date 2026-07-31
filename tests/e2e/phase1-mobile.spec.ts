@@ -10,7 +10,12 @@ test.describe("Phase 1 mobile workflow", () => {
     const noteCountBox = await page.locator(".note-count").boundingBox();
     expect(notesLabelBox).not.toBeNull();
     expect(noteCountBox).not.toBeNull();
-    expect(noteCountBox!.y - (notesLabelBox!.y + notesLabelBox!.height)).toBe(2);
+    expect(Math.abs(noteCountBox!.y - notesLabelBox!.y)).toBeLessThan(4);
+    await expect(page.locator(".note-count")).toHaveText("(0)");
+    await expect(page.locator(".note-count")).toHaveAttribute(
+      "aria-label",
+      "0 notes"
+    );
 
     await page.getByRole("button", { name: /new note/i }).click();
     await expect(
@@ -84,6 +89,7 @@ test.describe("Phase 1 mobile workflow", () => {
     ).toBeVisible();
 
     await page.getByRole("button", { name: /Phase 1 mobile note/ }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
     await expect(page.getByLabel("Body")).toBeVisible();
     await page.getByLabel("Body").fill("# Phase 1\n\nChanged but not saved");
     await page.getByRole("button", { name: "Notes" }).click();
