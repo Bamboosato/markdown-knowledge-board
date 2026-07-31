@@ -1,134 +1,132 @@
-# Markdown Knowledge Board Frontmatter表示・編集 要件定義
+# Markdown Knowledge Board Metadataダイアログ 要件定義
 
 作成日: 2026-07-30
 
-状態: 要件定義済み・実装前
+更新日: 2026-07-31
 
-関連文書: [Frontmatter表示・編集 詳細設計](./frontmatter-editor-design.md)
+状態: 実装済み
+
+関連文書: [Metadataダイアログ 詳細設計](./frontmatter-editor-design.md)
 
 ## 1. 目的
 
-Edit画面で、Markdown Export時に出力されるYAML frontmatterの完成形を確認しながら、アプリ標準属性以外の任意メタデータを編集できるようにする。
+既存のEdit画面を変更せず、Markdown Export時にfrontmatterへ出力されるmetadataをダイアログで参照し、Custom metadataを追加・変更・削除できるようにする。
 
-Title、Tags、Marp設定など既存UIが管理する属性の編集経路は維持し、Custom metadataと競合させない。機能はdesktop向けの高度な編集機能とし、mobileの編集画面は簡潔に保つ。
+Title、Tags、Marp設定など既存UIが管理する属性の編集経路は維持し、Metadataダイアログではread-onlyとする。
 
 ## 2. 基本方針
 
 | 項目 | 方針 |
 | --- | --- |
-| 配置 | Edit画面のTagsとBodyの間に折りたたみ式の`Frontmatter`セクションを配置する。 |
-| Export preview | Export時に出力されるfrontmatter全体をread-only YAMLとして表示する。 |
-| Custom metadata | 任意属性だけをYAMLで編集する。 |
-| 反映時期 | 有効なYAMLは入力中にExport previewへリアルタイム反映する。 |
-| 保存 | YAMLが有効な場合だけ保存できる。不正な場合は保存を抑止する。 |
-| mobile | `max-width: 900px`ではFrontmatterセクションを表示しない。既存metadataは保持する。 |
-| Preview | Markdown Previewにはfrontmatterを表示しない。 |
+| 導線 | 既存のMore actionsメニューへ`Metadata`を追加する。 |
+| Edit画面 | Title、Tags、Bodyを含む既存レイアウトを変更しない。 |
+| 表示順 | ダイアログとMarkdown Exportで共通のcanonical orderを使用する。 |
+| 標準属性 | `id`、`title`、`tags`、`updatedAt`、Marp属性はread-only表示する。 |
+| Custom metadata | Key／Value行として追加・変更・削除できる。 |
+| 確定 | `Apply`または`Ctrl+Enter`／`Command+Enter`で現在のdraftへ反映する。 |
+| 永続化 | ダイアログのApplyではNoteを保存せず、メイン画面のSaveでIndexedDBへ保存する。 |
+| Cancel | 未適用のダイアログ内変更を破棄する。 |
 
 ## 3. テスト観点
 
-テストケースを作成する前に、次の観点を満たすことを確認する。
+テストケース作成前に次の観点を列挙し、正常系、異常系、境界値、状態遷移へ詳細化する。
 
 ### 3.1 観点分類
 
 | 分類 | 主な確認事項 |
 | --- | --- |
-| 機能観点 | 開閉、リアルタイム生成、YAML検証、保存抑止、Import／Export／Backupのroundtrip |
-| 非機能観点 | 入力応答性、長いYAML、スクロール、mobile非表示、再描画タイミング、アクセシビリティ |
-| データ観点 | 標準属性と任意属性の統合、型、入れ子、配列、予約語衝突、未知属性の保持 |
-| UI観点 | Title／Tagsの1行配置、配置切替、read-only表示、編集可能範囲、固定高、エラー表示、focus、折りたたみ状態 |
+| 機能観点 | 開閉、read-only表示、行追加・変更・削除、Apply、Cancel、keyboard shortcut、Import／Export／Backup |
+| 非機能観点 | 多数行、長い値、モバイル、内部スクロール、focus管理、連続操作、応答性 |
+| データ観点 | canonical order、値型、予約語、重複key、安全でないkey、未知属性のroundtrip |
+| UI観点 | 既存Edit画面不変、項目順、read-onlyとeditableの識別、error、ボタン、responsive dialog |
 
 ### 3.2 系統分類
 
 | 系統 | 主な確認事項 |
 | --- | --- |
-| 正常系 | 有効なYAML追加、即時preview反映、保存、再読込、Export、Import |
-| 異常系 | YAML構文エラー、rootがmapping以外、予約語入力、保存失敗、破損Import |
-| 境界値 | 空metadata、1属性、多数属性、長い値、配列、入れ子、空文字、Editor領域760px境界、900px境界 |
-| 状態遷移 | collapsed／expanded、有効／不正、saved／dirty、ノート切替、desktop／mobile切替 |
+| 正常系 | 参照、Custom field追加・編集・削除、Apply、メインSave、再読込、Export |
+| 異常系 | 空key、重複key、予約語、Value構文error、保存失敗、Import破損 |
+| 境界値 | Custom field 0件／1件／多数、空文字、長いkey／value、900px境界、dialog最大高 |
+| 状態遷移 | closed／open、clean／dirty、Apply／Cancel／Discard、ノート切替、Edit／Preview／Slides |
 
-### 3.3 前提・環境・タイミング
+### 3.3 前提・タイミング・証跡
 
-- テスト開始時にviewport、選択ノート、保存状態、Frontmatter開閉状態を明示する。
-- desktopとmobileで同じノートを開き、mobile保存後もCustom metadataが失われないことを確認する。
-- YAML入力とExport preview再生成の非同期タイミングを考慮し、固定時間待機ではなく表示内容を待つ。
-- Import／Export／Backupテストは前ケースのIndexedDBデータへ依存せず、テストデータを明示的に準備する。
-- 失敗時はCustom metadata入力値、parse error、直前の有効値、Export preview、dirty状態を証跡として取得する。
+- viewport、選択ノート、active tab、メインのdirty状態、ダイアログ初期値を明示する。
+- ダイアログ内のローカル変更とNote draftへの適用済み変更を区別する。
+- Import／Export／Backupテストは独立したNoteデータを準備し、実行順に依存させない。
+- 失敗時は表示順、各行のkey／value／error、Apply可否、メインdraft、保存Note、Export YAMLを取得する。
+- 同一ブラウザでの連続open／closeによる古いlocal stateの残留を確認する。
 
-## 4. UI要件
-
-### 4.1 Frontmatterセクション
+## 4. 導線・ダイアログ要件
 
 | ID | 要件 |
 | --- | --- |
-| FM-UI-001 | Edit画面のTagsとBodyの間に`Frontmatter`折りたたみトリガーを配置する。 |
-| FM-UI-002 | 初期状態はcollapsedとし、ノート編集の通常動線を圧迫しない。 |
-| FM-UI-003 | トリガーはbuttonとし、`aria-expanded`と`aria-controls`を持つ。 |
-| FM-UI-004 | 展開状態は画面内の一時状態とし、ノートデータへ保存しない。 |
-| FM-UI-005 | ノート切替時はcollapsedへ戻す。 |
+| MD-UI-001 | More actionsメニューへ`Metadata`メニュー項目を追加する。 |
+| MD-UI-002 | `Metadata`選択時にmodal dialogを開き、More actionsメニューを閉じる。 |
+| MD-UI-003 | dialogは`role="dialog"`、accessible name `Metadata`を持つ。 |
+| MD-UI-004 | open時はdialog内の適切な最初の操作へfocusし、close時は`Metadata`を開いたメニュートリガーへ戻す。 |
+| MD-UI-005 | dialog内でTab／Shift+Tabのfocusを循環させ、背面UIを操作させない。 |
+| MD-UI-006 | dialog本文がviewportを超える場合はdialog内部だけを縦スクロール可能にする。 |
+| MD-UI-007 | mobileでは安全な左右余白を保ったほぼ全幅表示とし、header／footer操作へ到達できる最大高を設定する。 |
+| MD-UI-008 | Metadata機能の追加によって既存Edit画面へ入力欄、accordion、常設ボタンを追加しない。 |
 
-### 4.2 Export preview
+## 5. 項目と表示順
 
-| ID | 要件 |
-| --- | --- |
-| FM-UI-006 | `Export preview`として、Exportされるfrontmatterの完成形をread-onlyで表示する。 |
-| FM-UI-007 | `title`と`tags`を必ず確認可能にし、値がある標準属性、Marp属性、Custom metadataをExport順で表示する。 |
-| FM-UI-008 | `id`と`updatedAt`はアプリ管理値として表示する。 |
-| FM-UI-009 | 高さは160px固定とし、超過時は縦横それぞれ欄内でスクロールできるようにする。 |
-| FM-UI-010 | Export preview内では値を編集できない。 |
+### 5.1 Canonical order
 
-### 4.3 Custom metadata
+ダイアログとMarkdown Exportは次の共通順序を使用する。
 
-| ID | 要件 |
-| --- | --- |
-| FM-UI-011 | `Custom metadata`としてYAML編集欄を表示する。 |
-| FM-UI-012 | 高さは160px固定とし、resizeは無効、超過時は欄内スクロールとする。 |
-| FM-UI-013 | 空入力はCustom metadataなしとして有効扱いにする。 |
-| FM-UI-014 | YAML errorは編集欄直下へ表示し、可能な範囲で原因を示す。 |
-| FM-UI-015 | errorは色だけに依存せず、テキストと`aria-live`または同等の通知手段で識別できるようにする。 |
-
-### 4.4 Responsive
-
-| ID | 要件 |
-| --- | --- |
-| FM-UI-016 | 画面幅が900pxを超える場合だけFrontmatterセクションを表示する。 |
-| FM-UI-017 | `max-width: 900px`ではトリガーを含めてFrontmatterセクション全体を非表示にする。 |
-| FM-UI-018 | mobileでTitle、Tags、Bodyを保存しても、既存のCustom metadataを変更または削除しない。 |
-
-### 4.5 Title／Tags配置
+1. `id`
+2. `title`
+3. `tags`
+4. `updatedAt`
+5. Marp属性（Export対象の場合のみ）
+   1. `marp`
+   2. `theme`
+   3. `size`
+   4. `paginate`
+   5. `headingDivider`（Export対象の場合のみ）
+6. Custom metadata（保持している順序）
 
 | ID | 要件 |
 | --- | --- |
-| FM-UI-019 | 十分な横幅があるEdit画面では、`Title`ラベル、Title入力欄、`Tags`ラベル、Tags入力欄を同じ1行へ配置する。 |
-| FM-UI-020 | 1行内の順序は`Title [入力欄] Tags [入力欄]`とする。 |
-| FM-UI-021 | ラベルと各入力欄は垂直中央を揃える。 |
-| FM-UI-022 | 入力欄へ配分する利用可能幅はTitle側を約40%、Tags側を約60%とし、Tagsの複数chip表示を優先する。 |
-| FM-UI-023 | Editor内容領域が760px未満の場合は、Title行とTags行を分ける従来の縦配置へ戻す。viewport全体の幅だけで判定しない。 |
-| FM-UI-024 | Tagsが入力欄幅を超える場合はTags欄内で折り返し、ページ全体の横スクロールを発生させない。 |
+| MD-ORDER-001 | ダイアログとExportは同じfrontmatter項目生成処理を使用し、別々に並び順を定義しない。 |
+| MD-ORDER-002 | Export対象外の省略可能属性はYAMLへ出力しない。ダイアログで表示する場合は`Not included in export`相当と識別できるようにする。 |
+| MD-ORDER-003 | Custom metadataの既存順序を維持し、新規fieldは末尾へ追加する。 |
+| MD-ORDER-004 | key変更では行位置を維持し、削除後に同じkeyを再追加した場合は末尾へ配置する。 |
 
-## 5. 機能要件
+### 5.2 Read-only項目
 
-### 5.1 Export preview生成
-
-| ID | 要件 |
-| --- | --- |
-| FM-FUNC-001 | Export previewは現在のdraftの標準属性と、最後にparse成功したCustom metadataを統合して生成する。 |
-| FM-FUNC-002 | Custom metadataが有効な場合、入力に応じてSave前でもリアルタイム更新する。 |
-| FM-FUNC-003 | Custom metadataが不正になった場合、Export previewは最後に有効だった内容を維持する。 |
-| FM-FUNC-004 | Preview生成はノートの保存を実行せず、生成だけでdirty状態を追加変更しない。 |
-| FM-FUNC-005 | Title、Tags、Marp設定のdraft変更もExport previewへリアルタイム反映する。 |
-
-### 5.2 YAML検証
+| 項目 | 表示 | 編集経路 |
+| --- | --- | --- |
+| `id` | read-only | アプリ管理 |
+| `title` | read-only | Edit画面のTitle入力欄 |
+| `tags` | read-only | Edit画面のTags入力欄 |
+| `updatedAt` | read-only | Note保存時に自動更新 |
+| Marp属性 | read-only | Slides settings |
 
 | ID | 要件 |
 | --- | --- |
-| FM-FUNC-006 | Custom metadataはYAML mappingをrootとする。scalar、sequence、null rootは不正とする。 |
-| FM-FUNC-007 | string、number、boolean、null、配列、入れ子mappingを値として許可する。 |
-| FM-FUNC-008 | 重複key、YAML parse error、循環参照相当など安全に保存できない構造を拒否する。 |
-| FM-FUNC-009 | prototype汚染につながるkeyや実装上危険なkeyは拒否する。 |
+| MD-READ-001 | read-only項目は選択・コピー可能だがdialog内で編集できない。 |
+| MD-READ-002 | TitleとTagsはMetadata dialogを開いた時点の現在のdraft値を表示する。 |
+| MD-READ-003 | Tagsは配列であることを認識できる表示とし、順序を維持する。 |
+| MD-READ-004 | `updatedAt`のcanonical keyは既存互換のため`updatedAt`を維持する。 |
 
-### 5.3 予約属性
+## 6. Custom metadata操作
 
-次の属性は既存UIまたはアプリが管理する予約属性とし、Custom metadataでは使用できない。
+| ID | 要件 |
+| --- | --- |
+| MD-CUSTOM-001 | 各行を`Key入力欄`、`Value入力欄`、`Delete`アイコンボタンで構成する。 |
+| MD-CUSTOM-002 | KeyとValueはdialog内で直接変更できる。 |
+| MD-CUSTOM-003 | `Add custom field`で空の新規行を一覧末尾へ追加する。 |
+| MD-CUSTOM-004 | Delete選択時はdialogのlocal stateから対象行を即時除去する。Apply前はNote draftを変更しない。 |
+| MD-CUSTOM-005 | ValueはYAML valueとして解釈し、string、number、boolean、null、sequence、mappingを保持できる。 |
+| MD-CUSTOM-006 | plain textはstringとして扱い、配列・mappingなど構文を必要とする値は有効なYAML表現を要求する。 |
+| MD-CUSTOM-007 | 複雑な値も1つのValue欄に安全なYAML表現で表示し、Apply／再openで型を失わない。 |
+
+## 7. バリデーション
+
+次のkeyはCustom metadataで使用できない。
 
 - `id`
 - `title`
@@ -139,56 +137,73 @@ Title、Tags、Marp設定など既存UIが管理する属性の編集経路は�
 - `size`
 - `paginate`
 - `headingDivider`
-
-予約属性がCustom metadataに含まれる場合はYAML errorと同等に扱い、重複出力や暗黙の上書きを行わない。
-
-### 5.4 保存・未保存状態
-
-| ID | 要件 |
-| --- | --- |
-| FM-SAVE-001 | Custom metadataを変更した時点でノートをdirtyにする。 |
-| FM-SAVE-002 | 有効なCustom metadataはSave時にノートデータへ保存する。 |
-| FM-SAVE-003 | YAML errorまたは予約属性衝突がある場合はSaveを実行せず、Frontmatterセクションを展開してerrorへ誘導する。 |
-| FM-SAVE-004 | Revert changesはCustom metadataも最後に保存した状態へ戻す。 |
-| FM-SAVE-005 | 未保存確認のSave and Continueでも同じ検証を行い、不正なmetadataを保存しない。 |
-
-## 6. データ要件
+- `__proto__`
+- `prototype`
+- `constructor`
 
 | ID | 要件 |
 | --- | --- |
-| FM-DATA-001 | NoteへCustom metadataを構造化データとして保持する。BodyへYAML文字列を混在させない。 |
-| FM-DATA-002 | 既存ノートはCustom metadataなしとして後方互換で読み込める。 |
-| FM-DATA-003 | Import時に未知のfrontmatter属性をCustom metadataとして保持する。 |
-| FM-DATA-004 | Export時に標準属性、Marp属性、Custom metadataを1つのfrontmatter mappingへ統合する。 |
-| FM-DATA-005 | Backup／RestoreでもCustom metadataを欠落させない。 |
-| FM-DATA-006 | mobileでは編集UIを表示しないが、保存処理はCustom metadataをそのまま維持する。 |
+| MD-VAL-001 | trim後の空keyを不正とする。 |
+| MD-VAL-002 | Custom metadata内の重複keyを不正とする。YAMLのkeyと同様に大文字小文字を区別する。 |
+| MD-VAL-003 | 予約keyと安全でないkeyを不正とする。 |
+| MD-VAL-004 | Valueを安全なYAML valueとしてparseできない場合は対象行へerrorを表示する。 |
+| MD-VAL-005 | 1件以上のerrorがある場合はApplyをdisabledにする。 |
+| MD-VAL-006 | errorは色だけに依存せず、行と原因をテキストおよび支援技術へ通知する。 |
+| MD-VAL-007 | key／valueの最大長、Custom field件数、nest深度、serialized sizeへ実装上の安全上限を設ける。 |
 
-## 7. Preview要件
+## 8. Apply・Cancel・未適用変更
 
 | ID | 要件 |
 | --- | --- |
-| FM-PREVIEW-001 | 通常のMarkdown Previewにはfrontmatterを表示しない。 |
-| FM-PREVIEW-002 | Frontmatter属性はTOC抽出対象にしない。 |
-| FM-PREVIEW-003 | Custom metadata変更だけではMarkdown Preview本文を変更しない。 |
+| MD-STATE-001 | dialog open時に現在のCustom metadataをlocal stateへ複製する。 |
+| MD-STATE-002 | 入力、追加、削除はApplyまでdialog local stateだけを変更する。 |
+| MD-STATE-003 | `Apply`またはWindows／Linuxの`Ctrl+Enter`、macOSの`Command+Enter`で有効なCustom metadataをNote draftへ一括反映する。 |
+| MD-STATE-004 | Apply後はdialogを閉じ、変更がある場合はメイン画面をUnsavedにする。ApplyだけではIndexedDBへ保存しない。 |
+| MD-STATE-005 | `Cancel`はlocal stateを破棄し、メインdraftを変更せず閉じる。 |
+| MD-STATE-006 | 変更なしではEscapeまたはdialog外pointer選択で閉じる。 |
+| MD-STATE-007 | 未適用変更がある状態でCancel、Escape、dialog外pointer選択を行った場合は`Discard metadata changes?`確認を表示する。 |
+| MD-STATE-008 | Discard確定時だけlocal stateを破棄する。確認のCancelではMetadata dialogへ戻り入力を維持する。 |
+| MD-STATE-009 | メイン画面のSave、Save and Continue、Revert、Discardは適用済みCustom metadataを既存のdirty遷移へ含める。 |
 
-## 8. 対象外
+## 9. データ・Import／Export／Backup
 
-- mobileでのFrontmatter表示・編集
-- Custom metadataから専用フォームを自動生成する機能
+| ID | 要件 |
+| --- | --- |
+| MD-DATA-001 | NoteへCustom metadataを構造化データとして保持し、Bodyへfrontmatter文字列を混在させない。 |
+| MD-DATA-002 | 既存NoteはCustom metadataなしとして後方互換で読み込む。 |
+| MD-DATA-003 | Import時は対応済み標準／Marp属性以外の安全な属性をCustom metadataとして順序と型を保って取り込む。 |
+| MD-DATA-004 | Export時はcanonical orderで1つのfrontmatter mappingへ統合する。 |
+| MD-DATA-005 | Backup／RestoreでもCustom metadataの順序と値型を保持する。 |
+| MD-DATA-006 | Apply済みでメインSave前のCustom metadataは他のdraft項目と同じ未保存確認対象にする。 |
+| MD-DATA-007 | dialogを開かずにTitle、Tags、Bodyを保存しても既存Custom metadataを失わない。 |
+
+## 10. Markdown Preview・TOC
+
+| ID | 要件 |
+| --- | --- |
+| MD-PREVIEW-001 | Markdown Previewへfrontmatterを表示しない。 |
+| MD-PREVIEW-002 | frontmatter属性をTOC抽出対象にしない。 |
+| MD-PREVIEW-003 | Custom metadataのApplyだけではPreview本文を変更しない。 |
+
+## 11. 対象外
+
+- Edit画面へのFrontmatter accordionまたは常設metadata入力欄
+- Title／Tags／Marp属性のMetadata dialog内編集
+- Custom metadataを検索、Filter、TOCへ使用する機能
 - Bodyへ直接貼り付けたfrontmatterの自動抽出
-- schema定義、入力補完、外部schema検証
-- Custom metadataを検索・Filter条件として利用する機能
+- Custom fieldのdrag-and-drop並べ替え
+- 外部YAML schema、入力補完、schema由来フォーム
 
-## 9. 受入条件
+## 12. 受入条件
 
 | ID | 受入条件 |
 | --- | --- |
-| FM-AC-001 | desktop Edit画面でFrontmatterを開き、Export previewにTitle、Tagsを含む完成形を確認できる。 |
-| FM-AC-002 | 有効なCustom metadata入力がSave前にExport previewへ反映される。 |
-| FM-AC-003 | 不正YAMLではerrorを表示し、最後の有効なExport previewを維持してSaveを抑止する。 |
-| FM-AC-004 | 保存・再読込・Export・Import・Backup／RestoreでCustom metadataが保持される。 |
-| FM-AC-005 | 予約属性をCustom metadataへ入力しても標準属性を上書きできない。 |
-| FM-AC-006 | 900px以下ではFrontmatter UIが表示されず、mobile保存後もmetadataが保持される。 |
-| FM-AC-007 | Markdown PreviewとTOCにfrontmatterが表示されない。 |
-| FM-AC-008 | Export previewとCustom metadataは各160px固定で、長い内容へ欄内スクロールで到達できる。 |
-| FM-AC-009 | Editor内容領域760px以上ではTitleとTagsがラベルを含めて1行に並び、760px未満では2行へ戻る。 |
+| MD-AC-001 | 既存Edit画面の配置を変えずMore actionsからMetadata dialogを開ける。 |
+| MD-AC-002 | `id`、`title`、`tags`、`updatedAt`、対象Marp属性、Custom metadataがExportと同じ順序で表示される。 |
+| MD-AC-003 | TitleとTagsが現在のdraft値でread-only表示される。 |
+| MD-AC-004 | Custom fieldを追加・変更・削除し、Apply後にメイン画面がUnsavedになる。 |
+| MD-AC-005 | CancelまたはDiscardで未適用変更をメインdraftへ反映しない。 |
+| MD-AC-006 | 空、重複、予約keyまたは不正Valueがある場合はApplyできない。 |
+| MD-AC-007 | メインSave、再読込、Export、Import、Backup／RestoreでCustom metadataの順序と型が保持される。 |
+| MD-AC-008 | PCとmobileの両方でdialog操作、内部スクロール、footer操作、focus復帰が成立する。 |
+| MD-AC-009 | Markdown PreviewとTOCにfrontmatterが表示されない。 |

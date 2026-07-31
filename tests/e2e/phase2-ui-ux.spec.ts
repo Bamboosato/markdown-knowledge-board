@@ -6,6 +6,8 @@ declare global {
     __backupFileName?: string;
     __backupText?: string;
     __viewTransitionCalls?: number;
+    __downloadText?: string;
+    __downloadFileName?: string;
   }
 }
 
@@ -94,6 +96,33 @@ async function mockBackupCancelPicker(page: Page) {
         throw new DOMException("The user aborted a request.", "AbortError");
       },
     });
+  });
+}
+
+async function inputValues(locator: Locator) {
+  return locator.evaluateAll((elements) =>
+    elements.map((element) => (element as HTMLInputElement).value)
+  );
+}
+
+async function mockMarkdownDownload(page: Page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: (blob: Blob) => {
+        void blob.text().then((text) => {
+          window.__downloadText = text;
+        });
+        return "blob:markdown-download";
+      },
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: () => {},
+    });
+    HTMLAnchorElement.prototype.click = function () {
+      window.__downloadFileName = this.download;
+    };
   });
 }
 
@@ -275,6 +304,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(moreButton).toBeEnabled();
     await moreButton.click();
     const menu = page.getByRole("menu", { name: "More actions" });
+    await expect(menu.getByRole("menuitem", { name: "Metadata" })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Export" })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Delete" })).toBeVisible();
 
@@ -1687,5 +1717,215 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
       "# Phase 2 undo note\n\nUndo body"
     );
     await expect(page.getByText("Status: Saved")).toBeVisible();
+  });
+
+  test("edits custom metadata locally and validates protected keys", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await createSavedNote(page, "Metadata note", "# Metadata", ["design"]);
+
+    await clickNoteAction(page, "Metadata");
+    const dialog = page.getByRole("dialog", { name: "Metadata" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("Read-only", { exact: true })).toHaveCount(1);
+    await expect(dialog.locator(".metadata-managed-row")).toHaveCount(4);
+    await expect(dialog.locator(".metadata-managed-row dd").first()).toHaveCSS(
+      "display",
+      "flex"
+    );
+    await expect(dialog.locator(".metadata-managed-row dt")).toHaveText([
+      "id",
+      "title",
+      "tags",
+      "updatedAt",
+    ]);
+    await expect(dialog.locator(".metadata-managed-row", { hasText: "title" })).toContainText(
+      "Metadata note"
+    );
+    await expect(dialog.locator(".metadata-managed-row", { hasText: "tags" })).toContainText(
+      "design"
+    );
+
+    const buttonHeights = await dialog.evaluate((element) => {
+      const height = (selector: string) =>
+        element.querySelector<HTMLElement>(selector)?.getBoundingClientRect()
+          .height ?? 0;
+      return {
+        add: height(".metadata-add-button"),
+        cancel: height(".metadata-dialog-footer .secondary-button"),
+        apply: height(".metadata-dialog-footer .primary-button"),
+      };
+    });
+    expect(buttonHeights).toEqual({ add: 40, cancel: 40, apply: 40 });
+
+    await dialog.getByRole("button", { name: "Add custom field" }).click();
+    const deleteButton = dialog.getByRole("button", {
+      name: "Delete custom field 1",
+    });
+    await expect(deleteButton).toHaveAttribute("data-tooltip", "Delete field");
+    await expect(deleteButton).toHaveCSS("width", "40px");
+    await expect(deleteButton).toHaveCSS("height", "40px");
+    await expect(deleteButton).toHaveCSS("border-radius", "8px");
+    const deleteIconSize = await deleteButton.locator("svg").evaluate((icon) => {
+      const rect = icon.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    });
+    expect(deleteIconSize).toEqual({ width: 18, height: 18 });
+    await deleteButton.hover();
+    await expect(deleteButton).toHaveCSS("color", "rgb(180, 35, 24)");
+    const key = dialog.locator(".metadata-custom-key").first();
+    const value = dialog.locator(".metadata-custom-value").first();
+    await key.fill("title");
+    await value.fill("Shadow title");
+    await expect(dialog.getByText("title is managed by the application.")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Apply" })).toBeDisabled();
+
+    await key.fill("author");
+    await value.fill("Takeo");
+    await dialog.getByRole("button", { name: "Add custom field" }).click();
+    await dialog.locator(".metadata-custom-key").nth(1).fill("author");
+    await dialog.locator(".metadata-custom-value").nth(1).fill("reviewed");
+    await expect(dialog.getByText("Key must be unique.").first()).toBeVisible();
+    await dialog.locator(".metadata-custom-key").nth(1).fill("status");
+    await expect(dialog.getByRole("button", { name: "Apply" })).toBeEnabled();
+
+    await dialog.getByRole("button", { name: "Apply" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByText("Status: Unsaved")).toBeVisible();
+    await expect(page.getByRole("button", { name: "More actions" })).toBeFocused();
+
+    await clickNoteAction(page, "Metadata");
+    await dialog.locator(".metadata-custom-value").first().fill("Changed locally");
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    const discardDialog = page.getByRole("alertdialog", {
+      name: "Discard metadata changes?",
+    });
+    await expect(discardDialog).toBeVisible();
+    await expect(discardDialog).toHaveCSS("padding", "20px");
+    await expect(discardDialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    const discardGeometry = await discardDialog.evaluate((element) => {
+      const container = element.closest<HTMLElement>(".metadata-dialog");
+      return {
+        width: container?.getBoundingClientRect().width ?? 0,
+        actionsJustify: getComputedStyle(
+          element.querySelector<HTMLElement>(".dialog-actions")!
+        ).justifyContent,
+      };
+    });
+    expect(discardGeometry).toEqual({ width: 420, actionsJustify: "flex-end" });
+    await discardDialog.getByRole("button", { name: "Discard" }).click();
+
+    await clickNoteAction(page, "Metadata");
+    await expect(dialog.locator(".metadata-custom-value").first()).toHaveValue("Takeo");
+    await dialog.getByRole("button", { name: "Apply" }).click();
+    await page.getByRole("button", { name: /^Save$/ }).click();
+    await page.reload();
+    await page.locator(".note-item", { hasText: "Metadata note" }).click();
+    await clickNoteAction(page, "Metadata");
+    expect(await inputValues(dialog.locator(".metadata-custom-key"))).toEqual([
+      "author",
+      "status",
+    ]);
+    expect(await inputValues(dialog.locator(".metadata-custom-value"))).toEqual([
+      "Takeo",
+      "reviewed",
+    ]);
+  });
+
+  test("keeps the metadata dialog operable inside a narrow viewport", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.goto("/");
+    await createSavedNote(page, "Mobile metadata", "# Mobile metadata");
+    await clickNoteAction(page, "Metadata");
+
+    const dialog = page.getByRole("dialog", { name: "Metadata" });
+    for (let index = 0; index < 8; index += 1) {
+      await dialog.getByRole("button", { name: "Add custom field" }).click();
+      await dialog.locator(".metadata-custom-key").nth(index).fill(`key_${index}`);
+      await dialog.locator(".metadata-custom-value").nth(index).fill(`value_${index}`);
+    }
+
+    const geometry = await dialog.evaluate((element) => {
+      const body = element.querySelector<HTMLElement>(".metadata-dialog-body");
+      const rect = element.getBoundingClientRect();
+      return {
+        top: rect.top,
+        bottom: rect.bottom,
+        viewportHeight: window.innerHeight,
+        bodyOverflowY: body ? getComputedStyle(body).overflowY : "",
+        bodyScrollable: body ? body.scrollHeight > body.clientHeight : false,
+      };
+    });
+    expect(geometry.top).toBeGreaterThanOrEqual(0);
+    expect(geometry.bottom).toBeLessThanOrEqual(geometry.viewportHeight);
+    expect(geometry.bodyOverflowY).toBe("auto");
+    expect(geometry.bodyScrollable).toBe(true);
+    await expect(dialog.getByRole("button", { name: "Apply" })).toBeVisible();
+    await page.keyboard.press("Control+Enter");
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByText("Status: Unsaved")).toBeVisible();
+  });
+
+  test("round-trips imported custom metadata in canonical export order", async ({
+    page,
+  }) => {
+    await mockMarkdownDownload(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await createSavedNote(page, "Import target", "# Import target");
+
+    await dispatchFileDrag(page, "drop", [
+      {
+        name: "metadata-roundtrip.md",
+        mimeType: "text/markdown",
+        content: [
+          "---",
+          "id: imported-metadata-note",
+          "title: Imported metadata",
+          "tags: [design, review]",
+          "updatedAt: 1710000000000",
+          "priority: 3",
+          "audience: [internal, partner]",
+          "---",
+          "# Imported body",
+        ].join("\n"),
+      },
+    ]);
+    const resultDialog = page.getByRole("dialog", { name: "Import Complete" });
+    await expectResultValue(resultDialog, "Added", "1");
+    await resultDialog.getByRole("button", { name: "Close" }).click();
+    await page.locator(".note-item", { hasText: "Imported metadata" }).click();
+
+    await clickNoteAction(page, "Metadata");
+    const metadataDialog = page.getByRole("dialog", { name: "Metadata" });
+    expect(await inputValues(metadataDialog.locator(".metadata-custom-key"))).toEqual([
+      "priority",
+      "audience",
+    ]);
+    await metadataDialog.getByRole("button", { name: "Cancel" }).click();
+    await clickNoteAction(page, "Export");
+    await expect.poll(() => page.evaluate(() => window.__downloadText ?? "")).toContain(
+      "# Imported body"
+    );
+
+    const markdown = await page.evaluate(() => window.__downloadText ?? "");
+    const orderedKeys = [
+      "id:",
+      "title:",
+      "tags:",
+      "updatedAt:",
+      "priority:",
+      "audience:",
+    ];
+    const positions = orderedKeys.map((key) => markdown.indexOf(`\n${key}`));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((left, right) => left - right));
+    await expect.poll(() => page.evaluate(() => window.__downloadFileName)).toBe(
+      "Imported metadata.md"
+    );
   });
 });
