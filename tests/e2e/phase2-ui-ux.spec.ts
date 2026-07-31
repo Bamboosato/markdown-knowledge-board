@@ -313,40 +313,35 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(moreButton).toBeFocused();
   });
 
-  test("uses consistent borders and icon contrast across icon buttons", async ({
+  test("keeps quiet icon buttons transparent with consistent icon contrast", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/");
+    await page.getByRole("button", { name: /new note/i }).click();
 
-    const iconButtons = [
+    const quietIconButtons = [
       page.getByRole("button", { name: "Open application menu" }),
       page.getByRole("button", { name: "Import Markdown" }),
       page.getByRole("button", { name: "Revert changes" }),
       page.getByRole("button", { name: "More actions" }),
+    ];
+    const iconButtons = [
+      ...quietIconButtons,
       page.getByRole("button", { name: "Expand editor" }),
     ];
     for (const button of iconButtons) {
       await expect(button).toHaveAttribute("data-tooltip", /\S+/);
     }
-    for (const name of [
-      "Bold",
-      "Italic",
-      "Strike",
-      "Code",
-      "Bullet",
-      "Task",
-      "Quote",
-      "Link",
-    ]) {
+    for (const name of ["Format", "Paragraph", "Insert"]) {
       await expect(page.getByRole("button", { name })).toHaveAttribute(
-        "data-tooltip",
-        name
+        "aria-haspopup",
+        "menu"
+      );
+      await expect(page.getByRole("button", { name })).not.toHaveAttribute(
+        "data-tooltip"
       );
     }
-    await expect(page.getByRole("button", { name: "H1" })).not.toHaveAttribute(
-      "data-tooltip"
-    );
     const visualStyles = await Promise.all(
       iconButtons.map((button) =>
         button.evaluate((element) => {
@@ -365,7 +360,13 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
       )
     );
 
-    expect(new Set(visualStyles.map((style) => style.borderColor)).size).toBe(1);
+    expect(
+      new Set(
+        visualStyles
+          .slice(0, quietIconButtons.length)
+          .map((style) => style.borderColor)
+      )
+    ).toEqual(new Set(["rgba(0, 0, 0, 0)"]));
     expect(new Set(visualStyles.map((style) => style.borderWidth))).toEqual(
       new Set(["1px"])
     );
@@ -398,10 +399,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
       const bounds = await button.evaluate((element) => {
         const style = getComputedStyle(element, "::after");
         const buttonBox = element.getBoundingClientRect();
-        const outerWidth =
-          Number.parseFloat(style.width) +
-          Number.parseFloat(style.paddingLeft) +
-          Number.parseFloat(style.paddingRight);
+        const outerWidth = Number.parseFloat(style.width);
         const transformX = new DOMMatrix(style.transform).e;
         const left =
           style.left !== "auto"
@@ -611,6 +609,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     });
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/");
+    await page.getByRole("button", { name: /new note/i }).click();
 
     await page.getByRole("button", { name: "Expand editor" }).click();
     await expect(page.locator(".app")).toHaveClass(/editor-expanded/);
@@ -857,9 +856,61 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     const moreActions = page.getByRole("button", { name: "More actions" });
     await expect(moreActions).toHaveCSS("height", "36px");
     await expect(moreActions.locator("svg")).toHaveCSS("width", "18px");
-    const bold = page.getByRole("button", { name: "Bold" });
-    await expect(bold).toHaveCSS("height", "30px");
+    const format = page.getByRole("button", { name: "Format" });
+    await expect(format).toHaveCSS("height", "30px");
+    await format.click();
+    const bold = page.getByRole("menuitem", { name: "Bold" });
+    await expect(bold).toHaveCSS("min-height", "32px");
     await expect(bold.locator("svg")).toHaveCSS("width", "15px");
+  });
+
+  test("keeps the note count inline and uses compact responsive gutters", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await createSavedNote(page, "Gutter note", "Gutter body");
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+
+    const notesHeading = page.locator(".notes-heading");
+    const noteCount = notesHeading.locator(".note-count");
+    await expect(noteCount).toHaveText("(1)");
+    await expect(noteCount).toHaveAttribute("aria-label", "1 note");
+    const headingAlignment = await notesHeading.evaluate((element) => {
+      const title = element.querySelector<HTMLElement>(".section-title")!;
+      const count = element.querySelector<HTMLElement>(".note-count")!;
+      return Math.abs(
+        title.getBoundingClientRect().top - count.getBoundingClientRect().top
+      );
+    });
+    expect(headingAlignment).toBeLessThan(4);
+
+    for (const selector of [".sidebar", ".editor", ".editor-header"]) {
+      await expect(page.locator(selector)).toHaveCSS("padding-left", "16px");
+      await expect(page.locator(selector)).toHaveCSS("padding-right", "16px");
+    }
+    await expect(page.locator(".preview-panel")).toHaveCSS("padding", "18px");
+    await expect(page.locator(".note-list")).toHaveCSS("padding-right", "8px");
+
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.getByRole("button", { name: "Notes" }).click();
+    for (const selector of [".sidebar", ".editor", ".editor-header"]) {
+      await expect(page.locator(selector)).toHaveCSS("padding-left", "12px");
+      await expect(page.locator(selector)).toHaveCSS("padding-right", "12px");
+    }
+    const mobileGeometry = await page.locator(".sidebar").evaluate((sidebar) => {
+      const noteList = sidebar.querySelector<HTMLElement>(".note-list")!;
+      return {
+        scrollbarToEdge:
+          sidebar.getBoundingClientRect().right -
+          noteList.getBoundingClientRect().right,
+        horizontalOverflow:
+          document.documentElement.scrollWidth >
+          document.documentElement.clientWidth,
+      };
+    });
+    expect(mobileGeometry.scrollbarToEdge).toBeCloseTo(4, 0);
+    expect(mobileGeometry.horizontalOverflow).toBe(false);
   });
 
   test("summarizes duplicate and failed import results", async ({ page }) => {
@@ -972,6 +1023,42 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(page.locator(".note-title", { hasText: "plain-note" })).toBeVisible();
     await expect(page.locator(".note-title", { hasText: "Explicit Title" })).toBeVisible();
     await expect(page.locator(".note-title", { hasText: "Internal Heading" })).toHaveCount(0);
+  });
+
+  test("imports Markdown dropped on Preview without replacing the current note", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await createSavedNote(page, "Preview drop target", "Original preview body");
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+
+    const previewPanel = page.locator(".preview-panel:not([hidden])");
+    const files = [
+      {
+        name: "preview-import.md",
+        mimeType: "text/markdown",
+        content: "# Imported from Preview",
+      },
+    ];
+    expect(await dispatchFileDrag(page, "dragenter", files)).toBe(true);
+    await expect(previewPanel).toHaveClass(/is-drag-active/);
+    expect(await dispatchFileDrag(page, "dragleave", files)).toBe(true);
+    await expect(previewPanel).not.toHaveClass(/is-drag-active/);
+
+    expect(await dispatchFileDrag(page, "drop", files)).toBe(true);
+    const dialog = page.getByRole("dialog", { name: "Import Complete" });
+    await expect(dialog).toBeVisible();
+    await expectResultValue(dialog, "Added", "1");
+    await expect(previewPanel).not.toHaveClass(/is-drag-active/);
+    await expect(previewPanel).toContainText("Original preview body");
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await expect(
+      page.locator(".note-title", { hasText: "preview-import" })
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(page.getByLabel("Body")).toHaveValue("Original preview body");
   });
 
   test("keeps an unsaved draft when a Body file drop is canceled", async ({
@@ -1388,7 +1475,11 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
 
     await expect(page.locator("#filter-search")).toHaveCount(0);
     await expect(page.locator("#filter-tags-input")).toHaveCount(0);
-    await expect(page.getByText("2 notes", { exact: true })).toBeVisible();
+    await expect(page.locator(".note-count")).toHaveText("(2)");
+    await expect(page.locator(".note-count")).toHaveAttribute(
+      "aria-label",
+      "2 notes"
+    );
     await expect(
       page.getByRole("listbox", { name: "Filter tag suggestions" })
     ).toHaveCount(0);
@@ -1449,7 +1540,11 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await dialog.getByRole("button", { name: "Apply Filters" }).click();
 
     await expect(page.getByRole("button", { name: "Filter (3)" })).toBeVisible();
-    await expect(page.getByText("1 of 2 notes", { exact: true })).toBeVisible();
+    await expect(page.locator(".note-count")).toHaveText("(1 of 2)");
+    await expect(page.locator(".note-count")).toHaveAttribute(
+      "aria-label",
+      "1 of 2 notes"
+    );
     await expect(
       page.getByRole("button", { name: /Phase 2 filter match/ })
     ).toBeVisible();
@@ -1461,7 +1556,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(
       page.getByRole("button", { name: "Filter", exact: true })
     ).toBeVisible();
-    await expect(page.getByText("2 notes", { exact: true })).toBeVisible();
+    await expect(page.locator(".note-count")).toHaveText("(2)");
     await expect(
       page.getByRole("button", { name: /Phase 2 filter other/ })
     ).toBeVisible();
@@ -1487,12 +1582,16 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(
       page.getByText("No notes match your filters.")
     ).toBeVisible();
-    await expect(page.getByText("0 of 2 notes", { exact: true })).toBeVisible();
+    await expect(page.locator(".note-count")).toHaveText("(0 of 2)");
+    await expect(page.locator(".note-count")).toHaveAttribute(
+      "aria-label",
+      "0 of 2 notes"
+    );
     await page.getByRole("button", { name: "Clear Filters" }).click();
     await expect(
       page.getByRole("button", { name: "Filter", exact: true })
     ).toBeVisible();
-    await expect(page.getByText("2 notes", { exact: true })).toBeVisible();
+    await expect(page.locator(".note-count")).toHaveText("(2)");
     await expect(
       page.getByRole("button", { name: /Phase 2 filter other/ })
     ).toBeVisible();
@@ -1576,34 +1675,47 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await bodyLabel.click();
     await expect(page.locator("#body")).not.toBeFocused();
 
+    const formatTrigger = toolbar.getByRole("button", { name: "Format" });
+    const paragraphTrigger = toolbar.getByRole("button", {
+      name: "Paragraph",
+    });
+    const insertTrigger = toolbar.getByRole("button", { name: "Insert" });
+    await expect(formatTrigger).toBeVisible();
+    await expect(paragraphTrigger).toBeVisible();
+    await expect(insertTrigger).toBeVisible();
+
+    await formatTrigger.click();
+    const formatMenu = page.getByRole("menu", { name: "Format" });
+    await expect(formatMenu).toBeVisible();
     await expect(
-      toolbar.getByRole("button", { name: "Bold" }).locator(".lucide-bold")
+      formatMenu.getByRole("menuitem", { name: "Bold" }).locator(".lucide-bold")
     ).toBeVisible();
     await expect(
-      toolbar.getByRole("button", { name: "Italic" }).locator(".lucide-italic")
+      formatMenu
+        .getByRole("menuitem", { name: "Highlight" })
+        .locator(".lucide-highlighter")
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(formatMenu).toHaveCount(0);
+
+    await paragraphTrigger.click();
+    const paragraphMenu = page.getByRole("menu", { name: "Paragraph" });
+    await expect(
+      paragraphMenu.getByRole("menuitem", { name: "Heading 3" })
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await insertTrigger.click();
+    const insertMenu = page.getByRole("menu", { name: "Insert" });
+    await expect(
+      insertMenu.getByRole("menuitem", { name: "Table" }).locator(".lucide-table-2")
     ).toBeVisible();
     await expect(
-      toolbar
-        .getByRole("button", { name: "Strike" })
-        .locator(".lucide-strikethrough")
+      insertMenu
+        .getByRole("menuitem", { name: "Code block" })
+        .locator("svg")
     ).toBeVisible();
-    await expect(
-      toolbar.getByRole("button", { name: "Code" }).locator(".lucide-code")
-    ).toBeVisible();
-    await expect(
-      toolbar.getByRole("button", { name: "Bullet" }).locator(".lucide-list")
-    ).toBeVisible();
-    await expect(
-      toolbar.getByRole("button", { name: "Task" }).locator(".lucide-list-todo")
-    ).toBeVisible();
-    await expect(
-      toolbar.getByRole("button", { name: "Quote" }).locator(".lucide-quote")
-    ).toBeVisible();
-    await expect(
-      toolbar.getByRole("button", { name: "Link" }).locator(".lucide-link")
-    ).toBeVisible();
-    await expect(toolbar.getByText("Bold", { exact: true })).toHaveCount(0);
-    await expect(toolbar.getByText("Italic", { exact: true })).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
     await page.setViewportSize({ width: 390, height: 800 });
     await expect(toolbar).toHaveCSS("overflow-x", "visible");
@@ -1669,8 +1781,23 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
       page.getByRole("button", { name: "Revert changes" })
     ).toBeEnabled();
 
-    page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Revert changes" }).click();
+    const revertButton = page.getByRole("button", { name: "Revert changes" });
+    await revertButton.click();
+    const revertDialog = page.getByRole("dialog", { name: "Revert changes?" });
+    await expect(revertDialog).toContainText(
+      "Your unsaved changes will be discarded"
+    );
+    const cancel = revertDialog.getByRole("button", { name: "Cancel" });
+    await expect(cancel).toBeFocused();
+    await cancel.click();
+    await expect(page.getByLabel("Title")).toHaveValue("Changed title");
+    await expect(page.getByLabel("Body")).toHaveValue(
+      "# Changed title\n\nChanged body"
+    );
+    await expect(revertButton).toBeFocused();
+
+    await revertButton.click();
+    await revertDialog.getByRole("button", { name: "Revert Changes" }).click();
 
     await expect(page.getByLabel("Title")).toHaveValue("Phase 2 revert note");
     await expect(page.getByLabel("Body")).toHaveValue(

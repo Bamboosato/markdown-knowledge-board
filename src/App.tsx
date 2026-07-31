@@ -4,15 +4,21 @@ import { useCallback } from "react";
 import { useLayoutEffect } from "react";
 import { isValidElement } from "react";
 import type { DragEvent, FocusEvent, KeyboardEvent, MouseEvent } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import remarkGfm from "remark-gfm";
+import { remarkMark } from "remark-mark-highlight";
 import {
   Archive,
   Bold,
   Braces,
   Code,
+  Code2,
   Download,
   FileDown,
+  Heading1,
+  Heading2,
+  Heading3,
+  Highlighter,
   Italic,
   Link,
   List,
@@ -22,15 +28,21 @@ import {
   Menu,
   Minimize2,
   MoreHorizontal,
+  MoreVertical,
   Quote,
   RotateCcw,
   Settings,
   Strikethrough,
+  Table2,
   Trash2,
   Upload,
 } from "lucide-react";
 
 import "./App.css";
+import {
+  MarkdownToolbarMenu,
+  type MarkdownToolbarMenuItem,
+} from "./components/MarkdownToolbarMenu";
 import { MarpSlides } from "./components/MarpSlides";
 import { MetadataDialog } from "./components/MetadataDialog";
 import { MermaidBlock } from "./components/MermaidBlock";
@@ -56,8 +68,16 @@ import {
   parseMarkdownWithFrontmatter,
   toMarkdownWithFrontmatter,
 } from "./lib/frontmatter";
-import { insertLink, toggleLinePrefix, wrapSelection } from "./lib/markdownEdit";
+import {
+  insertCodeBlock,
+  insertLink,
+  insertTable,
+  toggleLinePrefix,
+  toggleSelectedLinePrefixes,
+  wrapSelection,
+} from "./lib/markdownEdit";
 import { getTaskLineIndexes, toggleTaskAtLine } from "./lib/markdownTasks";
+import { remarkSingleLineHighlight } from "./lib/remarkSingleLineHighlight";
 
 type SaveStatus = "idle" | "draft" | "unsaved" | "saving" | "saved" | "error";
 type MobileView = "notes" | "editor";
@@ -65,6 +85,31 @@ type ActiveTab = "edit" | "preview" | "slides";
 type UnsavedChoice = "save" | "discard" | "cancel";
 type TocHeadingLevel = 1 | 2 | 3;
 type TocVisibilityState = "closed" | "opening" | "open" | "closing";
+type MarkdownMenuId = "format" | "paragraph" | "insert";
+type MarkdownCommandId =
+  | "bold"
+  | "italic"
+  | "strikethrough"
+  | "inline-code"
+  | "highlight"
+  | "heading-1"
+  | "heading-2"
+  | "heading-3"
+  | "bulleted-list"
+  | "task-list"
+  | "blockquote"
+  | "link"
+  | "table"
+  | "code-block";
+
+type EditorSelectionSnapshot = {
+  noteId: string | null;
+  bodyValue: string;
+  start: number;
+  end: number;
+  scrollTop: number;
+  scrollLeft: number;
+};
 
 type TocItem = {
   key: string;
@@ -108,6 +153,16 @@ type PendingDeleteState = {
 
 type DeleteConfirmationState = {
   note: Note;
+  focusTarget: "editor-actions" | "note-card";
+};
+
+type RevertConfirmationState = {
+  target: "saved-note" | "initial-draft";
+};
+
+type NoteCardMenuPosition = {
+  top: number;
+  left: number;
 };
 
 type FilterConditions = {
@@ -525,6 +580,12 @@ function App() {
     null
   );
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const noteListRef = useRef<HTMLUListElement | null>(null);
+  const editorSelectionRef = useRef<EditorSelectionSnapshot | null>(null);
+  const [editorSelection, setEditorSelection] =
+    useState<EditorSelectionSnapshot | null>(null);
+  const [openMarkdownMenu, setOpenMarkdownMenu] =
+    useState<MarkdownMenuId | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const editScrollTopRef = useRef(0);
   const previewScrollTopRef = useRef(0);
@@ -561,22 +622,33 @@ function App() {
   const [isMetadataDialogOpen, setIsMetadataDialogOpen] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const actionsMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const revertButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [openNoteCardMenuId, setOpenNoteCardMenuId] = useState<string | null>(
+    null
+  );
+  const [noteCardMenuPosition, setNoteCardMenuPosition] =
+    useState<NoteCardMenuPosition | null>(null);
+  const noteCardMenuRef = useRef<HTMLDivElement | null>(null);
+  const noteCardMenuItemRef = useRef<HTMLButtonElement | null>(null);
+  const noteCardMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const [isMarpSettingsOpen, setIsMarpSettingsOpen] = useState(false);
   const marpSettingsRef = useRef<HTMLDivElement | null>(null);
   const marpSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const markdownImportInputRef = useRef<HTMLInputElement | null>(null);
   const backupImportInputRef = useRef<HTMLInputElement | null>(null);
-  const bodyDragDepthRef = useRef(0);
-  const [isBodyDragActive, setIsBodyDragActive] = useState(false);
+  const importDragDepthRef = useRef(0);
+  const [isImportDragActive, setIsImportDragActive] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<PendingDeleteState | null>(
     null
   );
   const [deleteConfirmation, setDeleteConfirmation] =
     useState<DeleteConfirmationState | null>(null);
+  const [revertConfirmation, setRevertConfirmation] =
+    useState<RevertConfirmationState | null>(null);
   const pendingDeleteRef = useRef<PendingDeleteState | null>(null);
   const deleteUndoTimerRef = useRef<number | null>(null);
   const [initialDraft, setInitialDraft] = useState<Note | null>(null);
-  const [activeTab, setActiveTab] = useState<ActiveTab>("edit");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("preview");
   const [previewMountedForNoteId, setPreviewMountedForNoteId] = useState<
     string | null
   >(null);
@@ -600,6 +672,27 @@ function App() {
   );
   const isTocRendered = tocVisibility !== "closed";
   const isTocOpen = tocVisibility === "opening" || tocVisibility === "open";
+
+  useEffect(() => {
+    const closeTimer = window.setTimeout(() => {
+      setOpenMarkdownMenu(null);
+      setEditorSelection(null);
+      editorSelectionRef.current = null;
+    }, 0);
+    return () => window.clearTimeout(closeTimer);
+  }, [activeTab, selectedId]);
+
+  const handleMarkdownMenuOpenChange = useCallback(
+    (menuId: string, isOpen: boolean) => {
+      setOpenMarkdownMenu((current) => {
+        if (isOpen) {
+          return menuId as MarkdownMenuId;
+        }
+        return current === menuId ? null : current;
+      });
+    },
+    []
+  );
 
   const clearTocTimers = useCallback(() => {
     if (tocCloseTimerRef.current !== null) {
@@ -820,6 +913,93 @@ function App() {
     };
   }, [isActionsMenuOpen]);
 
+  useLayoutEffect(() => {
+    if (!openNoteCardMenuId) {
+      return;
+    }
+
+    const trigger = noteCardMenuButtonRef.current;
+    const menu = noteCardMenuRef.current;
+    if (!trigger || !menu) {
+      return;
+    }
+
+    const viewportPadding = 8;
+    const menuGap = 6;
+    const triggerRect = trigger.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    const opensAbove =
+      window.innerHeight - triggerRect.bottom < menuRect.height + menuGap &&
+      triggerRect.top >= menuRect.height + menuGap + viewportPadding;
+    const requestedTop = opensAbove
+      ? triggerRect.top - menuRect.height - menuGap
+      : triggerRect.bottom + menuGap;
+    const maxTop = Math.max(
+      viewportPadding,
+      window.innerHeight - menuRect.height - viewportPadding
+    );
+    const maxLeft = Math.max(
+      viewportPadding,
+      window.innerWidth - menuRect.width - viewportPadding
+    );
+
+    setNoteCardMenuPosition({
+      top: Math.round(
+        Math.min(Math.max(requestedTop, viewportPadding), maxTop)
+      ),
+      left: Math.round(
+        Math.min(
+          Math.max(triggerRect.right - menuRect.width, viewportPadding),
+          maxLeft
+        )
+      ),
+    });
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      noteCardMenuItemRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [openNoteCardMenuId]);
+
+  useEffect(() => {
+    if (!openNoteCardMenuId) {
+      return;
+    }
+
+    const closeMenu = () => {
+      setOpenNoteCardMenuId(null);
+      setNoteCardMenuPosition(null);
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        !noteCardMenuRef.current?.contains(target) &&
+        !noteCardMenuButtonRef.current?.contains(target)
+      ) {
+        closeMenu();
+      }
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMenu();
+        noteCardMenuButtonRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+    };
+  }, [openNoteCardMenuId]);
+
   useEffect(() => {
     if (!isMarpSettingsOpen) {
       return;
@@ -1031,13 +1211,37 @@ function App() {
     setSaveStatus((current) => (current === "draft" ? "draft" : "unsaved"));
   };
 
+  const captureEditorSelection = (): EditorSelectionSnapshot | null => {
+    const textarea = bodyRef.current;
+    if (!textarea) {
+      editorSelectionRef.current = null;
+      setEditorSelection(null);
+      return null;
+    }
+
+    const snapshot: EditorSelectionSnapshot = {
+      noteId: selectedId,
+      bodyValue: draftBody,
+      start: textarea.selectionStart ?? 0,
+      end: textarea.selectionEnd ?? 0,
+      scrollTop: textarea.scrollTop,
+      scrollLeft: textarea.scrollLeft,
+    };
+    editorSelectionRef.current = snapshot;
+    setEditorSelection(snapshot);
+    return snapshot;
+  };
+
   const applyEdit = (
     nextValue: string,
     selectionStart: number,
-    selectionEnd: number
+    selectionEnd: number,
+    scrollPosition?: Pick<EditorSelectionSnapshot, "scrollTop" | "scrollLeft">
   ) => {
-    const prevScrollTop = bodyRef.current?.scrollTop ?? 0;
-    const prevScrollLeft = bodyRef.current?.scrollLeft ?? 0;
+    const prevScrollTop =
+      scrollPosition?.scrollTop ?? bodyRef.current?.scrollTop ?? 0;
+    const prevScrollLeft =
+      scrollPosition?.scrollLeft ?? bodyRef.current?.scrollLeft ?? 0;
     setDraftBody(nextValue);
     markDirty();
     requestAnimationFrame(() => {
@@ -1189,50 +1393,170 @@ function App() {
     }
   };
 
-  const handleWrap = (
-    prefix: string,
-    suffix: string,
-    placeholder: string
-  ) => {
-    if (!bodyRef.current) {
+  const executeMarkdownCommand = (commandId: string) => {
+    const snapshot = editorSelectionRef.current;
+    setOpenMarkdownMenu(null);
+
+    if (
+      !snapshot ||
+      snapshot.noteId !== selectedId ||
+      snapshot.bodyValue !== draftBody ||
+      snapshot.start < 0 ||
+      snapshot.end > draftBody.length
+    ) {
+      editorSelectionRef.current = null;
+      setEditorSelection(null);
       return;
     }
-    const { selectionStart, selectionEnd } = bodyRef.current;
-    if ((selectionStart ?? 0) === (selectionEnd ?? 0)) {
+
+    const start = Math.min(snapshot.start, snapshot.end);
+    const end = Math.max(snapshot.start, snapshot.end);
+    const selectedText = draftBody.slice(start, end);
+    let result: ReturnType<typeof wrapSelection> | null = null;
+
+    switch (commandId as MarkdownCommandId) {
+      case "bold":
+        if (end > start) {
+          result = wrapSelection(draftBody, start, end, "**", "**", "bold");
+        }
+        break;
+      case "italic":
+        if (end > start) {
+          result = wrapSelection(draftBody, start, end, "*", "*", "italic");
+        }
+        break;
+      case "strikethrough":
+        if (end > start) {
+          result = wrapSelection(draftBody, start, end, "~~", "~~", "strike");
+        }
+        break;
+      case "inline-code":
+        if (end > start) {
+          result = wrapSelection(draftBody, start, end, "`", "`", "code");
+        }
+        break;
+      case "highlight":
+        if (end > start && !/[\r\n]/.test(selectedText)) {
+          result = wrapSelection(draftBody, start, end, "==", "==", "highlight");
+        }
+        break;
+      case "heading-1":
+        result = toggleLinePrefix(draftBody, start, "# ");
+        break;
+      case "heading-2":
+        result = toggleLinePrefix(draftBody, start, "## ");
+        break;
+      case "heading-3":
+        result = toggleLinePrefix(draftBody, start, "### ");
+        break;
+      case "bulleted-list":
+        result = toggleSelectedLinePrefixes(draftBody, start, end, "- ");
+        break;
+      case "task-list":
+        result = toggleSelectedLinePrefixes(
+          draftBody,
+          start,
+          end,
+          "- [ ] "
+        );
+        break;
+      case "blockquote":
+        result = toggleLinePrefix(draftBody, start, "> ");
+        break;
+      case "link":
+        result = insertLink(draftBody, start, end);
+        break;
+      case "table":
+        result = insertTable(draftBody, start, end);
+        break;
+      case "code-block":
+        result = insertCodeBlock(draftBody, start, end);
+        break;
+    }
+
+    editorSelectionRef.current = null;
+    setEditorSelection(null);
+    if (!result || result.value === draftBody) {
+      requestAnimationFrame(() => bodyRef.current?.focus());
       return;
     }
-    const result = wrapSelection(
-      draftBody,
-      selectionStart ?? 0,
-      selectionEnd ?? 0,
-      prefix,
-      suffix,
-      placeholder
+
+    applyEdit(
+      result.value,
+      result.selectionStart,
+      result.selectionEnd,
+      snapshot
     );
-    applyEdit(result.value, result.selectionStart, result.selectionEnd);
   };
 
-  const handleToggleLine = (prefix: string) => {
-    if (!bodyRef.current) {
-      return;
-    }
-    const { selectionStart } = bodyRef.current;
-    const result = toggleLinePrefix(draftBody, selectionStart ?? 0, prefix);
-    applyEdit(result.value, result.selectionStart, result.selectionEnd);
-  };
-
-  const handleInsertLink = () => {
-    if (!bodyRef.current) {
-      return;
-    }
-    const { selectionStart, selectionEnd } = bodyRef.current;
-    const result = insertLink(
-      draftBody,
-      selectionStart ?? 0,
-      selectionEnd ?? 0
-    );
-    applyEdit(result.value, result.selectionStart, result.selectionEnd);
-  };
+  const currentEditorSelection = editorSelection;
+  const isMarkdownMenuContextCurrent =
+    activeTab === "edit" &&
+    currentEditorSelection?.noteId === selectedId &&
+    currentEditorSelection.bodyValue === draftBody;
+  const hasCurrentSelection =
+    currentEditorSelection !== null &&
+    isMarkdownMenuContextCurrent &&
+    currentEditorSelection.end > currentEditorSelection.start;
+  const selectedEditorText = currentEditorSelection && hasCurrentSelection
+    ? draftBody.slice(currentEditorSelection.start, currentEditorSelection.end)
+    : "";
+  const hasSingleLineSelection =
+    hasCurrentSelection && !/[\r\n]/.test(selectedEditorText);
+  const formatMenuItems = useMemo<MarkdownToolbarMenuItem[]>(
+    () => [
+      {
+        id: "bold",
+        label: "Bold",
+        icon: <Bold />,
+        disabled: !hasCurrentSelection,
+      },
+      {
+        id: "italic",
+        label: "Italic",
+        icon: <Italic />,
+        disabled: !hasCurrentSelection,
+      },
+      {
+        id: "strikethrough",
+        label: "Strikethrough",
+        icon: <Strikethrough />,
+        disabled: !hasCurrentSelection,
+      },
+      {
+        id: "inline-code",
+        label: "Inline code",
+        icon: <Code />,
+        disabled: !hasCurrentSelection,
+      },
+      {
+        id: "highlight",
+        label: "Highlight",
+        icon: <Highlighter />,
+        disabled: !hasSingleLineSelection,
+      },
+    ],
+    [hasCurrentSelection, hasSingleLineSelection]
+  );
+  const paragraphMenuItems = useMemo<MarkdownToolbarMenuItem[]>(
+    () => [
+      { id: "heading-1", label: "Heading 1", icon: <Heading1 /> },
+      { id: "heading-2", label: "Heading 2", icon: <Heading2 /> },
+      { id: "heading-3", label: "Heading 3", icon: <Heading3 /> },
+      { id: "bulleted-list", label: "Bulleted list", icon: <List /> },
+      { id: "task-list", label: "Task list", icon: <ListTodo /> },
+      { id: "blockquote", label: "Quote", icon: <Quote /> },
+    ],
+    []
+  );
+  const insertMenuItems = useMemo<MarkdownToolbarMenuItem[]>(
+    () => [
+      { id: "link", label: "Link", icon: <Link /> },
+      { id: "table", label: "Table", icon: <Table2 /> },
+      { id: "code-block", label: "Code block", icon: <Code2 /> },
+    ],
+    []
+  );
 
   const importFiles = async (
     files: File[],
@@ -1347,16 +1671,16 @@ function App() {
   const hasDraggedFiles = (event: DragEvent<HTMLElement>) =>
     Array.from(event.dataTransfer.types).includes("Files");
 
-  const handleBodyDragEnter = (event: DragEvent<HTMLDivElement>) => {
+  const handleImportDragEnter = (event: DragEvent<HTMLDivElement>) => {
     if (!hasDraggedFiles(event) || isImporting) {
       return;
     }
     event.preventDefault();
-    bodyDragDepthRef.current += 1;
-    setIsBodyDragActive(true);
+    importDragDepthRef.current += 1;
+    setIsImportDragActive(true);
   };
 
-  const handleBodyDragOver = (event: DragEvent<HTMLDivElement>) => {
+  const handleImportDragOver = (event: DragEvent<HTMLDivElement>) => {
     if (!hasDraggedFiles(event) || isImporting) {
       return;
     }
@@ -1364,25 +1688,25 @@ function App() {
     event.dataTransfer.dropEffect = "copy";
   };
 
-  const handleBodyDragLeave = (event: DragEvent<HTMLDivElement>) => {
+  const handleImportDragLeave = (event: DragEvent<HTMLDivElement>) => {
     if (!hasDraggedFiles(event)) {
       return;
     }
     event.preventDefault();
-    bodyDragDepthRef.current = Math.max(0, bodyDragDepthRef.current - 1);
-    if (bodyDragDepthRef.current === 0) {
-      setIsBodyDragActive(false);
+    importDragDepthRef.current = Math.max(0, importDragDepthRef.current - 1);
+    if (importDragDepthRef.current === 0) {
+      setIsImportDragActive(false);
     }
   };
 
-  const handleBodyDrop = async (event: DragEvent<HTMLDivElement>) => {
+  const handleImportDrop = async (event: DragEvent<HTMLDivElement>) => {
     if (!hasDraggedFiles(event)) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
-    bodyDragDepthRef.current = 0;
-    setIsBodyDragActive(false);
+    importDragDepthRef.current = 0;
+    setIsImportDragActive(false);
     if (isImporting) {
       return;
     }
@@ -1782,6 +2106,7 @@ function App() {
         isFilterDialogOpen ||
         operationDialog !== null ||
         deleteConfirmation !== null ||
+        revertConfirmation !== null ||
         isMetadataDialogOpen;
       if (event.repeat || saveStatus === "saving" || isDialogOpen) {
         return;
@@ -1800,6 +2125,8 @@ function App() {
   });
 
   const handleSelectNote = async (note: Note) => {
+    setOpenNoteCardMenuId(null);
+    setNoteCardMenuPosition(null);
     const canContinue = await confirmUnsavedTransition("open another note");
     if (!canContinue) {
       return;
@@ -1807,7 +2134,8 @@ function App() {
     setSelectedId(note.id);
     resetDraft(note);
     setMobileView("editor");
-    setActiveTab("edit");
+    setPreviewMountedForNoteId(note.id);
+    setActiveTab("preview");
     setSlideIndex(0);
   };
 
@@ -1969,21 +2297,30 @@ function App() {
       return;
     }
 
-    const confirmed = window.confirm(
-      selectedNote
-        ? "Revert unsaved changes to the last loaded version?"
-        : "Revert this draft to its initial state?"
-    );
-    if (!confirmed) {
+    setRevertConfirmation({
+      target: selectedNote ? "saved-note" : "initial-draft",
+    });
+  };
+
+  const closeRevertConfirmation = () => {
+    setRevertConfirmation(null);
+    window.requestAnimationFrame(() => revertButtonRef.current?.focus());
+  };
+
+  const confirmRevertDraft = () => {
+    if (!revertConfirmation) {
       return;
     }
 
-    if (selectedNote) {
+    const target = revertConfirmation.target;
+    setRevertConfirmation(null);
+
+    if (target === "saved-note" && selectedNote) {
       resetDraft(selectedNote);
       return;
     }
 
-    if (isDraftNote && initialDraft) {
+    if (target === "initial-draft" && isDraftNote && initialDraft) {
       setSelectedId(initialDraft.id);
       setDraftTitle(initialDraft.title);
       setDraftTags(initialDraft.tags);
@@ -2031,12 +2368,21 @@ function App() {
     query: searchQuery,
     tags: activeTagFilterValues,
   });
+  const openNoteCardMenuNote =
+    openNoteCardMenuId && openNoteCardMenuId === selectedId
+    ? filteredNotes.find((note) => note.id === openNoteCardMenuId) ?? null
+    : null;
   const filterDraftPreviewCount = filterNotes(notes, {
     query: filterDraftSearchQuery,
     tags: filterDraftTags,
   }).length;
   const noteCountText = hasActiveFilters
-    ? `${filteredNotes.length} of ${notes.length} notes`
+    ? `${filteredNotes.length} of ${notes.length}`
+    : `${notes.length}`;
+  const noteCountAccessibleLabel = hasActiveFilters
+    ? `${filteredNotes.length} of ${notes.length} ${
+        notes.length === 1 ? "note" : "notes"
+      }`
     : `${notes.length} ${notes.length === 1 ? "note" : "notes"}`;
   const filterDraftCountText =
     filterDraftSearchQuery.trim().length > 0 || filterDraftTags.length > 0
@@ -2060,10 +2406,19 @@ function App() {
     closeTagFilterSuggestions();
   };
 
+  const resetNoteListScroll = () => {
+    window.requestAnimationFrame(() => {
+      if (noteListRef.current) {
+        noteListRef.current.scrollTop = 0;
+      }
+    });
+  };
+
   const applyFilterDialog = () => {
     setSearchQuery(filterDraftSearchQuery);
     setTagFilter(filterDraftTags.join(", "));
     closeFilterDialog();
+    resetNoteListScroll();
   };
 
   const clearFilterDraft = () => {
@@ -2079,6 +2434,7 @@ function App() {
     if (isFilterDialogOpen) {
       clearFilterDraft();
     }
+    resetNoteListScroll();
   };
 
   const handleFilterBackdropMouseDown = (
@@ -2108,12 +2464,31 @@ function App() {
       return;
     }
 
-    setDeleteConfirmation({ note: targetNote });
+    setDeleteConfirmation({ note: targetNote, focusTarget: "editor-actions" });
+  };
+
+  const handleNoteCardDelete = (note: Note) => {
+    const targetNote =
+      note.id === selectedId &&
+      (isDirtyRef.current || tagInput.trim().length > 0)
+        ? getDraftSnapshot()
+        : note;
+
+    setOpenNoteCardMenuId(null);
+    setNoteCardMenuPosition(null);
+    setDeleteConfirmation({ note: targetNote, focusTarget: "note-card" });
   };
 
   const closeDeleteConfirmation = () => {
+    const focusTarget = deleteConfirmation?.focusTarget;
     setDeleteConfirmation(null);
-    window.requestAnimationFrame(() => actionsMenuButtonRef.current?.focus());
+    window.requestAnimationFrame(() => {
+      if (focusTarget === "note-card") {
+        noteCardMenuButtonRef.current?.focus();
+        return;
+      }
+      actionsMenuButtonRef.current?.focus();
+    });
   };
 
   const confirmDelete = async () => {
@@ -2126,11 +2501,11 @@ function App() {
 
     await finalizePendingDelete();
 
-    const restoreIndex = Math.max(
-      notes.findIndex((note) => note.id === targetNote.id),
-      0
+    const persistedIndex = notes.findIndex(
+      (note) => note.id === targetNote.id
     );
-    const wasDraft = !selectedNote;
+    const restoreIndex = Math.max(persistedIndex, 0);
+    const wasDraft = persistedIndex < 0;
     const wasSelected = selectedId === targetNote.id;
 
     if (!wasDraft) {
@@ -2218,7 +2593,7 @@ function App() {
           <div className="app-menu" ref={appMenuRef}>
             <button
               ref={appMenuButtonRef}
-              className="app-menu-button tooltip-button"
+              className="app-menu-button quiet-icon-button tooltip-button"
               type="button"
               aria-label="Open application menu"
               data-tooltip="Open application menu"
@@ -2314,7 +2689,8 @@ function App() {
             {saveStatus === "saving" ? "Saving" : "Save"}
           </button>
           <button
-            className="secondary-button icon-action-button tooltip-button"
+            ref={revertButtonRef}
+            className="secondary-button icon-action-button quiet-icon-button tooltip-button"
             type="button"
             aria-label="Revert changes"
             data-tooltip="Revert changes"
@@ -2326,7 +2702,7 @@ function App() {
           <div className="actions-menu" ref={actionsMenuRef}>
             <button
               ref={actionsMenuButtonRef}
-              className="secondary-button icon-action-button tooltip-button"
+              className="secondary-button icon-action-button quiet-icon-button tooltip-button"
               type="button"
               aria-label="More actions"
               data-tooltip="More actions"
@@ -2334,7 +2710,11 @@ function App() {
               aria-expanded={isActionsMenuOpen}
               aria-controls="note-actions-menu"
               disabled={!selectedNote && !isDraftNote}
-              onClick={() => setIsActionsMenuOpen((open) => !open)}
+              onClick={() => {
+                setOpenNoteCardMenuId(null);
+                setNoteCardMenuPosition(null);
+                setIsActionsMenuOpen((open) => !open);
+              }}
             >
               <MoreHorizontal aria-hidden="true" />
             </button>
@@ -2401,7 +2781,7 @@ function App() {
             + New Note
           </button>
           <button
-            className="markdown-import-button tooltip-button"
+            className="markdown-import-button quiet-icon-button tooltip-button"
             type="button"
             aria-label="Import Markdown"
             data-tooltip="Import Markdown"
@@ -2424,10 +2804,14 @@ function App() {
         </div>
         <div className="sidebar-section">
           <div className="notes-header">
-            <div>
+            <div className="notes-heading">
               <div className="section-title">Notes</div>
-              <div className="note-count" aria-live="polite">
-                {noteCountText}
+              <div
+                className="note-count"
+                aria-label={noteCountAccessibleLabel}
+                aria-live="polite"
+              >
+                ({noteCountText})
               </div>
             </div>
             <div className="notes-filter-actions">
@@ -2451,7 +2835,7 @@ function App() {
               ) : null}
             </div>
           </div>
-          <ul className="note-list">
+          <ul ref={noteListRef} className="note-list">
             {filteredNotes.length === 0 ? (
               <li className="note-item empty">
                 <span>
@@ -2476,28 +2860,59 @@ function App() {
                   className={`note-item${
                     note.id === selectedId ? " active" : ""
                   }`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handleSelectNote(note)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      handleSelectNote(note);
-                    }
-                  }}
+                  data-menu-open={openNoteCardMenuId === note.id || undefined}
                 >
-                  <div className="note-title" title={note.title || "Untitled"}>
-                    {note.title || "Untitled"}
-                  </div>
-                  {note.tags.length > 0 ? (
-                    <div className="note-tags">
-                      {note.tags.map((tag) => (
-                        <span className="note-tag" key={tag} title={tag}>
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
+                  <button
+                    className="note-card-select"
+                    type="button"
+                    aria-label={`Open note: ${note.title || "Untitled"}`}
+                    aria-current={note.id === selectedId ? "true" : undefined}
+                    onClick={() => void handleSelectNote(note)}
+                  >
+                    <span
+                      className="note-title"
+                      title={note.title || "Untitled"}
+                    >
+                      {note.title || "Untitled"}
+                    </span>
+                    {note.tags.length > 0 ? (
+                      <span className="note-tags">
+                        {note.tags.map((tag) => (
+                          <span className="note-tag" key={tag} title={tag}>
+                            {tag}
+                          </span>
+                        ))}
+                      </span>
+                    ) : null}
+                    <span className="note-meta">
+                      {formatDate(note.updatedAt)}
+                    </span>
+                  </button>
+                  {note.id === selectedId ? (
+                    <button
+                      ref={noteCardMenuButtonRef}
+                      className="note-card-menu-trigger"
+                      type="button"
+                      aria-label="Selected note actions"
+                      title="More actions"
+                      aria-haspopup="menu"
+                      aria-expanded={openNoteCardMenuId === note.id}
+                      aria-controls={
+                        openNoteCardMenuId === note.id
+                          ? "note-card-actions-menu"
+                          : undefined
+                      }
+                      onClick={() => {
+                        setIsActionsMenuOpen(false);
+                        setNoteCardMenuPosition(null);
+                        setOpenNoteCardMenuId((current) =>
+                          current === note.id ? null : note.id
+                        );
+                      }}
+                    >
+                      <MoreVertical aria-hidden="true" />
+                    </button>
                   ) : null}
-                  <div className="note-meta">{formatDate(note.updatedAt)}</div>
                 </li>
               ))
             )}
@@ -2535,19 +2950,19 @@ function App() {
         <div className="editor-tabs">
           <button
             type="button"
-            className={`tab-button${activeTab === "edit" ? " active" : ""}`}
-            aria-pressed={activeTab === "edit"}
-            onClick={() => handleChangeTab("edit")}
-          >
-            Edit
-          </button>
-          <button
-            type="button"
             className={`tab-button${activeTab === "preview" ? " active" : ""}`}
             aria-pressed={activeTab === "preview"}
             onClick={() => handleChangeTab("preview")}
           >
             Preview
+          </button>
+          <button
+            type="button"
+            className={`tab-button${activeTab === "edit" ? " active" : ""}`}
+            aria-pressed={activeTab === "edit"}
+            onClick={() => handleChangeTab("edit")}
+          >
+            Edit
           </button>
           <button
             type="button"
@@ -2711,7 +3126,7 @@ function App() {
                 <button
                   ref={tocButtonRef}
                   type="button"
-                  className="preview-toc-button"
+                  className="preview-toc-button quiet-icon-button"
                   aria-label="Table of contents"
                   aria-expanded={isTocOpen}
                   aria-controls="preview-toc-popover"
@@ -2861,115 +3276,51 @@ function App() {
             hidden={activeTab !== "edit"}
             className={`editor-section editor-body${
               isEditorExpanded ? " is-expanded" : ""
-            }${isBodyDragActive ? " is-drag-active" : ""}`}
-            onDragEnter={handleBodyDragEnter}
-            onDragOver={handleBodyDragOver}
-            onDragLeave={handleBodyDragLeave}
-            onDrop={handleBodyDrop}
+            }${isImportDragActive ? " is-drag-active" : ""}`}
+            onDragEnter={handleImportDragEnter}
+            onDragOver={handleImportDragOver}
+            onDragLeave={handleImportDragLeave}
+            onDrop={handleImportDrop}
           >
             <div className="body-header">
               <div className="label" id="body-label">
                 Body
               </div>
               <div className="md-toolbar" role="toolbar" aria-label="Markdown tools">
-                <button
-                  type="button"
-                  className="md-button md-button-bold tooltip-button"
-                  aria-label="Bold"
-                  data-tooltip="Bold"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => handleWrap("**", "**", "bold")}
-                >
-                  <Bold aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="md-button md-button-italic tooltip-button"
-                  aria-label="Italic"
-                  data-tooltip="Italic"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => handleWrap("*", "*", "italic")}
-                >
-                  <Italic aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="md-button md-button-strike tooltip-button"
-                  aria-label="Strike"
-                  data-tooltip="Strike"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => handleWrap("~~", "~~", "strike")}
-                >
-                  <Strikethrough aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="md-button md-button-code tooltip-button"
-                  aria-label="Code"
-                  data-tooltip="Code"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => handleWrap("`", "`", "code")}
-                >
-                  <Code aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="md-button"
-                  aria-label="H1"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => handleToggleLine("# ")}
-                >
-                  H1
-                </button>
-                <button
-                  type="button"
-                  className="md-button"
-                  aria-label="H2"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => handleToggleLine("## ")}
-                >
-                  H2
-                </button>
-                <button
-                  type="button"
-                  className="md-button tooltip-button"
-                  aria-label="Bullet"
-                  data-tooltip="Bullet"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => handleToggleLine("- ")}
-                >
-                  <List aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="md-button md-button-wide tooltip-button"
-                  aria-label="Task"
-                  data-tooltip="Task"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => handleToggleLine("- [ ] ")}
-                >
-                  <ListTodo aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="md-button tooltip-button"
-                  aria-label="Quote"
-                  data-tooltip="Quote"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => handleToggleLine("> ")}
-                >
-                  <Quote aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="md-button tooltip-button"
-                  aria-label="Link"
-                  data-tooltip="Link"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={handleInsertLink}
-                >
-                  <Link aria-hidden="true" />
-                </button>
+                <MarkdownToolbarMenu
+                  menuId="format"
+                  label="Format"
+                  isOpen={
+                    isMarkdownMenuContextCurrent && openMarkdownMenu === "format"
+                  }
+                  items={formatMenuItems}
+                  onBeforeOpen={captureEditorSelection}
+                  onOpenChange={handleMarkdownMenuOpenChange}
+                  onSelect={executeMarkdownCommand}
+                />
+                <MarkdownToolbarMenu
+                  menuId="paragraph"
+                  label="Paragraph"
+                  isOpen={
+                    isMarkdownMenuContextCurrent &&
+                    openMarkdownMenu === "paragraph"
+                  }
+                  items={paragraphMenuItems}
+                  onBeforeOpen={captureEditorSelection}
+                  onOpenChange={handleMarkdownMenuOpenChange}
+                  onSelect={executeMarkdownCommand}
+                />
+                <MarkdownToolbarMenu
+                  menuId="insert"
+                  label="Insert"
+                  isOpen={
+                    isMarkdownMenuContextCurrent && openMarkdownMenu === "insert"
+                  }
+                  items={insertMenuItems}
+                  onBeforeOpen={captureEditorSelection}
+                  onOpenChange={handleMarkdownMenuOpenChange}
+                  onSelect={executeMarkdownCommand}
+                />
               </div>
               <button
                 type="button"
@@ -3002,20 +3353,31 @@ function App() {
                 setDraftBody(event.target.value);
                 markDirty();
               }}
+              onSelect={captureEditorSelection}
             />
           </div>
         {activeTab === "preview" ||
         (selectedId !== null && previewMountedForNoteId === selectedId) ? (
           <div
             hidden={activeTab !== "preview"}
-            className="preview-panel editor-body"
+            className={`preview-panel editor-body${
+              isImportDragActive ? " is-drag-active" : ""
+            }`}
+            onDragEnter={handleImportDragEnter}
+            onDragOver={handleImportDragOver}
+            onDragLeave={handleImportDragLeave}
+            onDrop={handleImportDrop}
           >
             {draftBody.trim().length === 0 ? (
               <div className="preview-empty">Nothing to preview.</div>
             ) : (
               <div ref={previewRef} className="mdPreview mdPreview-scroll">
                 <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
+                  remarkPlugins={[
+                    remarkGfm,
+                    remarkMark,
+                    remarkSingleLineHighlight,
+                  ]}
                   components={{
                     a: ({ href, onClick, ...props }) => (
                       <a
@@ -3409,6 +3771,36 @@ function App() {
           </div>
         </div>
       ) : null}
+      {openNoteCardMenuNote
+        ? createPortal(
+            <div
+              ref={noteCardMenuRef}
+              id="note-card-actions-menu"
+              className="actions-menu-popover note-card-menu-popover"
+              role="menu"
+              aria-label={`Actions for ${
+                openNoteCardMenuNote.title || "Untitled"
+              }`}
+              style={{
+                top: noteCardMenuPosition?.top ?? 0,
+                left: noteCardMenuPosition?.left ?? 0,
+                visibility: noteCardMenuPosition ? "visible" : "hidden",
+              }}
+            >
+              <button
+                ref={noteCardMenuItemRef}
+                className="actions-menu-item actions-menu-item-danger"
+                type="button"
+                role="menuitem"
+                onClick={() => handleNoteCardDelete(openNoteCardMenuNote)}
+              >
+                <Trash2 aria-hidden="true" />
+                Delete
+              </button>
+            </div>,
+            document.body
+          )
+        : null}
       {deleteConfirmation ? (
         <div
           className="modal-backdrop"
@@ -3451,6 +3843,54 @@ function App() {
                 onClick={() => void confirmDelete()}
               >
                 Delete Note
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {revertConfirmation ? (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeRevertConfirmation();
+            }
+          }}
+        >
+          <div
+            className="revert-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="revert-dialog-title"
+            aria-describedby="revert-dialog-description"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                closeRevertConfirmation();
+              }
+            }}
+          >
+            <h2 id="revert-dialog-title">Revert changes?</h2>
+            <p id="revert-dialog-description">
+              {revertConfirmation.target === "saved-note"
+                ? "Your unsaved changes will be discarded and the last saved version will be restored."
+                : "This draft will be restored to its initial state."}
+            </p>
+            <div className="dialog-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                autoFocus
+                onClick={closeRevertConfirmation}
+              >
+                Cancel
+              </button>
+              <button
+                className="danger-button"
+                type="button"
+                onClick={confirmRevertDraft}
+              >
+                Revert Changes
               </button>
             </div>
           </div>

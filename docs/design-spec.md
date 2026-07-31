@@ -144,6 +144,7 @@ DB 初期化に失敗した場合は `dbInitError` にエラーメッセージ�
 desktop 幅では横並び。
 `max-width: 900px` 以下では `.app` を縦方向に切り替える。
 desktop 幅では document と workspace に縦横スクロールを発生させず、Sidebar と Editor の各領域内でスクロールを管理する。Sidebar はノート一覧が表示高を超えた場合のみ縦スクロールし、横スクロールは発生させない。Editor の本文・Preview・Slidesも必要な領域内だけを縦スクロールさせる。
+画面左右の外周余白は共通tokenで管理し、desktopではSidebar、Editor、固定ヘッダーを16px、mobileでは12pxとする。Editorの上下余白はdesktopで上18px・下16px、mobileで上下16pxを維持し、Preview／Edit／Slidesで共通化する。Edit拡大時も同じ左右余白を使用する。Preview panel内部の18px余白は読みやすさのため変更しない。
 
 ### 6.2 Sidebar
 
@@ -154,14 +155,24 @@ sidebar には以下を配置する。
   - 右隣に Markdown Import アイコンボタンを配置する。
   - アイコンの accessible name と Tooltip は `Import Markdown` とし、`.md`、`.markdown`、`.txt` ファイルを複数選択できる。
   - アイコンは `lucide-react` の `FileDown` を使用する。
+  - Import Markdownボタンは通常時の枠線と背景を透明にし、hoverまたはkeyboard focus時だけ枠線と薄い背景色を表示する。disabled時も透明な外観を維持する。
 - Notes
-  - `NOTES` ラベルとノート件数の縦方向の間隔は `2px` とする。
+  - `NOTES` ラベルとノート件数は1行で表示し、条件なしでは `NOTES (n)`、条件ありでは `NOTES (filtered of total)` とする。ラベルと件数の間隔は `4px` とし、括弧は半角を使用する。
   - `Filter` ボタンを表示する。
   - Search または Tag filter が有効な場合、`Filter (n)` として有効条件数を表示する。
   - Search または Tag filter が有効な場合、`Clear` ボタンを表示し、modal を開かずに全条件を解除できる。
-  - 件数は条件なしでは `n notes`、条件ありでは `filtered of total notes` と表示する。
+  - 件数のaccessible labelは条件なしでは `n notes`、条件ありでは `filtered of total notes` とし、表示件数の更新をpoliteに通知する。
   - フィルタ後のノート一覧を表示する。
+  - `+ New Note` / `Import Markdown`、`NOTES` / 件数、`Filter` / `Clear` はSidebar上部の固定領域として扱い、ノートカード一覧だけを縦スクロールさせる。
+  - ノートカードと縦スクロールバーの間に8pxの余白を設け、スクロールバーの有無でカード幅が変わらないようscrollbar gutterを確保する。スクロールバーとSidebar右外枠またはmobile画面右端の間隔は4pxとし、固定化前と同程度のコンパクトさを維持する。
+  - desktopとmobileのNotes画面はいずれもカード一覧を単一の縦スクロール領域とし、documentまたはSidebar全体との二重スクロールを発生させない。
+  - FilterのApplyまたは適用済み条件のClearで一覧内容が変わる場合は、カード一覧を先頭へ戻す。
+  - mobileでノートを開いてNotes画面へ戻る場合は、Filter条件とカード一覧のスクロール位置を維持する。
   - 各ノートカードはタイトル、タグ、更新日時の順で表示する。タイトルは1行固定とし、カード幅を超える場合は末尾を省略表示する。
+  - 選択中のノートカードだけ、右上に `MoreVertical` の縦3点ボタンを常時表示する。未選択カードには表示せず、desktopのhover有無とtouch端末の差に依存しない導線とする。通常時のボタンは枠線と背景を透明にし、hover、keyboard focus、メニュー展開中だけ枠線と薄い背景色を表示する。
+  - 縦3点ボタンには、選択中カードだけに存在しEditor headerの `More actions` と区別できる `Selected note actions` のaccessible name、`aria-haspopup="menu"`、開閉状態を表す `aria-expanded` を設定する。開いたメニューのaccessible nameには対象タイトルを含める。カード本体と縦3点ボタンは独立したbuttonとし、メニュー操作でカード選択を再実行しない。
+  - 縦3点ボタンから対象カード用メニューを表示し、赤い `Trash2` アイコン付きの `Delete` のみを配置する。メニューは画面内に収まるよう左右位置を補正し、下側の空きが不足する場合はボタンの上側へ表示する。
+  - カード用メニューは項目選択、外側クリック、Escape、カード一覧のスクロール、画面サイズ変更、選択ノートまたはFilter条件の変更で閉じる。Escapeでは縦3点ボタンへフォーカスを戻す。
   - タグがある場合は、角丸 `4px` のバッジとして1行固定で表示する。長いタグ名はバッジ内で末尾を省略し、タグ行全体がカード幅を超えた分は表示領域外へはみ出さない。タグがない場合はタグ行を表示しない。
   - 省略前のタイトルとタグは、それぞれ `title` 属性で確認できるようにする。
   - ノート自体が 0 件の場合は `No notes yet.` を表示する。
@@ -201,14 +212,17 @@ editor header には以下を配置する。
 - アプリタイトル: `Markdown Knowledge Board`
 - タイトル左の application menu
   - トリガーには `lucide-react` の `Menu` を使用する。
+  - トリガーは通常時の枠線と背景を透明にし、hover、keyboard focus、メニュー展開中だけ枠線と薄い背景色を表示する。
   - `Backup All Notes`: 全ノートを単一 JSON バックアップとして出力する。ノートが 0 件の場合も空バックアップを出力する。
   - `Import Backup`: `.json` バックアップファイルのみ複数選択して取り込む。
 - 保存状態表示
 - `Save`: 最も使用頻度の高い主操作としてラベル付きボタンを維持する。
 - `Save` には `Ctrl+S`（Windows / Linux）および `Command+S`（macOS）のキーボードショートカットを割り当て、ブラウザ標準のページ保存動作を抑止する。
 - `Save` の Tooltip は Windows / Linux で `Save (Ctrl+S)`、macOS で `Save (⌘S)` と表示する。
-- `Revert changes`: `RotateCcw` アイコンボタンとして `Save` の右側に配置し、未保存変更がない場合は無効にする。
+- `Revert changes`: `RotateCcw` アイコンボタンとして `Save` の右側に配置し、未保存変更がない場合は無効にする。通常時およびdisabled時の枠線と背景を透明にし、操作可能時のhoverまたはkeyboard focus時だけ枠線と薄い背景色を表示する。押下時は他の確認操作と同じアプリ内 modal dialog を表示する。
 - `More actions`: `MoreHorizontal` アイコンボタンとして配置し、以下の低頻度操作をメニュー表示する。
+  - 通常時およびdisabled時の枠線と背景を透明にし、hover、keyboard focus、メニュー展開中だけ枠線と薄い背景色を表示する。
+  - Revert changesとの間隔は4pxとし、SaveとRevert changesの8px間隔より狭くして関連するアイコン操作を視覚的にまとめる。
   - `Metadata`: frontmatterを参照し、Custom metadataを編集するmodal dialogを開く。
   - `Export`: `Download` アイコンとラベルを表示する。
   - 区切り線の後に `Delete`: `Trash2` アイコンと赤いラベルを表示する。確認ダイアログと Undo の仕様は維持する。
@@ -257,23 +271,27 @@ editor header には以下を配置する。
   - Body 見出し行に常時表示する。
   - PC 幅では Body ラベルの右側に配置し、左端を Title / Tags の入力欄左端に揃える。
   - モバイル幅では Body ラベルの下側に配置し、左端を Title / Tags の入力欄左端に揃える。
-  - モバイル幅では入力欄列の範囲内に収まるよう、ボタン幅と間隔をさらに抑える。
+  - モバイル幅では入力欄列の範囲内に収まるよう、trigger幅と間隔を抑える。
   - モバイルなどページスクロールが発生する環境では Body 見出し行ごと sticky として追従する。
-  - 表示は省スペースな記号/略号とし、操作名は `aria-label` と `title` で保持する。
-  - `B`: Bold
-  - `I`: Italic
-  - `S`: Strike
-  - `<>`: Code
-  - `H1`: H1
-  - `H2`: H2
-  - `-`: Bullet
-  - `[ ]`: Task
-  - `>`: Quote
-  - `[]`: Link
+  - `Format`、`Paragraph`、`Insert`の3つの文字ラベル付きtriggerを表示し、同時に開くmenuは1つだけとする。
+  - PC幅ではFormat／Insertを80px、Paragraphを104px、間隔を8pxとする。モバイル幅では66px／86px／66px、間隔を4pxとして入力欄列へ収める。
+  - `Format`: Bold、Italic、Strikethrough、Inline code、Highlight。選択範囲がない場合はdisabledとし、Highlightは1行選択だけを対象とする。
+  - `Paragraph`: Heading 1、Heading 2、Heading 3、Bulleted list、Task list、Quote。Bulleted listとTask listは、複数行選択時に選択が触れる非空行を一括変換し、全行設定済みなら一括解除、混在時は未設定行だけへ付与する。
+  - `Insert`: Link、Table、Code block。
+  - menu itemはiconと可視ラベルを持ち、ArrowUp / ArrowDown、Home / End、Enter / Space、Escape、Tabで操作できる。
+  - 実行前の本文選択範囲とscroll位置を保持し、実行後はBodyへfocus、selection、scrollを復元する。
+  - Highlightは`==text==`として保存し、Previewで`mark`要素として表示する。inline code、fenced code block、エスケープ、複数行はHighlightとして解釈しない。
+  - 詳細は [Editツールバーメニュー要件](./edit-toolbar-menu-requirements.md) と [Editツールバーメニュー詳細設計](./edit-toolbar-menu-design.md) を参照する。
 
-### 6.5 Edit / Preview
+### 6.5 Preview / Edit
 
-`activeTab` により `Edit` と `Preview` を切り替える。
+`activeTab` により `Preview`、`Edit`、`Slides` を切り替える。タブは利用頻度を考慮して `Preview`、`Edit`、`Slides` の順に表示し、DOM順およびキーボードのフォーカス移動順も表示順と一致させる。
+
+- アプリ起動時および保存済みノート選択時は `Preview` を優先表示する。
+- `New Note` で新規draftを作成した場合、および削除した未保存draftをUndoした場合は、入力を開始・継続できるよう `Edit` を表示する。
+- Save、Revert、Preview内のタスクチェック操作では現在の表示modeを維持し、自動的に別のタブへ切り替えない。
+- 未保存変更がある状態で別の保存済みノートを選択した場合は、既存の未保存確認を完了してから対象ノートの `Preview` を表示する。Cancelでは選択ノートと表示modeを変更しない。
+- 表示modeの変更だけでは本文、metadata、dirty状態、保存データを変更しない。
 
 - `Edit`
   - Title / Tags を表示する。
@@ -287,6 +305,7 @@ editor header には以下を配置する。
   - 対象ノートがない場合は `Note not found: {title}`、同名ノートが複数ある場合は `Multiple notes found: {title}` と通知し、画面遷移しない。外部URL、絶対パス、ページ内リンク、対象外拡張子は通常リンクとして扱う。
   - リンク元に未保存変更がある場合は既存の未保存確認を表示し、SaveまたはDiscardの完了後のみ移動する。Cancelではリンク元のPreviewを維持する。現在のFilter条件は変更しない。
   - editor tab row右端に、H1〜H3を文書順に抽出する `Table of contents` アイコンボタンを表示する。見出しがない場合はdisabledとし、Tooltipを `No headings` とする。EditとSlidesでは表示しない。
+  - Table of contentsボタンは通常時およびdisabled時の枠線と背景を透明にし、hover、keyboard focus、目次展開中だけ枠線と薄い背景色を表示する。
   - TOCは本文領域を狭めないカード型ポップオーバーとし、見出しlevelに応じてH1、H2、H3をインデントする。最大高は320pxとし、超過分はポップオーバー内でスクロールする。
   - TOC項目選択時は、desktopでは `.mdPreview-scroll` 内、mobileではdocumentを対象見出しまで移動し、固定ヘッダーで見出しが隠れないoffsetを確保する。通常はsmooth、`prefers-reduced-motion: reduce` では即時移動とする。
   - TOCは項目選択、外側pointer選択、Escape、表示mode変更、選択ノートまたは本文変更で閉じる。keyboardで開いた場合は最初の項目、Escapeではトリガー、項目選択後は移動先見出しへフォーカスする。
@@ -410,31 +429,34 @@ Title、Tags、Body、Markdown toolbar の操作により draft state を更新�
 `Revert` は編集中の未保存変更を、現在のノートを読み込んだ時点の内容へ戻す。
 
 1. 未保存変更または未確定タグ入力がなければ disabled。
-2. 押下時に `window.confirm` で確認する。
-3. 保存済みノートの場合、`selectedNote` の title / tags / body / updatedAt を draft state に戻す。
-4. 新規 draft の場合、draft 作成時の初期状態へ戻す。
-5. 保存済みノートは `Status: Saved` に戻り、新規 draft は `Status: Draft` のまま残る。
-6. `tagInput`、保存エラー表示、dirty 状態を復元結果に合わせてリセットする。
+2. 押下時はブラウザ標準の確認ダイアログを使用せず、`Revert changes?`、説明文、`Cancel`、`Revert Changes` を含むアプリ内 modal dialog を表示する。
+3. 保存済みノートでは、未保存変更を破棄して最後に保存した状態へ戻す旨を説明する。新規 draft では、draft 作成時の初期状態へ戻す旨を説明する。
+4. `Cancel` を初期フォーカスとし、`Cancel`、背景クリック、Escapeでは変更を破棄せずに閉じて、Revert changesボタンへフォーカスを戻す。
+5. `Revert Changes` で確認した場合、保存済みノートは `selectedNote` の title / tags / body / updatedAt を draft state に戻し、新規 draft はdraft作成時の初期状態へ戻す。
+6. 保存済みノートは `Status: Saved` に戻り、新規 draft は `Status: Draft` のまま残る。
+7. `tagInput`、保存エラー表示、dirty 状態を復元結果に合わせてリセットする。
 
 ### 7.8 削除
 
-`Delete` を押すと以下を行う。
+Editor headerまたは選択中カードの `Delete` を押すと以下を行う。
 
-- ブラウザ標準の確認ダイアログは使用せず、ノート名、`Cancel`、`Delete Note` を含むアプリ内 modal dialog を表示する。
-- `Cancel`、背景クリック、Esc では削除せずに閉じ、More actions ボタンへフォーカスを戻す。
-- `Delete Note` で削除を確定し、既存の Undo 可能時間を開始する。
+- ブラウザ標準の確認ダイアログは使用せず、対象ノート名、`Cancel`、`Delete Note` を含むアプリ内 modal dialog を表示する。
+- 削除要求では表示中の選択状態から対象を再推測せず、要求時点の対象ノートIDとdraft snapshotを保持する。これにより別ノートの誤削除を防ぐ。
+- 選択中ノートに未保存変更または未確定タグ入力がある場合は、現在のdraft snapshotを確認表示とUndo復元対象に使用する。
+- `Cancel`、背景クリック、Escでは削除せずに閉じる。Editor headerから開いた場合はheaderのMore actions、カードから開いた場合はカードの縦3点ボタンへフォーカスを戻す。
+- `Delete Note` で削除を確定し、既存のUndo可能時間を開始する。
 
-1. 選択中ノートまたは未保存 draft がなければ何もしない。
-2. `window.confirm` で削除確認する。
-3. OK の場合は `notes` から対象ノートを取り除く。
-4. 選択状態と draft state をリセットする。
-5. `Note deleted` 通知と `Undo` 操作を 8 秒間表示する。
-6. Undo した場合は対象ノートを元の一覧位置とエディタへ復元する。
-7. Undo 期限を過ぎた場合は IndexedDB から削除を確定する。
+1. 選択中ノートまたは未保存draftがなければ何もしない。
+2. 対象ノート名を含む確認modalを表示する。
+3. `Delete Note` の場合は `notes` から対象IDだけを取り除き、対象が選択中なら選択状態とdraft stateをリセットする。
+4. `Note deleted` 通知と `Undo` 操作を8秒間表示する。
+5. Undoした場合は対象ノートを元の一覧位置へ復元し、削除時に選択中だった場合だけエディタへ再表示する。別ノートの編集中に影響を与えない。
+6. Undo期限を過ぎた場合はIndexedDBから対象IDの削除を確定する。
+7. Undo待機中に別の削除を確定する場合は、先の削除をIndexedDBへ確定してから次のUndo期間を開始する。
 
 ### 7.9 インポート
 
-Sidebar の `Import Markdown` から複数の `.md`、`.markdown`、`.txt` ファイル、application menu の `Import Backup` から複数 JSON バックアップファイルを選択できる。PC では Edit の Body 領域へ Markdown / text ファイルをドラッグ＆ドロップしても、`Import Markdown` と同じ処理を実行する。Body への挿入や置換ではなく、各ファイルをノートとして追加または更新する。両導線は選択可能な拡張子を分離するが、取込後の未保存確認、重複判定、保存、結果表示は共通とする。
+Sidebar の `Import Markdown` から複数の `.md`、`.markdown`、`.txt` ファイル、application menu の `Import Backup` から複数 JSON バックアップファイルを選択できる。PC では Edit の Body 領域または Preview 領域へ Markdown / text ファイルをドラッグ＆ドロップしても、`Import Markdown` と同じ処理を実行する。Body への挿入・置換やPreview内容の変更ではなく、各ファイルをノートとして追加または更新する。Edit／Previewの両ドロップ領域は同じ受入表示とイベント処理を使用し、各導線は取込後の未保存確認、重複判定、保存、結果表示を共通とする。
 
 各ファイルについて以下を行う。
 
@@ -733,9 +755,13 @@ Metadata dialogとExportは、標準属性、Marp属性、Custom metadataをcano
 | `operationDialog` | Backup / Import 結果ダイアログ。Backup は `complete` / `ready` を持つ |
 | `isBackupBusy` | Backup 処理中 |
 | `isImporting` | Import 処理中 |
-| `pendingDelete` | Undo 可能な削除対象 |
+| `openNoteCardMenuId` | 選択中カードのDeleteメニューを開いているノートID。閉じている場合は `null`。 |
+| `noteCardMenuPosition` | viewport内へ補正したカード用メニューの `top` / `left`。 |
+| `deleteConfirmation` | 削除確認対象のsnapshotと、Cancel／Escape時のフォーカス復帰先。 |
+| `revertConfirmation` | Revert確認対象。保存済みノートまたは新規draftの初期状態を識別し、modal表示中に対象を固定する。 |
+| `pendingDelete` | 対象snapshot、元の一覧位置、選択／draft状態を含むUndo可能な削除対象。 |
 | `initialDraft` | 新規 draft の Revert 復元元 |
-| `activeTab` | 表示 mode。A2 実装後は `edit` / `preview` / `slides` |
+| `activeTab` | 表示mode。`preview` / `edit` / `slides`。初期値は `preview` |
 | `slideIndex` | A2 実装後の Slides 現在位置。0-based index |
 
 `isDirtyRef` はノート選択時の非同期保存確認に使う。
@@ -801,22 +827,32 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 ### 13.1 機能観点
 
 - ノート作成、保存、選択、削除ができること。
+- 選択中カードだけに縦3点ボタンが表示され、Delete、確認、Cancel、Undoが一連で動作すること。
+- カード用メニュー表示中にEscape、外側クリック、一覧スクロール、画面サイズ変更、選択／Filter変更を行うと安全に閉じること。
 - `Ctrl+S` / `Command+S` で保存でき、`Alt+N` で新規ノートを作成できること。
 - Save / New Note の Tooltip に実行環境に応じたショートカット表記が表示されること。
 - title/body/tags の編集内容が保存後に復元できること。
 - search と tag filter が組み合わせて動作すること。
+- FilterのApply／Clear後にカード一覧が先頭へ戻り、ノートを開いてNotesへ戻った場合は以前のスクロール位置が復元されること。
 - Markdown import/export が frontmatter を含めて動作すること。
+- EditのBodyまたはPreviewへMarkdown／textファイルをドロップすると、いずれもImport Markdownと同じ結果になり、未保存確認をCancelした場合は取込と編集中データの変更が発生しないこと。
 - More actionsからMetadata dialogを開き、Exportと同じ順序でread-only属性とCustom metadataを参照できること。
 - Custom fieldの追加・変更・削除、Apply／Cancel、メインSave／Revert、Import／Export／Backup roundtripが動作すること。
 - Preview で Markdown と GFM task list が表示されること。
 - Preview のタスクチェック切替が本文の該当行を更新すること。
+- アプリ起動時と保存済みノート選択時はPreview、新規draft作成時と未保存draftのUndo時はEditが選択されること。
+- 未保存確認のSave／Discard完了後は対象ノートのPreviewへ移動し、Cancelでは元のノートと表示modeを維持すること。
+- 保存済みノートと新規draftのRevert確認で、`Revert Changes` は対応する復元元へ戻し、`Cancel`、背景クリック、Escapeは編集中の値と保存状態を変更しないこと。
 
 ### 13.2 非機能観点
 
 - IndexedDB が使えない場合に UI が破綻しないこと。
 - build/lint/audit が通ること。
 - 大量ノートまたは長文 Markdown でも操作不能にならないこと。
+- 大量ノートでもカード一覧だけをスクロールでき、Sidebar上部の作成・Import・件数・Filter操作を継続できること。
+- 長文やMermaidを含む保存済みノートをPreviewで開いても、タブ切替と基本操作が継続できること。
 - 多数または長いCustom metadataでもdialog内部スクロール、validation、Apply／Cancel操作を継続できること。
+- カード用メニューを短時間に繰り返し開閉しても複数表示や対象IDの競合が起きないこと。
 
 ### 13.3 データ観点
 
@@ -825,16 +861,29 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 - 予約属性と危険なkeyをCustom metadataとして採用せず、未知の安全な属性はroundtripで保持すること。
 - 同名タグ、大小文字違いタグの重複扱いが一貫すること。
 - import/export 後に Markdown 本文が意図せず変形しないこと。
+- Previewへのファイルドロップは表示中ノートの本文を挿入・置換せず、対応ファイルから追加または更新されたノートだけを保存すること。
+- Preview優先表示およびタブ切替だけでは本文、metadata、dirty状態、保存データが変化しないこと。
+- カードからの削除で対象ID以外のノート、未保存編集、Filter条件を変更せず、Undo時は元の一覧位置へ復元すること。
+- Revert確認のCancel経路ではtitle、body、tags、Custom metadata、Marp設定、未確定タグ入力が失われず、確定時だけ保存済みまたは初期draftの値へ戻ること。
 
 ### 13.4 UI 観点
 
 - desktop と mobile で主要操作に到達できること。
+- Application menu、Import Markdown、Revert changes、More actions、Table of contentsは通常時／disabled時に枠線と背景が透明で、hover、keyboard focus、展開中は枠線と薄い背景を表示し、クリック領域とTooltipを維持すること。
+- desktop、390px、320pxで選択中カードの縦3点ボタンがタイトルと重ならず、先頭／末尾カードのメニューがviewport外またはスクロール領域の背後へ切れないこと。
+- desktop、390px、320pxでSidebar固定領域が消えず、カード一覧とdocumentの二重スクロールおよび横あふれが発生しないこと。
+- desktop、390px、320pxでノート見出しが `NOTES (n)` または `NOTES (filtered of total)` の1行表示を維持し、Filter／Clearと重ならないこと。
+- desktopとmobileでノートカードとスクロールバーの間隔が8px、スクロールバーと右外枠の間隔が4px確保されること。Sidebar、Editor、固定ヘッダーの左右外周余白がdesktopでは16px、mobileでは12pxとなり、Preview／Edit／SlidesおよびEdit拡大時に一貫すること。
+- desktop と mobile の両方でタブがPreview、Edit、Slidesの順に表示され、選択状態とキーボードのフォーカス移動順が一致すること。
+- PCのEdit／Previewでファイルをドラッグ中は同じImport案内を表示し、dragleave、drop、Import処理終了後に強調表示が残らないこと。
 - Metadata追加前後で既存Edit画面のTitle、Tags、Body配置が変わらないこと。
 - PCとmobileでMetadata dialogのread-only属性、Custom row、内部scroll、footer、focus管理へ到達できること。
 - Dialogの項目順が実際のExport frontmatterと一致すること。
+- Revert確認が他の確認dialogと同じ幅、外枠、背景、影、ボタン順で表示され、Cancelに初期フォーカスがあり、Cancel／背景クリック／Escape後はRevert changesボタンへフォーカスが戻ること。
 - 保存状態がユーザーに誤解されないこと。
 - 削除、未保存変更、バックアップなどの確認/通知が十分であること。
 - キーボード操作とスクリーンリーダー利用に必要な semantics があること。
+- カード本体と縦3点ボタンを個別にTab選択でき、Enterで開き、Escapeおよび削除確認Cancelで起点へフォーカスが戻ること。
 
 ## 14. フェーズ2拡張設計（未実装）
 
