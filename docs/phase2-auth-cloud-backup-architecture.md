@@ -260,7 +260,7 @@ timeout により spinner を残さず、通信復旧時も自動バックアッ
 
 ### 10.3 リビジョン競合
 
-更新直前に `GET /gists/{gist_id}` の `history[0].version` を取得し、client の expected revision と比較する。不一致なら PATCH せず 409 を返す。GitHub Gist API には設計上利用できる原子的 compare-and-swap がないため、GET と PATCH の間に残る競合窓は既知の制約とする。操作直前の再確認、短い処理区間、更新後の revision/content hash 確認でリスクを縮小し、E2E で競合を注入する。
+更新直前に `GET /gists/{gist_id}` の `ETag`をrevisionとして取得し、client の expected revision と比較する。GitHub API `2026-03-10`では`history`が省略されるため、`history[0].version`は旧応答との互換用fallbackに限る。不一致なら PATCH せず 409 を返す。GitHub Gist API には設計上利用できる原子的 compare-and-swap がないため、GET と PATCH の間に残る競合窓は既知の制約とする。操作直前の再確認、短い処理区間、更新後の revision/content hash 確認でリスクを縮小し、E2E で競合を注入する。
 
 ## 11. 配置とモジュール境界
 

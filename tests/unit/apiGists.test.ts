@@ -13,6 +13,7 @@ import {
 const USER_ID = 123
 const TOKEN = 'ghu_access'
 const REVISION = 'a'.repeat(40)
+const ETAG_REVISION = 'b'.repeat(64)
 
 function gist(options: {
   id?: string
@@ -57,6 +58,32 @@ describe('GitHub Gist backup discovery', () => {
     expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
       'https://api.github.com/gists/a1',
     )
+  })
+
+  it('uses the full-Gist ETag when API version 2026-03-10 omits history', async () => {
+    const currentApiGist = { ...gist(), history: undefined }
+    const fetchImpl = vi.fn(async () =>
+      Response.json(currentApiGist, {
+        headers: { ETag: `W/"${ETAG_REVISION}"` },
+      }),
+    )
+
+    await expect(
+      resolveCloudBackup(TOKEN, USER_ID, 'a1', { fetchImpl }),
+    ).resolves.toMatchObject({
+      status: 'selected',
+      backup: { gistId: 'a1', revision: ETAG_REVISION },
+    })
+  })
+
+  it('fails closed when a full Gist has neither an ETag nor history revision', async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json({ ...gist(), history: undefined }),
+    )
+
+    await expect(
+      resolveCloudBackup(TOKEN, USER_ID, 'a1', { fetchImpl }),
+    ).rejects.toMatchObject<GistApiError>({ kind: 'invalid-response' })
   })
 
   it('returns all exact-match candidates and never selects among multiples', async () => {

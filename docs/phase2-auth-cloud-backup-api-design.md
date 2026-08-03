@@ -330,7 +330,7 @@ type CloudBackupMetadata = {
 2. 404または不一致なら cache を採用せず、`GET /gists?per_page=100&page=N` を走査する。
 3. exact description と filename を持つ候補だけを抽出する。
 4. 0件は `none`、1件は `selected`、2件以上は `selection-required` とする。
-5. candidate 選択後に full Gist を取得し、`history[0].version` を revision とする。
+5. candidate 選択後に full Gist を取得し、GitHub API `2026-03-10` の `ETag`（weak prefixと引用符を除いた40～64桁hex）を revision とする。旧応答に `history[0].version` がある場合は互換用fallbackとして利用する。
 
 pagination は `Link` header を追跡し、最大10 page/1,000 Gist とする。上限到達時は `GIST_DISCOVERY_INCOMPLETE` を返し、新規 Gist を作成しない。複数候補を更新日時だけで自動選択しない。
 
@@ -375,7 +375,7 @@ X-MKB-Expected-Revision: <直前にclientが確認したrevision>
 
 1. Gist の所有者、description、filename を検証する。
 2. 現在の保存 content hash が request と一致する場合は、timeout後の同一操作再送として現在の成功metadataを返す。
-3. hashが異なる場合は `GET /gists/{id}` の `history[0].version` を取得する。
+3. hashが異なる場合は `GET /gists/{id}` の `ETag` revision（旧応答は`history[0].version`）を取得する。
 4. expected revision と一致した場合だけ `PATCH /gists/{id}` を呼ぶ。
 5. 不一致なら body を保存せず `REMOTE_REVISION_CHANGED` を返す。
 
@@ -452,7 +452,7 @@ Cache-Control: no-store
 | Gist 更新 | `PATCH /gists/{gist_id}` | 同上 |
 | token 失効 | `DELETE /applications/{client_id}/token` | App owner client credentials |
 
-Gist delete endpoint は実装しない。list response は候補検出にだけ使い、revision は full Gist response の `history[0].version` を使用する。
+Gist delete endpoint は実装しない。list response は候補検出にだけ使い、revision は full Gist response の `ETag`を使用する。GitHub API `2026-03-10`では`history`が省略されるため、`history[0].version`は旧応答との互換用fallbackに限る。ETagとhistoryのどちらも検証できない場合はfail closedとする。
 
 ## 10. error code mapping
 
