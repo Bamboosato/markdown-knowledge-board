@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { expectNoHorizontalOverflow } from './dialog-layout'
 
 const csrfToken = 'a'.repeat(43)
 const revisionA = 'a'.repeat(40)
@@ -115,11 +116,13 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await expect(saveDialog).toContainText(
       'Cloud backup uses the saved notes in this browser.',
     )
+    await expectNoHorizontalOverflow(saveDialog, 'backup save confirmation')
     await saveDialog.getByRole('button', { name: 'Save and Continue' }).click()
 
     const passphraseDialog = page.getByRole('dialog', {
       name: 'Encrypt Cloud Backup',
     })
+    await expectNoHorizontalOverflow(passphraseDialog, 'backup passphrase')
     await passphraseDialog.getByLabel('Passphrase', { exact: true }).fill('12345678901')
     await passphraseDialog.getByLabel('Confirm passphrase').fill('12345678901')
     await passphraseDialog.getByRole('button', { name: 'Encrypt and Back Up' }).click()
@@ -192,6 +195,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await expect(warning).toContainText(
       'The existing cloud backup contains data. This action cannot be undone from this app.',
     )
+    await expectNoHorizontalOverflow(warning, 'empty backup warning')
     await warning.getByRole('button', { name: 'Cancel' }).click()
     expect(updateCalls).toBe(0)
   })
@@ -230,6 +234,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
 
     const selection = page.getByRole('dialog', { name: 'Select Cloud Backup' })
+    await expectNoHorizontalOverflow(selection, 'backup selection')
     const candidates = selection.locator('.cloud-backup-candidate')
     await expect(candidates).toHaveCount(2)
     expect(selectedGistId).toBeNull()
@@ -272,6 +277,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
 
     const conflict = page.getByRole('dialog', { name: 'Cloud Backup Changed' })
     await expect(conflict).toContainText('It was not overwritten.')
+    await expectNoHorizontalOverflow(conflict, 'backup revision conflict')
     expect(updateCalls).toBe(1)
     await conflict.getByRole('button', { name: 'Replace Cloud Backup' }).click()
     await expect(page.getByRole('dialog', { name: 'Encrypt Cloud Backup' })).toBeVisible()

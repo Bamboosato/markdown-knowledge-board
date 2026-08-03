@@ -2375,6 +2375,17 @@
   height: 17px;
 }
 
+.cloud-backup-password-control .tooltip-button::after {
+  right: 0;
+  left: auto;
+  transform: translateY(-2px);
+}
+
+.cloud-backup-password-control .tooltip-button:hover::after,
+.cloud-backup-password-control .tooltip-button:focus-visible::after {
+  transform: translateY(0);
+}
+
 .cloud-backup-help,
 .cloud-backup-warning,
 .cloud-backup-error {
@@ -2396,6 +2407,15 @@
   border-radius: 6px;
   background: #fff0f0;
   color: #8c1d1d;
+}
+
+.cloud-backup-help,
+.cloud-backup-warning,
+.cloud-backup-error,
+.cloud-backup-candidate,
+.cloud-restore-conflicts strong,
+.cloud-restore-conflicts span {
+  overflow-wrap: anywhere;
 }
 
 .cloud-backup-candidates {

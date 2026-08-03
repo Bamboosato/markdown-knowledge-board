@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page, Route } from '@playwright/test'
+import { expectNoHorizontalOverflow } from './dialog-layout'
 
 const csrfToken = 'a'.repeat(43)
 
@@ -106,6 +107,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     await expect(dialog).toContainText(
       'Signing in with GitHub leaves this page. Save your changes before continuing.',
     )
+    await expectNoHorizontalOverflow(dialog, 'dirty sign-in confirmation')
     await expect(dialog.getByRole('button', { name: 'Save and Continue' })).toBeVisible()
     await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeVisible()
     await expect(dialog.getByRole('button', { name: /Discard/i })).toHaveCount(0)
@@ -281,6 +283,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     await expect(dialog).toContainText(
       'Local notes and the encrypted Gist backup will not be deleted.',
     )
+    await expectNoHorizontalOverflow(dialog, 'GitHub disconnect confirmation')
     await dialog.getByRole('button', { name: 'Disconnect GitHub' }).click()
 
     await expect(

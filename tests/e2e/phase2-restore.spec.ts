@@ -7,6 +7,7 @@ import {
 } from '../../src/lib/cloudCrypto'
 import { sha256Base64Url } from '../../src/lib/cloudApi'
 import type { Note } from '../../src/lib/types'
+import { expectNoHorizontalOverflow } from './dialog-layout'
 
 const passphrase = 'correct horse battery staple'
 const csrfToken = 'a'.repeat(43)
@@ -86,7 +87,9 @@ async function beginRestore(page: Page) {
   const restore = menu.getByRole('menuitem', { name: 'Restore from Cloud' })
   await expect(restore).toBeEnabled()
   await restore.click()
-  return page.getByRole('dialog', { name: 'Decrypt Cloud Backup' })
+  const dialog = page.getByRole('dialog', { name: 'Decrypt Cloud Backup' })
+  await expectNoHorizontalOverflow(dialog, 'restore passphrase')
+  return dialog
 }
 
 async function submitRestorePassphrase(page: Page, value: string) {
@@ -167,6 +170,7 @@ test.describe('Phase 2 safe cloud restore', () => {
     await submitRestorePassphrase(page, passphrase)
 
     const preview = page.getByRole('dialog', { name: 'Review Cloud Restore' })
+    await expectNoHorizontalOverflow(preview, 'restore preview')
     await expectCount(preview, 'Added', 1)
     await expectCount(preview, 'Conflicted', 0)
     await preview.getByRole('button', { name: 'Apply Safe Merge' }).click()
@@ -174,12 +178,14 @@ test.describe('Phase 2 safe cloud restore', () => {
     const saveDialog = page.getByRole('dialog', {
       name: 'Save changes before cloud restore?',
     })
+    await expectNoHorizontalOverflow(saveDialog, 'restore save confirmation')
     await saveDialog.getByRole('button', { name: 'Cancel' }).click()
     await expect(preview).toBeVisible()
 
     await preview.getByRole('button', { name: 'Apply Safe Merge' }).click()
     await saveDialog.getByRole('button', { name: 'Save and Continue' }).click()
     const result = page.getByRole('dialog', { name: 'Cloud Restore Complete' })
+    await expectNoHorizontalOverflow(result, 'restore result')
     await expectCount(result, 'Added', 1)
     await expectCount(result, 'Failed', 0)
     await result.getByRole('button', { name: 'Close' }).click()
@@ -249,10 +255,12 @@ test.describe('Phase 2 safe cloud restore', () => {
     await beginRestore(page)
     await submitRestorePassphrase(page, passphrase)
     const preview = page.getByRole('dialog', { name: 'Review Cloud Restore' })
+    await expectNoHorizontalOverflow(preview, 'restore conflict preview')
     await expectCount(preview, 'Conflicted', 1)
     await expect(preview).toContainText('Local note is newer.')
     await preview.getByRole('button', { name: 'Apply Safe Merge' }).click()
     const result = page.getByRole('dialog', { name: 'Cloud Restore Complete' })
+    await expectNoHorizontalOverflow(result, 'restore conflict result')
     await expectCount(result, 'Conflicted', 1)
     expect(await readNote(page, 'shared-note')).toMatchObject(localNote)
   })
