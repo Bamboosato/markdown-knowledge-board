@@ -1,4 +1,5 @@
 import {
+  CloudDownload,
   CircleUser,
   CloudUpload,
   ExternalLink,
@@ -29,12 +30,14 @@ type GitHubSectionProps = {
     storedMetadata: StoredCloudBackupMetadata | null
     notice: CloudBackupNotice | null
     uploading: boolean
+    restoring: boolean
   }
   onSignIn: () => void
   onRetry: () => void
   onSignOut: () => void
   onDisconnect: () => void
   onCloudBackup: () => void
+  onCloudRestore: () => void
   onCloudRetry: () => void
 }
 
@@ -50,6 +53,7 @@ export function GitHubSection({
   onSignOut,
   onDisconnect,
   onCloudBackup,
+  onCloudRestore,
   onCloudRetry,
 }: GitHubSectionProps) {
   const unavailableLabel =
@@ -112,12 +116,29 @@ export function GitHubSection({
               !isOnline ||
               busyAction !== null ||
               cloudBackup.uploading ||
+              cloudBackup.restoring ||
               cloudBackup.discovery.status === 'checking'
             }
             onClick={onCloudBackup}
           >
             <CloudUpload aria-hidden="true" />
             {cloudBackup.uploading ? 'Backing Up' : 'Cloud Backup'}
+          </button>
+          <button
+            className="app-menu-item"
+            type="button"
+            role="menuitem"
+            disabled={
+              !isOnline ||
+              busyAction !== null ||
+              cloudBackup.uploading ||
+              cloudBackup.restoring ||
+              cloudBackup.discovery.status === 'checking'
+            }
+            onClick={onCloudRestore}
+          >
+            <CloudDownload aria-hidden="true" />
+            {cloudBackup.restoring ? 'Restoring' : 'Restore from Cloud'}
           </button>
           {cloudBackup.discovery.status === 'unavailable' ? (
             <button

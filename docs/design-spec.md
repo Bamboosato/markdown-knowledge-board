@@ -78,9 +78,9 @@ Markdown Knowledge Board は、Markdown 形式のノートをブラウザ内で�
 - `src/lib/canonicalJson.ts`
   - object key順を固定し、配列順を維持するcanonical JSON serializationを担当する。
 - `src/lib/cloudCrypto.ts`
-  - Web CryptoによるAES-256-GCM、PBKDF2-SHA-256、暗号化エンベロープ、base64url、passphrase・4.5 MB境界の検証を担当する。現時点ではUIやクラウド通信には未接続。
+  - Web CryptoによるAES-256-GCM、PBKDF2-SHA-256、暗号化エンベロープ、base64url、passphrase・4.5 MB境界の検証を担当し、手動Cloud Backup／Restoreから使用する。
 - `src/lib/cloudRestore.ts`
-  - クラウド復元向けのstrict BackupDocument検証、内容fingerprint、safe merge差分を担当する。現時点ではUIやクラウド通信には未接続。
+  - クラウド復元向けのstrict BackupDocument検証、内容fingerprint、safe merge差分を担当し、`useCloudRestore.ts`がdownload・復号・preview・transaction適用を統合する。
 - `src/lib/markdownEdit.ts`
   - Markdown 編集補助を担当する。
 - `src/lib/markdownTasks.ts`
@@ -931,9 +931,9 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 - キーボード操作とスクリーンリーダー利用に必要な semantics があること。
 - カード本体と縦3点ボタンを個別にTab選択でき、Enterで開き、Escapeおよび削除確認Cancelで起点へフォーカスが戻ること。
 
-## 14. フェーズ2拡張設計（手動バックアップ実装済み）
+## 14. フェーズ2拡張設計（手動バックアップ／復元実装済み）
 
-任意の GitHub ログインと暗号化 Gist バックアップは、現行ローカル機能を維持した追加機能として設計する。2026年8月3日時点でローカルJSON共通化、安全な復元基盤、ブラウザ暗号化、Production gate・session・CSRF、GitHub OAuth、Gist検出・候補選択・作成・更新、手動Cloud Backup UIまで実装済みである。クラウド復元UIとProduction有効化は未実装で、cloud feature flagは既定offを維持する。上記 1～13 は引き続き利用者向けローカル仕様を表す。
+任意の GitHub ログインと暗号化 Gist バックアップは、現行ローカル機能を維持した追加機能として設計する。2026年8月3日時点でローカルJSON共通化、ブラウザ暗号化、Production gate・session・CSRF、GitHub OAuth、Gist検出・作成・更新、手動Cloud Backup、検証済みdownload、復号preview、safe merge復元まで実装済みである。Production有効化は未実施で、cloud feature flagは既定offを維持する。上記 1～13 は引き続き利用者向けローカル仕様を表す。
 
 ### 14.1 方針
 

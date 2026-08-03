@@ -129,6 +129,37 @@ function csrfError(request: Request, requestId: string): Response | null {
   )
 }
 
+function sameOriginReadError(
+  request: Request,
+  expectedOrigin: string,
+  requestId: string,
+): Response | null {
+  const origin = request.headers.get('Origin')
+  const referer = request.headers.get('Referer')
+  let suppliedOrigin = origin
+  if (!suppliedOrigin && referer) {
+    try {
+      suppliedOrigin = new URL(referer).origin
+    } catch {
+      suppliedOrigin = null
+    }
+  }
+  if (
+    suppliedOrigin !== expectedOrigin ||
+    request.headers.get('Sec-Fetch-Site') !== 'same-origin'
+  ) {
+    return apiError(
+      403,
+      'ORIGIN_MISMATCH',
+      'The cloud restore request could not be verified.',
+      false,
+      requestId,
+      { stage: 'restore-download' },
+    )
+  }
+  return null
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -338,6 +369,83 @@ export async function handleCloudBackupDiscoveryRequest(
     return apiSuccess(result, requestId)
   } catch (error) {
     return gistError(error, requestId, 'backup-discovery')
+  }
+}
+
+export async function handleCloudBackupContentRequest(
+  request: Request,
+  dependencies: BaseDependencies = {},
+): Promise<Response> {
+  const requestId = (dependencies.createRequestId ?? createRequestId)()
+  const env = dependencies.env ?? process.env
+  const gate = requireProductionCloudEnvironment(request, requestId, env)
+  if (!gate.ok) return gate.response
+  if (request.method !== 'GET') return methodNotAllowed(['GET'], requestId)
+  const originFailure = sameOriginReadError(
+    request,
+    gate.origin.origin,
+    requestId,
+  )
+  if (originFailure) return originFailure
+  const session = await authenticatedSession(request, requestId, env, dependencies)
+  if (!session.ok) return session.response
+
+  const gistId = new URL(request.url).searchParams.get('gistId') ?? ''
+  try {
+    validateGistId(gistId)
+  } catch {
+    return apiError(
+      400,
+      'INVALID_GIST_ID',
+      'The cloud backup ID is invalid.',
+      false,
+      requestId,
+      { stage: 'restore-download' },
+    )
+  }
+
+  try {
+    const { getVerified } = defaultDependencies(dependencies)
+    const verified = await getVerified(
+      gistId,
+      session.payload.accessToken,
+      session.payload.user.id,
+    )
+    validateEnvelopeShape(verified.content)
+    const byteLength = Buffer.byteLength(verified.content, 'utf8')
+    if (
+      byteLength < 1 ||
+      byteLength > ENCRYPTED_BACKUP_MAX_BYTES ||
+      byteLength !== verified.metadata.encryptedSize ||
+      !SHA256_PATTERN.test(verified.sha256)
+    ) {
+      throw new GistApiError('invalid-response')
+    }
+    return new Response(verified.content, {
+      status: 200,
+      headers: {
+        'Cache-Control': 'no-store',
+        'Content-Type': ENCRYPTED_CONTENT_TYPE,
+        'Content-Length': String(byteLength),
+        'X-Request-Id': requestId,
+        'X-MKB-Gist-Id': verified.metadata.gistId,
+        'X-MKB-Revision': verified.metadata.revision,
+        'X-MKB-Gist-Updated-At': verified.metadata.updatedAt,
+        'X-MKB-Content-SHA256': verified.sha256,
+      },
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message === 'INVALID_ENCRYPTED_ENVELOPE') {
+      return apiError(
+        502,
+        'ENCRYPTED_BACKUP_INVALID',
+        'The cloud backup is not a supported encrypted backup.',
+        false,
+        requestId,
+        { stage: 'restore-download' },
+      )
+    }
+    return gistError(error, requestId, 'restore-download')
   }
 }
 

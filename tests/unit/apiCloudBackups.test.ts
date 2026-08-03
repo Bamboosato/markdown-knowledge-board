@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  handleCloudBackupContentRequest,
   handleCloudBackupCreateRequest,
   handleCloudBackupDiscoveryRequest,
   handleCloudBackupUpdateRequest,
@@ -88,6 +89,30 @@ async function discoveryRequest(path = '/api/cloud-backups') {
       Cookie: await authCookie(),
     },
   })
+}
+
+async function contentRequest(
+  options: {
+    gistId?: string
+    origin?: string | null
+    referer?: string | null
+    fetchSite?: string | null
+    includeSession?: boolean
+  } = {},
+) {
+  const headers = new Headers()
+  if (options.origin !== null) {
+    headers.set('Origin', options.origin ?? ORIGIN_CONFIG.primary.origin)
+  }
+  if (options.referer) headers.set('Referer', options.referer)
+  if (options.fetchSite !== null) {
+    headers.set('Sec-Fetch-Site', options.fetchSite ?? 'same-origin')
+  }
+  if (options.includeSession !== false) headers.set('Cookie', await authCookie())
+  return new Request(
+    `${ORIGIN_CONFIG.primary.origin}/api/cloud-backups/content?gistId=${options.gistId ?? 'a1'}`,
+    { headers },
+  )
 }
 
 async function uploadRequest(
@@ -183,6 +208,131 @@ describe('GET /api/cloud-backups', () => {
       })
     },
   )
+})
+
+describe('GET /api/cloud-backups/content', () => {
+  it('returns only verified encrypted bytes and restore metadata headers', async () => {
+    const content = envelopeOfSize()
+    const getVerifiedGist = vi.fn(async () => verified(content))
+    const response = await handleCloudBackupContentRequest(
+      await contentRequest(),
+      { ...baseDependencies, getVerifiedGist },
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe(
+      'application/vnd.mkb.encrypted-backup+json',
+    )
+    expect(response.headers.get('Content-Length')).toBe(
+      String(Buffer.byteLength(content, 'utf8')),
+    )
+    expect(response.headers.get('X-MKB-Gist-Id')).toBe('a1')
+    expect(response.headers.get('X-MKB-Revision')).toBe('a'.repeat(40))
+    expect(response.headers.get('X-MKB-Gist-Updated-At')).toBe(
+      '2026-08-03T05:00:00.000Z',
+    )
+    expect(response.headers.get('X-MKB-Content-SHA256')).toBe(
+      sha256Base64Url(content),
+    )
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(await response.text()).toBe(content)
+    expect(getVerifiedGist).toHaveBeenCalledWith('a1', 'ghu_access', 123)
+  })
+
+  it('accepts a same-origin Referer when browsers omit Origin on GET', async () => {
+    const content = envelopeOfSize()
+    const response = await handleCloudBackupContentRequest(
+      await contentRequest({
+        origin: null,
+        referer: `${ORIGIN_CONFIG.primary.origin}/settings`,
+      }),
+      {
+        ...baseDependencies,
+        getVerifiedGist: vi.fn(async () => verified(content)),
+      },
+    )
+    expect(response.status).toBe(200)
+  })
+
+  it.each([
+    [{ origin: 'https://evil.example', fetchSite: 'cross-site' }, 'cross-site'],
+    [{ origin: null, referer: null }, 'missing origin and referer'],
+    [{ fetchSite: null }, 'missing Fetch Metadata'],
+  ] as const)(
+    'rejects %s context before GitHub access (%s)',
+    async (requestOptions) => {
+      const getVerifiedGist = vi.fn()
+      const response = await handleCloudBackupContentRequest(
+        await contentRequest(requestOptions),
+        { ...baseDependencies, getVerifiedGist },
+      )
+      expect(response.status).toBe(403)
+      expect(await errorCode(response)).toBe('ORIGIN_MISMATCH')
+      expect(getVerifiedGist).not.toHaveBeenCalled()
+    },
+  )
+
+  it('requires authentication and rejects invalid IDs before GitHub access', async () => {
+    const getVerifiedGist = vi.fn()
+    const signedOut = await handleCloudBackupContentRequest(
+      await contentRequest({ includeSession: false }),
+      { ...baseDependencies, getVerifiedGist },
+    )
+    expect(signedOut.status).toBe(401)
+    expect(await errorCode(signedOut)).toBe('AUTH_REQUIRED')
+
+    const invalid = await handleCloudBackupContentRequest(
+      await contentRequest({ gistId: 'not-valid' }),
+      { ...baseDependencies, getVerifiedGist },
+    )
+    expect(invalid.status).toBe(400)
+    expect(await errorCode(invalid)).toBe('INVALID_GIST_ID')
+    expect(getVerifiedGist).not.toHaveBeenCalled()
+  })
+
+  it('rejects unsupported envelopes and oversized metadata without returning bytes', async () => {
+    const malformed = verified('{"not":"an-envelope"}')
+    const invalidEnvelope = await handleCloudBackupContentRequest(
+      await contentRequest(),
+      { ...baseDependencies, getVerifiedGist: vi.fn(async () => malformed) },
+    )
+    expect(invalidEnvelope.status).toBe(502)
+    expect(await errorCode(invalidEnvelope)).toBe('ENCRYPTED_BACKUP_INVALID')
+
+    const content = envelopeOfSize()
+    const inconsistent = verified(content)
+    inconsistent.metadata.encryptedSize += 1
+    const invalidMetadata = await handleCloudBackupContentRequest(
+      await contentRequest(),
+      { ...baseDependencies, getVerifiedGist: vi.fn(async () => inconsistent) },
+    )
+    expect(invalidMetadata.status).toBe(502)
+    expect(await errorCode(invalidMetadata)).toBe('GITHUB_RESPONSE_INVALID')
+  })
+
+  it('returns 4,500,000 bytes and rejects 4,500,001 bytes on the restore path', async () => {
+    const atLimit = envelopeOfSize(4_500_000)
+    const accepted = await handleCloudBackupContentRequest(
+      await contentRequest(),
+      {
+        ...baseDependencies,
+        getVerifiedGist: vi.fn(async () => verified(atLimit)),
+      },
+    )
+    expect(accepted.status).toBe(200)
+    expect(accepted.headers.get('Content-Length')).toBe('4500000')
+
+    const overLimit = envelopeOfSize(4_500_001)
+    const rejected = await handleCloudBackupContentRequest(
+      await contentRequest(),
+      {
+        ...baseDependencies,
+        getVerifiedGist: vi.fn(async () => verified(overLimit)),
+      },
+    )
+    expect(rejected.status).toBe(502)
+    expect(await errorCode(rejected)).toBe('GITHUB_RESPONSE_INVALID')
+  })
 })
 
 describe('POST /api/cloud-backups', () => {
