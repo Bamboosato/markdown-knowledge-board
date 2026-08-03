@@ -25,7 +25,7 @@
 | PBKDF2 browser計測 | 600,000回をdesktop browserで3回以上計測 | `npm run benchmark:pbkdf2`出力 | 完了（候補値600,000回） |
 | 実mobile計測 | 対象mobile実機で同条件を計測 | 端末・OS・browser・測定値 | 管理者確認待ち |
 | GitHub App | 本番2 callback、expiring user token、`Gists: write`を確認 | 設定画面記録（secretを除く） | 管理者作業待ち |
-| GitHub REST version | 実装時点の公式support値を固定 | 定数・参照URL | PR4開始前 |
+| GitHub REST version | 実装時点の公式support値を固定 | `api/_lib/github.ts`、GitHub公式API Versions | 完了（`2026-03-10`） |
 
 mobile emulationはWeb Crypto互換確認には利用できるが、実機性能の代替証跡にはしない。
 
@@ -37,12 +37,12 @@ PR1基準では`npm audit`が既存のtransitive dependencyにhigh 2件、low 1�
 
 ### 3.2 Phase 0-B: API基盤実装後に確認
 
-| ゲート | 実施時点 |
-| --- | --- |
-| 4,500,000 bytes成功／4,500,001 bytes拒否 | PR4のProduction API基盤反映後 |
-| 1 MB超Gistの`raw_url`取得 | PR6のGist discovery実装後 |
-| Previewのcloud UI非表示・API拒否・Production secret非配布 | PR4以降の各PR |
-| 本番2 OriginのOAuth／Cookie分離 | PR5以降 |
+| ゲート | 実施時点 | 状態・証跡 |
+| --- | --- | --- |
+| 4,500,000 bytes成功／4,500,001 bytes拒否 | PR4でserver境界をunit固定、PR6でupload endpoint、PR8でProduction実経路 | server境界値unitは完了。Production実経路は未実施 |
+| 1 MB超Gistの`raw_url`取得 | PR6のGist discovery実装後 | 未着手 |
+| Previewのcloud UI非表示・API拒否・Production secret非配布 | PR4以降の各PR | API拒否はunit完了。UI非表示は未接続状態を維持。secret scopeはProduction設定時に管理者確認 |
+| 本番2 OriginのOAuth／Cookie分離 | PR5以降 | APIのexact Originとhost-only Cookie unitは完了。実OAuthは未着手 |
 
 ## 4. 担当と権限
 
@@ -62,8 +62,8 @@ secret、token、session key、テストアカウントの資格情報をGit、P
 | PR1 | `backup.ts`抽出、現行JSON回帰、Phase 0計測 | `LOCAL-001..008`、`BACKUP`のデータ形式 | unit、既存Backup／Import E2E |
 | PR2 | strict schema、diff、IndexedDB transaction | `RESTORE-006..019`のlocal基盤 | unit、fake IndexedDB commit／rollback |
 | PR3 | AES-GCM、PBKDF2、envelope | `CRYPTO-001..011` | 固定vector、改ざん、境界値、性能 |
-| PR4 | Production gate、session、CSRF、Origin | `SESSION-001..005`、`ENV-001..005` | API unit／integration、Preview拒否 |
-| PR5 | OAuth UI、Save and Continue、Sign out、Disconnect | `AUTH-001..015`、`SIGNOUT-001..004`、`DISCONNECT-001..007` | component、stub E2E、2 Origin |
+| PR4 | Production gate、session server、CSRF、Origin | `SESSION-003..005`のserver側、`ENV-001..005` | API unit／integration、Preview拒否 |
+| PR5 | session client、OAuth UI、Save and Continue、Sign out、Disconnect | `SESSION-001..002`・`005`のclient側、`AUTH-001..015`、`SIGNOUT-001..004`、`DISCONNECT-001..007` | component、stub E2E、2 Origin |
 | PR6 | Gist discovery、候補選択、Cloud Backup | `BACKUP-001..019` | API stub、revision競合、4.5 MB |
 | PR7 | download、復号、preview、safe merge | `RESTORE-001..020` | merge matrix、rollback、別browser |
 | PR8 | offline、mobile、アクセシビリティ、Production有効化 | `OFFLINE-001..005`、横断要件 | full E2E、実GitHub serial、security smoke |
@@ -96,7 +96,20 @@ PR2のローカル検証は、unit 36/36（strict validation 20件、safe diff 3
 
 固定vectorはNodeの`pbkdf2Sync`と`aes-256-gcm`で独立生成し、Web Crypto復号との相互運用性を検証した。PR3のローカル検証はunit 57/57（crypto 21件を含む）、`npm run lint`、`npm run build`、全Playwright 58/58を1 workerで成功した。PBKDF2 600,000回・3 samplesの再計測はdesktop平均73.8 ms（66.9〜80.0 ms）、Pixel 7 emulation平均82.0 ms（76.0〜89.8 ms）だった。emulationは同一PCのCPUを使用するため実mobile証跡にはしない。
 
-2026年8月3日時点でPR1はPR #19、PR2はPR #20としてsquash merge済みで、`main`は`9aa5c5a`である。GitHub App作成、Production環境変数、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
+### 5.3 PR4テスト観点
+
+| 分類 | 正常系・異常系・境界値・状態遷移 | 検証意図 |
+| --- | --- | --- |
+| 機能 | 本番2 Origin、signed-out／signed-in、token refresh、request ID | Productionだけで認証状態を安全に確認し、tokenを応答へ出さない |
+| 非機能 | AES-256-GCM session、no-store、host-only Cookie、定数時間CSRF比較 | token漏えい、Cookie改ざん、CSRF、secret先読みを防ぐ |
+| データ | session version 1、active／previous key、期限、profile最小項目 | key rotationと期限遷移でアカウントやtokenを取り違えない |
+| UI | cloud UI未接続、Preview／localhostはAPI 404 | 未完成機能を公開せず、既存ローカルUIを変えない |
+| 境界値 | Cookie 3,800 bytes、raw body 4,500,000／4,500,001 bytes、refresh残り5分 | platform上限と更新開始条件をexactに固定する |
+| 異常・状態 | Preview、suffix類似Origin、CSRF欠落／不一致、session改ざん、refresh失敗／期限切れ | secretやGitHub通信より前に拒否し、安全に再認証へ収束させる |
+
+PR4の追加API unitは50/50、全unitは107/107、`npm run lint`、`npm run build`、全Playwright 58/58を1 workerで成功した。API単体から全unit、browser E2Eの順に直列実行し、retry／flakyはなかった。Production secretと実GitHubを使用する結合テストはPR8まで実施せず、PreviewではAPI拒否を検証する。
+
+2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21としてsquash merge済みで、`main`は`5c2bbe6`である。GitHub App作成、Production環境変数、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
 
 ## 6. 失敗時の証跡
 

@@ -1,13 +1,13 @@
 # Markdown Knowledge Board フェーズ2 認証・クラウドバックアップ基本設計
 
 作成日: 2026-07-30
-文書状態: 実装前の基本設計
+文書状態: Phase 2基盤を段階実装中
 
 ## 1. 目的と位置づけ
 
 本書は、[フェーズ2要件定義](./phase2-auth-cloud-backup-requirements.md)を実装可能な構成へ具体化する基本設計である。現行機能の詳細は[現行設計仕様](./design-spec.md)、HTTP 契約は[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)、ブラウザ内の状態・暗号化・復元は[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)、実行順序と担当は[実装計画](./phase2-auth-cloud-backup-implementation-plan.md)を参照する。
 
-2026年8月3日時点で、PR1のローカルJSON共通化、PR2のstrict BackupDocument検証・safe merge差分・復元用IndexedDB transaction、PR3のAES-256-GCM・PBKDF2・暗号化エンベロープ基盤を実装済みである。認証、Gist通信、クラウドUIは未実装であり、これらの基盤はまだ利用者向け操作へ接続しない。
+2026年8月3日時点で、PR1のローカルJSON共通化、PR2のstrict BackupDocument検証・safe merge差分・復元用IndexedDB transaction、PR3のAES-256-GCM・PBKDF2・暗号化エンベロープ基盤、PR4のProduction gate・session・CSRF・Origin API基盤を実装済みである。OAuth start／callback、Sign out、Disconnect、Gist通信、クラウドUIは未実装であり、これらの基盤はまだ利用者向け操作へ接続しない。
 
 | 領域 | 現行実装 | フェーズ2での扱い |
 | --- | --- | --- |
@@ -16,7 +16,7 @@
 | JSONバックアップ | `src/lib/backup.ts`のversion 1作成・parse、手動保存／インポート | PR1で共通moduleへの抽出と現行roundtrip回帰を完了。クラウド暗号化でも再利用する |
 | 復元基盤 | `src/lib/cloudRestore.ts`のstrict検証、fingerprint、merge planと`db.ts`のtransaction apply | PR2でlocal-only基盤を実装。PR7で復号・preview・UI orchestrationへ接続する |
 | 認証・クラウドUI | 未実装 | 任意ログインと明示操作だけを追加する |
-| Vercel Functions／Gist／暗号化 | `cloudCrypto.ts`のbrowser暗号基盤を実装済み。`api/`、session、Gist通信は未実装 | PR3の暗号基盤をPR6以降の明示操作だけから使用する |
+| Vercel Functions／Gist／暗号化 | `cloudCrypto.ts`のbrowser暗号基盤と、`api/`のProduction gate・session・CSRF・4.5 MB raw body上限を実装済み。Gist通信は未実装 | PR3／PR4の基盤をPR5以降で段階接続し、暗号基盤はPR6以降の明示操作だけから使用する |
 
 ## 2. 設計原則
 
@@ -305,13 +305,13 @@ src/
 | `GITHUB_APP_CLIENT_ID` | server env | OAuth と token 失効 |
 | `GITHUB_APP_CLIENT_SECRET` | server secret | code 交換、refresh、失効 |
 | `SESSION_KEYS` | server secret | active/previous key ID と 32-byte AES 鍵 |
-| `GITHUB_API_VERSION` | server env | GitHub REST version header |
+| `GITHUB_API_VERSION` | checked-in constant | GitHub REST version header（`2026-03-10`） |
 | `ORIGIN_CONFIG` | checked-in typed constant | origin key と exact URL/callback の固定対応 |
 | `PBKDF2_ITERATIONS_V1` | frontend constant | envelopeVersion 1 の鍵導出回数 |
 | `VERCEL_ENV` | Vercel system env | backendのProduction環境ゲート |
 | `VITE_CLOUD_BACKUP_ENABLED` | public build flag | ProductionだけでPhase 2 UIを有効化 |
 
-`ORIGIN_CONFIG` は `api/_lib/origins.ts` に本番2 Originをリテラルで定義し、自由形式の環境変数から callback URLを生成しない。`GITHUB_API_VERSION` は実装時に GitHub がサポートする固定値を選び、全リクエストで `Accept: application/vnd.github+json` とともに送る。GitHub secretとsession鍵はVercelのProduction scopeだけへ設定し、Previewへ配布しない。秘密情報を `VITE_` prefix の環境変数へ置かない。
+`ORIGIN_CONFIG` は `api/_lib/origins.ts` に本番2 Originをリテラルで定義し、自由形式の環境変数から callback URLを生成しない。`GITHUB_API_VERSION` は2026年8月3日時点の公式サポート値`2026-03-10`を`api/_lib/github.ts`へ固定し、GitHub RESTリクエストで`Accept: application/vnd.github+json`とともに送る。GitHub secretとsession鍵はVercelのProduction scopeだけへ設定し、Previewへ配布しない。秘密情報を `VITE_` prefix の環境変数へ置かない。
 
 ## 13. デプロイ・移行方針
 
@@ -360,6 +360,8 @@ rollback 時はクラウド UI と Functions route を無効化しても、Index
 - [GitHub Docs: Refreshing user access tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens)
 - [GitHub Docs: About the user authorization callback URL](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/about-the-user-authorization-callback-url)
 - [GitHub Docs: REST API endpoints for gists](https://docs.github.com/en/rest/gists/gists)
+- [GitHub Docs: API Versions](https://docs.github.com/en/rest/about-the-rest-api/api-versions)
 - [W3C: Web Cryptography API](https://www.w3.org/TR/WebCryptoAPI/)
 - [Vercel Functions](https://vercel.com/docs/functions)
 - [Vercel Functions Limits](https://vercel.com/docs/functions/limitations)
+- [Vercel: System environment variables](https://vercel.com/docs/environment-variables/system-environment-variables)
