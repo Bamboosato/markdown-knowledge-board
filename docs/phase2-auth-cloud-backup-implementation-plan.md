@@ -1,5 +1,8 @@
 # Markdown Knowledge Board フェーズ2 実装計画
 
+更新日: 2026-08-03
+状態: Production有効化・初回backup／restore確認済み（既存Gist更新と最終反映を追跡中）
+
 ## 1. 目的
 
 本書は、[要件定義](./phase2-auth-cloud-backup-requirements.md)と[基本設計](./phase2-auth-cloud-backup-architecture.md)を、実行順序、担当、PR単位、確認ゲートへ落とし込む。認証・クラウド機能が未完成の期間も、未ログインのローカル機能を常に利用可能に保つ。
@@ -23,13 +26,13 @@
 | --- | --- | --- | --- |
 | ローカルJSON回帰 | 新旧version 1、空、Unicode、`pinnedAt`、Marp、`customMetadata`がunit/E2Eで成功 | test結果 | 完了（unit 10件、対象E2E 8件、全E2E 58件） |
 | PBKDF2 browser計測 | 600,000回をdesktop browserで3回以上計測 | `npm run benchmark:pbkdf2`出力 | 完了（候補値600,000回） |
-| 実mobile計測 | 対象mobile実機で同条件を計測 | 端末・OS・browser・測定値 | 接続実機なし。管理者確認待ち |
-| GitHub App | 本番2 callback、expiring user token、`Gists: write`を確認 | 設定画面記録（secretを除く） | App設定とGitHub client ID/secretが未完了。管理者作業待ち |
+| 実mobile計測 | 対象mobile実機で同条件を計測 | 端末・OS・browser・測定値 | 未実施。Production有効化を妨げない追加品質確認として継続 |
+| GitHub App | 本番2 callback、expiring user token、`Gists: write`を確認 | 設定画面記録（secretを除く） | 完了。GitHub client ID/secretもVercel Productionへ設定済み |
 | GitHub REST version | 実装時点の公式support値を固定 | `api/_lib/github.ts`、GitHub公式API Versions | 完了（`2026-03-10`） |
 
 mobile emulationはWeb Crypto互換確認には利用できるが、実機性能の代替証跡にはしない。
 
-2026年8月3日の基準計測では、Windows 11／Chromium 149／Intel Core Ultra 7 155Uで600,000回を3 sample実行し、desktopは平均78.7ms（77.2～80.6ms）、Pixel 7 emulationは平均77.9ms（74.0～83.9ms）だった。emulationは同じCPU上の結果であるため、`PBKDF2_ITERATIONS_V1 = 600_000`は実mobile計測完了まで候補値とする。
+2026年8月3日の基準計測では、Windows 11／Chromium 149／Intel Core Ultra 7 155Uで600,000回を3 sample実行し、desktopは平均78.7ms（77.2～80.6ms）、Pixel 7 emulationは平均77.9ms（74.0～83.9ms）だった。この結果と主要3ブラウザ回帰に基づき`PBKDF2_ITERATIONS_V1 = 600_000`を採用した。emulationは同じCPU上の結果であるため、実mobile計測は性能劣化を検出する追加品質確認として残す。
 
 同日のPR1回帰は`npm run test:unit`が10/10、Backup／Import対象Playwrightが8/8、全Playwrightを1 workerで58/58成功した。全実行を直列化し、単体成功後の通し実行でも状態残留や順序依存がないことを確認した。
 
@@ -39,10 +42,10 @@ PR1基準で報告された既存transitive dependencyのhigh 2件、low 1件は
 
 | ゲート | 実施時点 | 状態・証跡 |
 | --- | --- | --- |
-| 4,500,000 bytes成功／4,500,001 bytes拒否 | PR4でserver境界をunit固定、PR6でupload endpoint、PR8でProduction実経路 | PR6のendpoint境界値unitまで完了。Production実経路は未実施 |
-| 1 MB超Gistの`raw_url`取得 | PR6のGist discovery実装後 | PR7でraw host固定、各redirect再検証、最大2回、size、UTF-8、Bearer非送信をunit固定済み。実GistはPR8で確認 |
-| Previewのcloud UI非表示・API拒否・Production secret非配布 | PR4以降の各PR | API拒否とUI非表示をunit／E2Eで確認済み。`SESSION_KEYS`はProductionだけに設定し、Preview／Developmentは変数0件を確認済み。GitHub secretは未設定 |
-| 本番2 OriginのOAuth／Cookie分離 | PR5以降 | exact Origin、host-only Cookie、Origin別callback、state／PKCEをunit固定済み。実OAuthはPR8で確認する |
+| 4,500,000 bytes成功／4,500,001 bytes拒否 | PR4でserver境界をunit固定、PR6でupload endpoint、Production実経路は追加確認 | browser／endpointの境界値unitまで完了。Production実上限サイズは追加品質確認として未実施 |
+| 1 MB超Gistの`raw_url`取得 | PR6のGist discovery実装後 | raw host固定、各redirect再検証、最大2回、size、UTF-8、Bearer非送信をunit固定済み。実Gistのcontent取得は確認済み、1 MB超の実データは追加確認 |
+| Previewのcloud UI非表示・API拒否・Production secret非配布 | PR4以降の各PR | API拒否とUI非表示をunit／E2Eで確認済み。GitHub／session秘密情報はProductionだけに設定し、Preview／Developmentは変数0件を維持 |
+| 本番2 OriginのOAuth／Cookie分離 | PR5以降 | exact Origin、host-only Cookie、Origin別callback、state／PKCEをunit固定し、両本番Originで実OAuthとOrigin別ローカルデータを確認済み |
 
 ## 4. 担当と権限
 
@@ -120,7 +123,7 @@ PR4の追加API unitは50/50、全unitは107/107、`npm run lint`、`npm run bui
 | 境界値 | exact 2 Production Origins、Preview／localhost／suffix類似Origin、10分state期限 | environment差とOrigin境界で認証機能を誤公開しない |
 | 異常・状態 | OAuth取消／state不一致／期限切れ、save失敗、revocation失敗、offline→online | 自動retryや誤成功表示を防ぎ、安全にsigned outまたは明示Retryへ収束させる |
 
-PR5の追加unitは22/22（OAuth／Sign out／Disconnect 16件、cloud capability 6件）、全unitは129/129、`npm run lint`、`npm run build`、追加stub E2Eは9/9、全Playwrightは67/67を1 workerで成功した。初回の追加E2E失敗1件は新規noteの`Draft`状態を`Unsaved`としたテストデータ前提、初回の全E2E失敗1件は`Last local backup`と280 px menuへ更新前の旧UI期待値が原因であり、実装問題ではなくテスト前提／UI契約更新として修正した。修正後の全再実行にretry／flakyはなかった。Production secret、実GitHub、GitHub App権限、実OAuthはPR8まで実施しない。
+PR5の追加unitは22/22（OAuth／Sign out／Disconnect 16件、cloud capability 6件）、全unitは129/129、`npm run lint`、`npm run build`、追加stub E2Eは9/9、全Playwrightは67/67を1 workerで成功した。初回の追加E2E失敗1件は新規noteの`Draft`状態を`Unsaved`としたテストデータ前提、初回の全E2E失敗1件は`Last local backup`と280 px menuへ更新前の旧UI期待値が原因であり、実装問題ではなくテスト前提／UI契約更新として修正した。修正後の全再実行にretry／flakyはなかった。PR5完了時点ではProduction secret、実GitHub、GitHub App権限、実OAuthをPR8の残件としていたが、その後すべて設定・確認した。
 
 ### 5.5 PR6テスト観点
 
@@ -133,7 +136,7 @@ PR5の追加unitは22/22（OAuth／Sign out／Disconnect 16件、cloud capabilit
 | 境界値 | 0／1／複数Gist、10 page、11／12文字、4,500,000／4,500,001 bytes、1 MB超raw | 上限の内外をexactに判定し、不完全探索を成功扱いしない |
 | 異常・状態 | offline、CSRF／hash不一致、権限／rate limit、remote revision変更、同一hash再送 | ローカルデータを変えず、自動上書き・自動再作成をしない |
 
-PR6の追加unitは27/27（Gist adapter 10件、backup endpoint 13件、metadata cache 4件）、全unitは156/156、`npm run lint`、`npm run build`、追加stub E2Eは4/4、全Playwrightは71/71を1 workerで成功した。4,500,000／4,500,001 bytes、最大10 page、nullable description、権限／rate limit、raw host制限、Bearer非送信、dirty save、空backup警告、複数候補、revision競合を個別に固定した。Production secret、実GitHub、GitHub App権限、実OAuth、実GistはPR8まで実施しない。
+PR6の追加unitは27/27（Gist adapter 10件、backup endpoint 13件、metadata cache 4件）、全unitは156/156、`npm run lint`、`npm run build`、追加stub E2Eは4/4、全Playwrightは71/71を1 workerで成功した。4,500,000／4,500,001 bytes、最大10 page、nullable description、権限／rate limit、raw host制限、Bearer非送信、dirty save、空backup警告、複数候補、revision競合を個別に固定した。PR6完了時点ではProduction secret、実GitHub、GitHub App権限、実OAuth、実GistをPR8の残件としていたが、その後、実Gist更新を除いて設定・確認した。
 
 ### 5.6 PR7テスト観点
 
@@ -146,7 +149,7 @@ PR6の追加unitは27/27（Gist adapter 10件、backup endpoint 13件、metadata
 | 境界値 | 1／4,500,000／4,500,001 bytes、raw redirect 0／1／2／3回、0／1／複数Gist | 通信量と対象選択の許容境界をexactに固定する |
 | 異常・状態 | 誤passphrase、改ざん、dirty Cancel／保存成功／保存失敗、apply失敗、他tab変更、offline | DB不変、rollback、再previewへ安全に収束し、ローカル編集を妨げない |
 
-PR7の追加unitは14/14（raw redirect 2件、restore download endpoint 8件、browser download検証4件）、全unitは170/170、`npm run lint`、`npm run build`、追加stub E2Eは3/3、全Playwrightは74/74を1 workerで成功した。E2E初回失敗2件は`dl`行の相対locator指定、次の失敗1件はBackupDocumentから復元したMarkdown本文に生成済み見出しを含む既存契約をテスト期待値が省いていたことが原因で、いずれもテスト実装／データ前提として修正した。修正後の直列再実行にretry／flakyはない。Production secret、実GitHub、別browser、実mobileはPR8で確認する。
+PR7の追加unitは14/14（raw redirect 2件、restore download endpoint 8件、browser download検証4件）、全unitは170/170、`npm run lint`、`npm run build`、追加stub E2Eは3/3、全Playwrightは74/74を1 workerで成功した。E2E初回失敗2件は`dl`行の相対locator指定、次の失敗1件はBackupDocumentから復元したMarkdown本文に生成済み見出しを含む既存契約をテスト期待値が省いていたことが原因で、いずれもテスト実装／データ前提として修正した。修正後の直列再実行にretry／flakyはない。これはPR7完了時点の証跡であり、その後Production秘密情報と実GitHub経路を確認した。
 
 ### 5.7 PR8テスト観点
 
@@ -161,9 +164,25 @@ PR7の追加unitは14/14（raw redirect 2件、restore download endpoint 8件、
 
 PR8自動ゲートは`npm audit --audit-level=low`が0件、`npm run lint`、`npm run test:unit`が170/170、`npm run build`、Playwrightが115/115を1 workerで成功した。内訳はChromium全77件、Firefox／WebKitはauth・backup・restore・readiness各19件で、retry／flakyはない。初回追加E2Eではoffline後の判定順が`AUTH_REQUIRED`になった実装問題を検出して`OFFLINE`優先へ修正した。ほかの失敗はdesktopで非表示のmobileボタンを選んだテスト観点不足、Playwright WebKitのnetwork-level offline中のfile input I/O制限というテスト環境問題であり、DB内容の直接確認とWebKit固有のofflineイベント再現へ修正した。
 
-同日のProduction監査では両Originのsession endpointは応答したが、GitHub開始endpointは`500 AUTH_START_FAILED`で、GitHub client ID/secretが未設定であることを確認した。Vercelには新規生成した`SESSION_KEYS`だけをProduction scopeへ設定し、Preview／Developmentは変数0件を維持した。GitHub App、実OAuth／Gist、1 MB超raw、Production 4.5 MB境界、別browser実復元、実mobile計測が未完了のため、`VITE_CLOUD_BACKUP_ENABLED`は設定せず既定offを維持する。
+同日の初回Production監査では両Originのsession endpointは応答したが、GitHub開始endpointは`500 AUTH_START_FAILED`で、GitHub client ID/secretが未設定であることを確認した。この記録は設定前の原因切り分け証跡として残す。
 
-2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22、PR5はPR #23、PR6はPR #24、PR7はPR #26としてsquash merge済みである。PR8は自動化・security readinessまで実装し、GitHub Appと実機を必要とする結合ゲートを引き続き追跡する。
+その後、GitHub Appへ本番2 callback、expiring user token、`Gists: write`を設定し、GitHub client ID/secretとsession秘密情報をVercel Productionだけへ登録して再deployした。`VITE_CLOUD_BACKUP_ENABLED`もProductionで有効化し、Preview／Developmentは変数0件とlocal-onlyを維持した。両本番Originで実OAuth成功とOrigin別のローカルデータ分離を確認した。
+
+実Gist初回作成ではGist保存後にclientが失敗表示となる問題を検出した。GitHub API `2026-03-10`のfull Gist responseで`history`が省略される実挙動に対し、`history[0].version`を必須としていた実装問題が原因だった。full Gist responseの`ETag`をrevisionとして優先し、旧応答の`history[0].version`へfallbackするよう修正・Production反映した後、Gist検出、暗号文取得、復号、safe merge復元まで確認した。
+
+後続のdialog横overflow修正では、tooltipの疑似要素がdocument幅を広げるUI問題を検出した。auth 27件とbackup／restore 21件の計48件をChromium／Firefox／WebKitで直列実行し、tooltip表示前後の`clientWidth === scrollWidth`を確認した。全unitは172/172、lint、buildも成功しているが、このUI修正はProduction反映前である。
+
+2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22、PR5はPR #23、PR6はPR #24、PR7はPR #26としてsquash merge済みである。PR8相当のProduction readinessと実結合修正はDraft PR #27で追跡する。
+
+### 5.8 最終残件
+
+| 優先度 | 項目 | 完了条件 |
+| --- | --- | --- |
+| 必須 | 既存Gist更新 | 新しいパスフレーズを使用して既存Gistを更新し、同名Gistが重複作成されず、更新後に再取得・復号できること |
+| 必須 | 最新UI修正のProduction反映 | dialog横overflow修正をProductionへdeployし、狭幅で横スクロールが発生しないこと |
+| 必須 | PR完了と最終smoke | Draft PR #27をready化してmainへ反映し、両本番Originでローカル利用とcloud UIの基本動作を確認すること |
+| 追加品質確認 | 実上限・大容量 | 4,500,000 bytesのProduction upload/downloadと1 MB超raw取得を専用データで確認すること |
+| 追加品質確認 | 実mobile性能 | 対象実機でPBKDF2時間と390×844相当の操作性を記録すること |
 
 ## 6. 失敗時の証跡
 

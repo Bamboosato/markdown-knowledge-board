@@ -1,13 +1,13 @@
 # Markdown Knowledge Board フェーズ2 API・認証詳細設計
 
 作成日: 2026-07-30
-文書状態: PR7 Gist restore download API実装と同期
+文書状態: Production実結合・ETag revision修正と同期
 
 ## 1. 目的
 
 本書は、[基本設計](./phase2-auth-cloud-backup-architecture.md)に基づき、Vercel Functions、GitHub App、Gist API の契約を定義する。ブラウザ内の暗号化・復元ロジックは[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)を参照する。
 
-> 実装状況（2026年8月3日時点）: PR4～PR6のProduction環境ゲート、session、OAuth、Gist検出・作成・更新に加え、PR7で`GET /api/cloud-backups/content`を実装した。session所有者、exact Gist、暗号化envelope、1～4,500,000 bytes、SHA-256を検証し、raw取得は`gist.githubusercontent.com`限定、手動redirect最大2回、各hop再検証、Bearer非送信とする。cookie付きGETは同一OriginのOrigin／RefererとFetch Metadataを要求する。cloud feature flagはPR8まで既定offとする。
+> 実装状況（2026年8月3日時点）: Production環境ゲート、session、OAuth、Gist検出・作成・更新、`GET /api/cloud-backups/content`を実装した。session所有者、exact Gist、暗号化envelope、1～4,500,000 bytes、SHA-256を検証し、raw取得は`gist.githubusercontent.com`限定、手動redirect最大2回、各hop再検証、Bearer非送信とする。GitHub API `2026-03-10`ではfull Gist responseの`ETag`をrevisionとし、`history[0].version`は旧応答用fallbackとする。Productionだけでfeature flagとGitHub／session秘密情報を有効化し、両本番Originの実OAuth、Gist初回作成、検出、暗号文取得、復元を確認済みである。既存Gist更新の実経路は最終確認が残る。
 
 ## 2. テスト設計観点
 
@@ -433,7 +433,7 @@ type CloudBackupWriteResponse = {
 Content-Type: application/vnd.mkb.encrypted-backup+json
 Content-Length: 1..4,500,000
 X-MKB-Gist-Id: <gistId>
-X-MKB-Revision: <history[0].version>
+X-MKB-Revision: <ETagから正規化したrevision>
 X-MKB-Gist-Updated-At: <ISO timestamp>
 X-MKB-Content-SHA256: <envelope bytes の SHA-256 base64url>
 Cache-Control: no-store

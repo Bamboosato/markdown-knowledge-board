@@ -1,13 +1,13 @@
 # Markdown Knowledge Board フェーズ2 フロントエンド詳細設計
 
 作成日: 2026-07-30
-文書状態: PR8 offline・mobile・accessibility自動化と同期
+文書状態: Production実結合・dialog横overflow修正と同期
 
 ## 1. 目的
 
 本書は、[フェーズ2基本設計](./phase2-auth-cloud-backup-architecture.md)と[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)に基づき、React UI、状態管理、ローカルデータ、暗号化、バックアップ、復元の実装契約を定義する。
 
-> 実装状況（2026年8月3日時点）: PR1～PR7のローカルJSON、暗号化、任意GitHub認証、手動Cloud Backup、明示download、復号preview、safe mergeに加え、PR8でoffline中のローカルedit/save/import/export、明示Retry、cloud送信抑止、390×844のmenu/dialog/result、focus trap／復帰、passphrase表示状態、主要3ブラウザ回帰を接続した。パスフレーズ・token・暗号文は永続化せず、復元はcloud側の最終バックアップ時刻を更新しない。
+> 実装状況（2026年8月3日時点）: ローカルJSON、暗号化、任意GitHub認証、手動Cloud Backup、明示download、復号preview、safe merge、offline中のローカルedit/save/import/export、明示Retry、cloud送信抑止、390×844のmenu/dialog/result、focus trap／復帰、passphrase表示状態、主要3ブラウザ回帰を接続した。Productionで両本番Originの実OAuthと復元まで確認済みである。復号ダイアログのtooltipを含む横overflow修正は`clientWidth === scrollWidth`を主要3ブラウザで確認済みだが、Production反映前である。パスフレーズ・token・暗号文は永続化せず、復元はcloud側の最終バックアップ時刻を更新しない。
 
 ## 2. テスト設計観点
 
@@ -741,6 +741,7 @@ PR8の自動E2EはChromiumで全機能を実行し、Phase 2のauth／backup／r
 
 - Chromium、Firefox、WebKit の現行安定版で Web Crypto、Cookie、IndexedDB を確認する。
 - Windows/macOS、desktop 1440×900、mobile 390×844、狭い高さでmenu/dialogを確認する。
+- passphrase表示切替のtooltipを表示した状態を含め、dialogがviewport幅を超えず、documentに横スクロールを発生させないことを`documentElement.clientWidth === documentElement.scrollWidth`で確認する。
 - keyboardのみ、screen reader semantics、reduced motion、200% zoomを確認する。
 - primary/Vercel Production Originで localStorage、IndexedDB、Cookieが共有されないことを別contextで確認する。
 - Vercel Preview相当Originではローカル機能だけが利用でき、cloud UI/API/本番secretへ到達しないことを確認する。

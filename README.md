@@ -50,10 +50,12 @@ npm run build
 - [フェーズ2 フロントエンド詳細設計](./docs/phase2-auth-cloud-backup-frontend-design.md)
 - [フェーズ2 実装計画・ゲート・PR分割](./docs/phase2-auth-cloud-backup-implementation-plan.md)
 
-2026年8月3日時点で、フェーズ2の任意GitHub認証、手動の暗号化Gistバックアップ、復号プレビュー後のsafe merge復元に加え、PR8のoffline・390×844・キーボード／focus・主要3ブラウザ回帰を実装済みです。Production有効化は未実施のため、cloud feature flagは既定offです。IndexedDBをローカルデータの正本とし、未ログイン・認証エラー・オフラインでも従来の編集、保存、Markdown／JSONのimport/exportを利用できます。GitHub認証・クラウド機能はVercel Productionの2つの本番Originだけで提供し、Preview環境ではローカル機能だけを有効にします。
+2026年8月3日時点で、フェーズ2の任意GitHub認証、手動の暗号化Gistバックアップ、復号プレビュー後のsafe merge復元、offline・390×844・キーボード／focus・主要3ブラウザ回帰を実装済みです。Productionではcloud feature flagを有効化し、GitHub Appの本番2 callback、expiring user token、`Gists: write`、GitHub／session用環境変数を設定済みです。両本番Originで実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元を確認しました。IndexedDBをローカルデータの正本とし、未ログイン・認証エラー・オフラインでも従来の編集、保存、Markdown／JSONのimport/exportを利用できます。
 
 ## 制限事項
 
-- cloud feature flagが既定offの間、通常利用では外部API通信を開始しません。
-- cloud feature flagを有効化する前のため、実GitHub Gistを使うProduction経路の結合確認は未実施です。GitHub Appの2 callback・expiring user token・`Gists: write`、ProductionのGitHub client ID/secret、実mobile計測を完了してから有効化します。
+- GitHub認証・クラウド機能はVercel Productionの`https://mkb.bamboosato.com/`と`https://markdown-knowledge-board.vercel.app/`だけで提供します。Preview環境とlocalhostではローカル機能だけを利用できます。
+- 実Gistの初回作成と復元は確認済みですが、既存Gistを重複作成せず更新するProduction経路は最終確認が残っています。
+- 4,500,000 bytes成功／4,500,001 bytes拒否はunitテストで固定済みです。Productionでの実上限サイズ試験は追加品質確認として未実施です。
+- 復号ダイアログの横スクロール修正は主要3ブラウザで回帰済みですが、Production反映前です。
 - ブラウザのストレージ容量の制限に依存します。
