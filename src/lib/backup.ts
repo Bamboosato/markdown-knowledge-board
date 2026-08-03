@@ -36,15 +36,18 @@ export function createBackupDocument(
     version: 1,
     createdAt,
     noteCount: notes.length,
-    notes: notes.map((note) => ({
-      id: note.id,
-      title: note.title,
-      tags: note.tags,
-      updatedAt: note.updatedAt,
-      pinnedAt: getPinnedAt(note),
-      customMetadata: cloneCustomMetadata(note.customMetadata),
-      markdown: toMarkdownWithFrontmatter(note),
-    })),
+    notes: notes.map((note) => {
+      const pinnedAt = getPinnedAt(note);
+      return {
+        id: note.id,
+        title: note.title,
+        tags: note.tags,
+        updatedAt: note.updatedAt,
+        ...(pinnedAt === undefined ? {} : { pinnedAt }),
+        customMetadata: cloneCustomMetadata(note.customMetadata),
+        markdown: toMarkdownWithFrontmatter(note),
+      };
+    }),
   };
 }
 

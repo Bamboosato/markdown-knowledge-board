@@ -75,6 +75,10 @@ Markdown Knowledge Board は、Markdown 形式のノートをブラウザ内で�
   - Note ID・timestamp・pin値の正規化と、MarkdownからのNote生成を担当する。
 - `src/lib/backup.ts`
   - ローカルJSON backup version 1の作成・parseと、import種別の振り分けを担当する。
+- `src/lib/canonicalJson.ts`
+  - object key順を固定し、配列順を維持するcanonical JSON serializationを担当する。
+- `src/lib/cloudCrypto.ts`
+  - Web CryptoによるAES-256-GCM、PBKDF2-SHA-256、暗号化エンベロープ、base64url、passphrase・4.5 MB境界の検証を担当する。現時点ではUIやクラウド通信には未接続。
 - `src/lib/cloudRestore.ts`
   - クラウド復元向けのstrict BackupDocument検証、内容fingerprint、safe merge差分を担当する。現時点ではUIやクラウド通信には未接続。
 - `src/lib/markdownEdit.ts`
