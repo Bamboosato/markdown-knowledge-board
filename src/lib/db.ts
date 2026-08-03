@@ -42,6 +42,14 @@ function createDbUnavailableError(): Error {
   return new Error(dbInitError ?? "IndexedDB is unavailable.");
 }
 
+async function requireDb(): Promise<IDBPDatabase<MarkdownDbSchema>> {
+  const db = await getDb();
+  if (!db) {
+    throw createDbUnavailableError();
+  }
+  return db;
+}
+
 export async function getAllNotes(): Promise<Note[]> {
   const db = await getDb();
   if (!db) {
@@ -59,17 +67,34 @@ export async function getNote(id: string): Promise<Note | undefined> {
 }
 
 export async function saveNote(note: Note): Promise<void> {
-  const db = await getDb();
-  if (!db) {
-    throw createDbUnavailableError();
-  }
+  const db = await requireDb();
   await db.put(STORE_NAME, note);
 }
 
 export async function deleteNote(id: string): Promise<void> {
-  const db = await getDb();
-  if (!db) {
-    throw createDbUnavailableError();
-  }
+  const db = await requireDb();
   await db.delete(STORE_NAME, id);
+}
+
+export async function applyNotesTransaction(notes: Note[]): Promise<void> {
+  const db = await requireDb();
+  const transaction = db.transaction(STORE_NAME, "readwrite");
+  try {
+    for (const note of notes) {
+      await transaction.store.put(note);
+    }
+    await transaction.done;
+  } catch (error) {
+    try {
+      transaction.abort();
+    } catch {
+      // The transaction may already be aborted by the failed request.
+    }
+    try {
+      await transaction.done;
+    } catch {
+      // Preserve the original write error after rollback completes.
+    }
+    throw error;
+  }
 }
