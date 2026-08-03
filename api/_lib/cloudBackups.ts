@@ -119,7 +119,7 @@ async function authenticatedSession(
 
 function csrfError(request: Request, requestId: string): Response | null {
   const result = validateStateChangingRequest(request)
-  if (result.ok) return null
+  if (result.ok === true) return null
   return apiError(
     403,
     result.code,
@@ -339,10 +339,10 @@ export async function handleCloudBackupDiscoveryRequest(
   const requestId = (dependencies.createRequestId ?? createRequestId)()
   const env = dependencies.env ?? process.env
   const gate = requireProductionCloudEnvironment(request, requestId, env)
-  if (!gate.ok) return gate.response
+  if (gate.ok === false) return gate.response
   if (request.method !== 'GET') return methodNotAllowed(['GET'], requestId)
   const session = await authenticatedSession(request, requestId, env, dependencies)
-  if (!session.ok) return session.response
+  if (session.ok === false) return session.response
 
   const cachedGistId = new URL(request.url).searchParams.get('gistId') ?? undefined
   if (cachedGistId) {
@@ -379,7 +379,7 @@ export async function handleCloudBackupContentRequest(
   const requestId = (dependencies.createRequestId ?? createRequestId)()
   const env = dependencies.env ?? process.env
   const gate = requireProductionCloudEnvironment(request, requestId, env)
-  if (!gate.ok) return gate.response
+  if (gate.ok === false) return gate.response
   if (request.method !== 'GET') return methodNotAllowed(['GET'], requestId)
   const originFailure = sameOriginReadError(
     request,
@@ -388,7 +388,7 @@ export async function handleCloudBackupContentRequest(
   )
   if (originFailure) return originFailure
   const session = await authenticatedSession(request, requestId, env, dependencies)
-  if (!session.ok) return session.response
+  if (session.ok === false) return session.response
 
   const gistId = new URL(request.url).searchParams.get('gistId') ?? ''
   try {
@@ -478,12 +478,12 @@ export async function handleCloudBackupCreateRequest(
   const requestId = (dependencies.createRequestId ?? createRequestId)()
   const env = dependencies.env ?? process.env
   const gate = requireProductionCloudEnvironment(request, requestId, env)
-  if (!gate.ok) return gate.response
+  if (gate.ok === false) return gate.response
   if (request.method !== 'POST') return methodNotAllowed(['POST'], requestId)
   const csrfFailure = csrfError(request, requestId)
   if (csrfFailure) return csrfFailure
   const session = await authenticatedSession(request, requestId, env, dependencies)
-  if (!session.ok) return session.response
+  if (session.ok === false) return session.response
 
   let upload: Upload
   try {
@@ -574,12 +574,12 @@ export async function handleCloudBackupUpdateRequest(
   const requestId = (dependencies.createRequestId ?? createRequestId)()
   const env = dependencies.env ?? process.env
   const gate = requireProductionCloudEnvironment(request, requestId, env)
-  if (!gate.ok) return gate.response
+  if (gate.ok === false) return gate.response
   if (request.method !== 'PUT') return methodNotAllowed(['PUT'], requestId)
   const csrfFailure = csrfError(request, requestId)
   if (csrfFailure) return csrfFailure
   const session = await authenticatedSession(request, requestId, env, dependencies)
-  if (!session.ok) return session.response
+  if (session.ok === false) return session.response
 
   const gistId = new URL(request.url).searchParams.get('gistId') ?? ''
   const expectedRevision = request.headers.get('X-MKB-Expected-Revision') ?? ''

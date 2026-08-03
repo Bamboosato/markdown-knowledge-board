@@ -96,12 +96,13 @@ function revisionFromEtag(value: string | null): string | undefined {
 
 function parseGist(value: unknown, responseRevision?: string): ParsedGist {
   if (!isRecord(value)) throw new GistApiError('invalid-response')
+  const description = value.description
   const owner = value.owner
   const files = value.files
   if (
     typeof value.id !== 'string' ||
     !isGistId(value.id) ||
-    (typeof value.description !== 'string' && value.description !== null) ||
+    (typeof description !== 'string' && description !== null) ||
     !isRecord(owner) ||
     !Number.isSafeInteger(owner.id) ||
     (owner.id as number) <= 0 ||
@@ -172,7 +173,7 @@ function parseGist(value: unknown, responseRevision?: string): ParsedGist {
 
   return {
     id: value.id,
-    description: value.description ?? '',
+    description: typeof description === 'string' ? description : '',
     ownerId: owner.id as number,
     updatedAt: new Date(value.updated_at).toISOString(),
     htmlUrl: htmlUrl.toString(),
