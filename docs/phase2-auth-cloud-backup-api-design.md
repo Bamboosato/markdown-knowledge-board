@@ -7,7 +7,7 @@
 
 本書は、[基本設計](./phase2-auth-cloud-backup-architecture.md)に基づき、Vercel Functions、GitHub App、Gist API の契約を定義する。ブラウザ内の暗号化・復元ロジックは[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)を参照する。
 
-> 実装状況（2026年8月3日時点）: Production環境ゲート、session、OAuth、Gist検出・作成・更新、`GET /api/cloud-backups/content`を実装した。session所有者、exact Gist、暗号化envelope、1～4,500,000 bytes、SHA-256を検証し、raw取得は`gist.githubusercontent.com`限定、手動redirect最大2回、各hop再検証、Bearer非送信とする。GitHub API `2026-03-10`ではfull Gist responseの`ETag`をrevisionとし、`history[0].version`は旧応答用fallbackとする。Productionだけでfeature flagとGitHub／session秘密情報を有効化し、両本番Originの実OAuth、Gist初回作成、検出、暗号文取得、復元を確認済みである。既存Gist更新の実経路は最終確認が残る。
+> 実装状況（2026年8月3日時点）: Production環境ゲート、session、OAuth、Gist検出・作成・更新、`GET /api/cloud-backups/content`を実装した。session所有者、exact Gist、暗号化envelope、1～4,500,000 bytes、SHA-256を検証し、raw取得は`gist.githubusercontent.com`限定、手動redirect最大2回、各hop再検証、Bearer非送信とする。GitHub API `2026-03-10`ではfull Gist responseの`ETag`をrevisionとし、`history[0].version`は旧応答用fallbackとする。Productionだけでfeature flagとGitHub／session秘密情報を有効化し、両本番Originの実OAuth、Gist初回作成、検出、暗号文取得、既存Gist更新、復元を確認済みである。POST時に既存Gistを検出した場合は`GIST_SELECTION_REQUIRED`で重複作成を防ぎ、clientの次回開始操作で再検出する。
 
 ## 2. テスト設計観点
 

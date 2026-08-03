@@ -1,7 +1,7 @@
 # Markdown Knowledge Board フェーズ2 実装計画
 
 更新日: 2026-08-03
-状態: Production有効化・初回backup／restore確認済み（既存Gist更新と最終反映を追跡中）
+状態: Production初回作成／既存Gist更新／restore確認済み（最新修正の反映を追跡中）
 
 ## 1. 目的
 
@@ -170,6 +170,8 @@ PR8自動ゲートは`npm audit --audit-level=low`が0件、`npm run lint`、`np
 
 実Gist初回作成ではGist保存後にclientが失敗表示となる問題を検出した。GitHub API `2026-03-10`のfull Gist responseで`history`が省略される実挙動に対し、`history[0].version`を必須としていた実装問題が原因だった。full Gist responseの`ETag`をrevisionとして優先し、旧応答の`history[0].version`へfallbackするよう修正・Production反映した後、Gist検出、暗号文取得、復号、safe merge復元まで確認した。
 
+続く既存Gist更新では、別Originが保持していた古い`none`状態からPOSTを選び、serverの重複作成防止により`GIST_SELECTION_REQUIRED`となる状態依存問題を検出した。再読込後に同一Gistを17件で更新し、重複が増えないことをProductionで確認した。再発防止としてCloud Backup／Restore開始時は`none`／`selected`を含め必ず再検出し、別Origin作成後のupdate、passphrase入力中の作成競合から再読込なしでの再試行、restoreをChromium／Firefox／WebKit各3件で直列確認した。
+
 後続のdialog横overflow修正では、tooltipの疑似要素がdocument幅を広げるUI問題を検出した。auth 27件とbackup／restore 21件の計48件をChromium／Firefox／WebKitで直列実行し、tooltip表示前後の`clientWidth === scrollWidth`を確認した。全unitは172/172、lint、buildも成功しているが、このUI修正はProduction反映前である。
 
 2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22、PR5はPR #23、PR6はPR #24、PR7はPR #26としてsquash merge済みである。PR8相当のProduction readinessと実結合修正はDraft PR #27で追跡する。
@@ -178,8 +180,7 @@ PR8自動ゲートは`npm audit --audit-level=low`が0件、`npm run lint`、`np
 
 | 優先度 | 項目 | 完了条件 |
 | --- | --- | --- |
-| 必須 | 既存Gist更新 | 新しいパスフレーズを使用して既存Gistを更新し、同名Gistが重複作成されず、更新後に再取得・復号できること |
-| 必須 | 最新UI修正のProduction反映 | dialog横overflow修正をProductionへdeployし、狭幅で横スクロールが発生しないこと |
+| 必須 | 最新修正のProduction反映 | action開始時のGist再検出とdialog横overflow修正をProductionへdeployし、別Origin変更を再読込なしで反映し、狭幅で横スクロールが発生しないこと |
 | 必須 | PR完了と最終smoke | Draft PR #27をready化してmainへ反映し、両本番Originでローカル利用とcloud UIの基本動作を確認すること |
 | 追加品質確認 | 実上限・大容量 | 4,500,000 bytesのProduction upload/downloadと1 MB超raw取得を専用データで確認すること |
 | 追加品質確認 | 実mobile性能 | 対象実機でPBKDF2時間と390×844相当の操作性を記録すること |

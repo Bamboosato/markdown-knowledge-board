@@ -166,6 +166,146 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     expect(metadata).not.toContain('ghu_')
   })
 
+  test('refreshes stale none discovery and updates a backup created from another Origin', async ({
+    page,
+  }) => {
+    await stubSignedInSession(page)
+    let remoteExists = false
+    let discoveryCalls = 0
+    let createCalls = 0
+    let updateCalls = 0
+    let updateHeaders: Record<string, string> = {}
+    await page.route(/\/api\/cloud-backups(?:\/update)?(?:\?.*)?$/, async (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        discoveryCalls += 1
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: success(
+            remoteExists
+              ? { status: 'selected', backup: backupMetadata('a1', revisionB) }
+              : { status: 'none' },
+          ),
+        })
+        return
+      }
+      if (method === 'PUT') {
+        updateCalls += 1
+        updateHeaders = route.request().headers()
+        const encryptedSize = new TextEncoder().encode(
+          route.request().postData() ?? '',
+        ).byteLength
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: success({
+            ...backupMetadata('a1', revisionA),
+            encryptedSize,
+            sha256: 's'.repeat(43),
+          }),
+        })
+        return
+      }
+      createCalls += 1
+      await route.fulfill(
+        failure(
+          'GIST_SELECTION_REQUIRED',
+          'An existing cloud backup must be selected before uploading.',
+        ),
+      )
+    })
+
+    await page.goto('/?cloudTest=1')
+    await expect.poll(() => discoveryCalls).toBeGreaterThan(0)
+    const callsBeforeRemoteChange = discoveryCalls
+    remoteExists = true
+    await createDraft(page, 'URL1 note', 'Back up this Origin')
+    await page.getByRole('button', { name: /^Save$/ }).click()
+
+    const menu = await openApplicationMenu(page)
+    await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
+    await expect.poll(() => discoveryCalls).toBeGreaterThan(callsBeforeRemoteChange)
+    await submitPassphrase(page)
+
+    await expect(page.getByText('Encrypted cloud backup completed (1 notes).')).toBeVisible()
+    expect(createCalls).toBe(0)
+    expect(updateCalls).toBe(1)
+    expect(updateHeaders['x-mkb-expected-revision']).toBe(revisionB)
+  })
+
+  test('recovers without reloading when another Origin creates a backup during passphrase entry', async ({
+    page,
+  }) => {
+    await stubSignedInSession(page)
+    let remoteExists = false
+    let blockedCreateCalls = 0
+    let updateCalls = 0
+    await page.route(/\/api\/cloud-backups(?:\/update)?(?:\?.*)?$/, async (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: success(
+            remoteExists
+              ? { status: 'selected', backup: backupMetadata('a1', revisionB) }
+              : { status: 'none' },
+          ),
+        })
+        return
+      }
+      if (method === 'POST') {
+        blockedCreateCalls += 1
+        await route.fulfill(
+          failure(
+            'GIST_SELECTION_REQUIRED',
+            'An existing cloud backup must be selected before uploading.',
+          ),
+        )
+        return
+      }
+      updateCalls += 1
+      const encryptedSize = new TextEncoder().encode(
+        route.request().postData() ?? '',
+      ).byteLength
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: success({
+          ...backupMetadata('a1', revisionA),
+          encryptedSize,
+          sha256: 's'.repeat(43),
+        }),
+      })
+    })
+
+    await page.goto('/?cloudTest=1')
+    await createDraft(page, 'Concurrent URL1 note', 'Keep this local content')
+    await page.getByRole('button', { name: /^Save$/ }).click()
+    let menu = await openApplicationMenu(page)
+    await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
+    await expect(
+      page.getByRole('dialog', { name: 'Encrypt Cloud Backup' }),
+    ).toBeVisible()
+
+    remoteExists = true
+    await submitPassphrase(page)
+    const blockedDialog = page.getByRole('dialog', { name: 'Encrypt Cloud Backup' })
+    await expect(blockedDialog).toContainText(
+      'An existing cloud backup must be selected before uploading.',
+    )
+    await blockedDialog.getByRole('button', { name: 'Cancel' }).click()
+
+    menu = await openApplicationMenu(page)
+    await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
+    await submitPassphrase(page)
+
+    await expect(page.getByText('Encrypted cloud backup completed (1 notes).')).toBeVisible()
+    expect(blockedCreateCalls).toBe(1)
+    expect(updateCalls).toBe(1)
+  })
+
   test('requires a strong warning before replacing an existing backup with zero local notes', async ({
     page,
   }) => {

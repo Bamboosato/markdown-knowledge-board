@@ -2189,16 +2189,12 @@ function App() {
 
   async function beginCloudBackup() {
     if (githubSession.session.status !== "signed-in") return;
-    let resolution = cloudBackup.discovery;
-    if (resolution.status === "idle" || resolution.status === "unavailable") {
-      const refreshed = await cloudBackup.discover(
-        cloudBackup.storedMetadata?.gistId
-      );
-      if (!refreshed) {
-        setIsAppMenuOpen(true);
-        return;
-      }
-      resolution = refreshed;
+    const resolution = await cloudBackup.discover(
+      cloudBackup.storedMetadata?.gistId
+    );
+    if (!resolution) {
+      setIsAppMenuOpen(true);
+      return;
     }
     if (resolution.status === "selection-required") {
       setCloudBackupDialogError(null);
@@ -2303,16 +2299,12 @@ function App() {
 
   async function beginCloudRestore() {
     if (githubSession.session.status !== "signed-in") return;
-    let resolution = cloudBackup.discovery;
-    if (resolution.status === "idle" || resolution.status === "unavailable") {
-      const refreshed = await cloudBackup.discover(
-        cloudBackup.storedMetadata?.gistId
-      );
-      if (!refreshed) {
-        setIsAppMenuOpen(true);
-        return;
-      }
-      resolution = refreshed;
+    const resolution = await cloudBackup.discover(
+      cloudBackup.storedMetadata?.gistId
+    );
+    if (!resolution) {
+      setIsAppMenuOpen(true);
+      return;
     }
     if (resolution.status === "selection-required") {
       setCloudRestoreDialogError(null);

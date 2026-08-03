@@ -1,13 +1,13 @@
 # Markdown Knowledge Board フェーズ2 認証・クラウドバックアップ基本設計
 
 作成日: 2026-07-30
-文書状態: Production有効化・実Gist結合・ETag revision修正と同期
+文書状態: Production実Gist作成／更新／復元・action開始時再検出と同期
 
 ## 1. 目的と位置づけ
 
 本書は、[フェーズ2要件定義](./phase2-auth-cloud-backup-requirements.md)を実装可能な構成へ具体化する基本設計である。現行機能の詳細は[現行設計仕様](./design-spec.md)、HTTP 契約は[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)、ブラウザ内の状態・暗号化・復元は[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)、実行順序と担当は[実装計画](./phase2-auth-cloud-backup-implementation-plan.md)を参照する。
 
-2026年8月3日時点で、ローカルJSON、暗号化、Production API境界、任意GitHub認証、手動Cloud Backup、検証済みdownload、ブラウザ復号、差分preview、safe merge、単一transaction復元、offline、mobile viewport、focus、主要3ブラウザ回帰を実装済みである。GitHub AppとGitHub／session用Production変数を設定してcloud feature flagをProductionだけで有効化し、両本番Originの実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元を確認した。GitHub API `2026-03-10`で省略される`history`に依存せず、full Gist responseの`ETag`をrevisionに使用し、旧応答の`history[0].version`をfallbackとする。Preview／Developmentへ秘密情報を配布せずlocal-onlyを維持する。
+2026年8月3日時点で、ローカルJSON、暗号化、Production API境界、任意GitHub認証、手動Cloud Backup、検証済みdownload、ブラウザ復号、差分preview、safe merge、単一transaction復元、offline、mobile viewport、focus、主要3ブラウザ回帰を実装済みである。GitHub AppとGitHub／session用Production変数を設定してcloud feature flagをProductionだけで有効化し、両本番Originの実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認した。GitHub API `2026-03-10`で省略される`history`に依存せず、full Gist responseの`ETag`をrevisionに使用し、旧応答の`history[0].version`をfallbackとする。Cloud Backup／Restore開始時はOrigin別cacheの`none`／`selected`をそのまま採用せず、必ず実Gistを再検出する。Preview／Developmentへ秘密情報を配布せずlocal-onlyを維持する。
 
 | 領域 | 現行実装 | フェーズ2での扱い |
 | --- | --- | --- |
@@ -16,7 +16,7 @@
 | JSONバックアップ | `src/lib/backup.ts`のversion 1作成・parse、手動保存／インポート | PR1で共通moduleへの抽出と現行roundtrip回帰を完了。クラウド暗号化でも再利用する |
 | 復元基盤 | `cloudRestore.ts`のstrict検証・fingerprint・merge plan、`useCloudRestore.ts`の復号・再検証、`db.ts`のtransaction apply | PR7でpreviewとsafe merge UIへ接続済み。local-only noteと競合を保持する |
 | 認証・クラウドUI | session hook、任意ログイン、Sign out、Disconnect、明示的なCloud Backup／Restoreを実装済み | feature flagを本番2 Originだけで有効化し、Preview／localhostはlocal-onlyを維持する |
-| Vercel Functions／Gist／暗号化 | 4.5 MB上限、Gist検出・作成・ETag revision付き更新、検証済みraw download、browser暗号化・復号を実装済み | 初回作成と復元は実確認済み。既存Gist更新はProductionで直列に最終確認する |
+| Vercel Functions／Gist／暗号化 | 4.5 MB上限、Gist検出・作成・ETag revision付き更新、検証済みraw download、browser暗号化・復号を実装済み | 初回作成、既存Gist更新、復元をProductionで直列確認済み。action開始時に毎回再検出する |
 
 ## 2. 設計原則
 

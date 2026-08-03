@@ -933,7 +933,7 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 
 ## 14. フェーズ2拡張設計（Production有効化済み・最終確認中）
 
-任意の GitHub ログインと暗号化 Gist バックアップは、現行ローカル機能を維持した追加機能として設計する。2026年8月3日時点でローカルJSON共通化、ブラウザ暗号化、Production gate・session・CSRF、GitHub OAuth、Gist検出・作成・更新、手動Cloud Backup、検証済みdownload、復号preview、safe merge復元、offlineローカル継続、mobile/focus、Chromium・Firefox・WebKit回帰まで実装済みである。GitHub AppとProduction変数を設定し、cloud feature flagをProductionだけで有効化した。両本番Originの実OAuth、secret Gist初回作成、検出、暗号文取得、復号、safe merge復元を確認済みであり、既存Gist更新と最新UI修正のProduction反映を最終確認として残す。上記 1～13 は引き続き利用者向けローカル仕様を表す。
+任意の GitHub ログインと暗号化 Gist バックアップは、現行ローカル機能を維持した追加機能として設計する。2026年8月3日時点でローカルJSON共通化、ブラウザ暗号化、Production gate・session・CSRF、GitHub OAuth、Gist検出・作成・更新、手動Cloud Backup、検証済みdownload、復号preview、safe merge復元、offlineローカル継続、mobile/focus、Chromium・Firefox・WebKit回帰まで実装済みである。GitHub AppとProduction変数を設定し、cloud feature flagをProductionだけで有効化した。両本番Originの実OAuth、secret Gist初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認済みである。Cloud Backup／Restore開始時のGist再検出と最新UI修正のProduction反映を最終確認として残す。上記 1～13 は引き続き利用者向けローカル仕様を表す。
 
 ### 14.1 方針
 

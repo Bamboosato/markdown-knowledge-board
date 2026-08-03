@@ -7,7 +7,7 @@
 
 本書は、[フェーズ2基本設計](./phase2-auth-cloud-backup-architecture.md)と[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)に基づき、React UI、状態管理、ローカルデータ、暗号化、バックアップ、復元の実装契約を定義する。
 
-> 実装状況（2026年8月3日時点）: ローカルJSON、暗号化、任意GitHub認証、手動Cloud Backup、明示download、復号preview、safe merge、offline中のローカルedit/save/import/export、明示Retry、cloud送信抑止、390×844のmenu/dialog/result、focus trap／復帰、passphrase表示状態、主要3ブラウザ回帰を接続した。Productionで両本番Originの実OAuthと復元まで確認済みである。復号ダイアログのtooltipを含む横overflow修正は`clientWidth === scrollWidth`を主要3ブラウザで確認済みだが、Production反映前である。パスフレーズ・token・暗号文は永続化せず、復元はcloud側の最終バックアップ時刻を更新しない。
+> 実装状況（2026年8月3日時点）: ローカルJSON、暗号化、任意GitHub認証、手動Cloud Backup、明示download、復号preview、safe merge、offline中のローカルedit/save/import/export、明示Retry、cloud送信抑止、390×844のmenu/dialog/result、focus trap／復帰、passphrase表示状態、主要3ブラウザ回帰を接続した。Productionで両本番Originの実OAuth、既存Gist更新、復元まで確認済みである。別OriginでGistが作成・更新された場合に備え、Cloud Backup／Restore開始時は`none`／`selected`を含む全状態から再検出する。復号ダイアログのtooltipを含む横overflow修正は`clientWidth === scrollWidth`を主要3ブラウザで確認済みだが、これらの最新修正はProduction反映前である。パスフレーズ・token・暗号文は永続化せず、復元はcloud側の最終バックアップ時刻を更新しない。
 
 ## 2. テスト設計観点
 
@@ -126,6 +126,8 @@ unavailable -> checking                 user Retry / online event後の明示Ret
 `online` event は表示を更新するだけで、session retry、backup、restore を自動開始しない。利用者が `Retry` または cloud 操作を明示した時だけ通信する。
 
 session が `signed-in` になった直後は `GET /api/cloud-backups` を1回だけ呼び、候補有無、Gist更新日時、revisionなどの metadata を解決してよい。この処理では暗号文本体を取得・復号せず、backup/restoreも開始しない。失敗は GitHub section の metadata unavailable として扱う。
+
+Cloud BackupまたはRestore from Cloudの開始時は、Origin別のcacheが`none`または`selected`でも`GET /api/cloud-backups`を再実行する。別Originや別端末で初回作成・更新されたGistを反映してから、0件はcreate／none表示、1件はupdate／download、複数件はselection dialogへ進む。再検出失敗時はupload/downloadを開始せず、ローカル機能を継続する。
 
 ### 4.3 ローカル機能との分離
 

@@ -1,7 +1,7 @@
 # Markdown Knowledge Board フェーズ2 認証・クラウドバックアップ要件定義
 
 作成日: 2026-07-29
-状態: Production有効化・実OAuth／初回backup／restore確認済み（最終更新確認中）
+状態: Production有効化・実OAuth／初回作成／更新／restore確認済み（最終修正反映中）
 
 ## 1. 文書の目的
 
@@ -11,7 +11,7 @@
 
 本書における「フェーズ2」は、認証・クラウドバックアップ導入計画上のフェーズ名である。既存文書に記載された UI/UX 改善の Phase 番号とは別の区分として扱う。
 
-> 実装状況（2026年8月3日時点）: ローカル共通基盤、ブラウザ暗号化、Production API境界、任意GitHub認証、手動の暗号化Gistバックアップ、復号・差分preview・safe merge復元、offlineローカル継続、390×844、keyboard/focus、Chromium・Firefox・WebKit回帰、依存脆弱性解消を実装した。GitHub AppとProduction変数を設定してcloud feature flagをProductionだけで有効化し、両本番Originの実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元を確認済みである。Preview／Developmentは秘密情報を持たないlocal-onlyを維持する。必須の最終残件は既存Gistの更新確認と最新UI修正のProduction反映であり、4.5 MB実上限と実mobileは追加品質確認とする。
+> 実装状況（2026年8月3日時点）: ローカル共通基盤、ブラウザ暗号化、Production API境界、任意GitHub認証、手動の暗号化Gistバックアップ、復号・差分preview・safe merge復元、offlineローカル継続、390×844、keyboard/focus、Chromium・Firefox・WebKit回帰、依存脆弱性解消を実装した。GitHub AppとProduction変数を設定してcloud feature flagをProductionだけで有効化し、両本番Originの実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認済みである。別OriginでGist状態が変わっても開始操作ごとに再検出する回帰を追加した。Preview／Developmentは秘密情報を持たないlocal-onlyを維持する。必須の最終残件は最新修正のProduction反映であり、4.5 MB実上限と実mobileは追加品質確認とする。
 
 ## 2. 採用方針サマリー
 
