@@ -350,9 +350,10 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(editorStatus).not.toContainText("Backup");
     await page.getByRole("button", { name: "Open application menu" }).click();
     const menu = page.getByRole("menu", { name: "Application menu" });
-    await expect(menu.getByText("Last backup")).toBeVisible();
+    await expect(menu.getByText("Local data")).toBeVisible();
+    await expect(menu.getByText("Last local backup")).toBeVisible();
     await expect(menu.getByText("No backups yet")).toBeVisible();
-    await expect(menu).toHaveCSS("width", "240px");
+    await expect(menu).toHaveCSS("width", "280px");
     const backupMenuItem = menu.getByRole("menuitem", {
       name: /Backup All Notes/,
     });

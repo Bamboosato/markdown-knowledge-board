@@ -7,7 +7,7 @@
 
 本書は、[フェーズ2基本設計](./phase2-auth-cloud-backup-architecture.md)と[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)に基づき、React UI、状態管理、ローカルデータ、暗号化、バックアップ、復元の実装契約を定義する。
 
-> 実装状況（2026年8月3日時点）: PR1でローカルJSON version 1を`backup.ts`へ共通化し、PR2で`cloudRestore.ts`のstrict validation・fingerprint・merge planと`db.ts`の単一transaction apply、PR3で`cloudCrypto.ts`のAES-256-GCM・PBKDF2・暗号化エンベロープ、PR4でバックエンドのsession API基盤を実装済みである。GitHub session hook、cloud UI、Gist API client、および各基盤のUI接続は未実装である。
+> 実装状況（2026年8月3日時点）: PR1でローカルJSON version 1を`backup.ts`へ共通化し、PR2で`cloudRestore.ts`のstrict validation・fingerprint・merge planと`db.ts`の単一transaction apply、PR3で`cloudCrypto.ts`のAES-256-GCM・PBKDF2・暗号化エンベロープ、PR4でバックエンドのsession API基盤、PR5でsession hook、GitHub認証UI、Save and Continue、Sign out、Disconnectを実装した。Gist API clientとCloud Backup／Restore UI接続はPR6以降で実装する。
 
 ## 2. テスト設計観点
 
@@ -100,7 +100,7 @@ App mount
 
 IndexedDB 読み込みと session 確認は独立して開始する。session response、timeout、offline を待ってから editor を表示してはならない。
 
-local developmentのunit/component/E2Eではtest configでcloud UIを有効にし、`fetch`をstubする。実GitHub callback、token、Gistを使用しない。実GitHub結合確認はProductionの専用テストアカウントでのみ行う。
+local developmentのunit/component/E2Eではtest configでcloud UIを有効にし、`fetch`をstubする。現行のE2EはVite developmentかつloopback Originで`?cloudTest=1`を明示した場合だけGitHub sectionを表示し、認証APIをroute stubする。このtest opt-inはProduction buildでは有効にならない。実GitHub callback、token、Gistを使用しない。実GitHub結合確認はProductionの専用テストアカウントでのみ行う。
 
 ### 4.2 session state
 
@@ -253,7 +253,7 @@ type CloudBackupLocalMetadata = {
 };
 ```
 
-`Last cloud backup` は `updatedAt` を表示する。現行 `lastBackupAt` と `Last backup` は local JSON backup として別に維持する。
+`Last cloud backup` は `updatedAt` を表示する。現行 `lastBackupAt` と `Last local backup` は local JSON backup として別に維持する。
 
 ## 7. クラウド復元設計
 

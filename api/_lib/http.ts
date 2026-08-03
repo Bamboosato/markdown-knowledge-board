@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 export type ApiStage =
+  | 'auth-start'
   | 'auth-check'
   | 'auth-callback'
   | 'backup-discovery'

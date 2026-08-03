@@ -362,7 +362,7 @@ Previewはモノクロ基調を維持し、リンクとkeyboard focusだけに�
 1. IndexedDB から全ノートを取得する。
 2. 固定済みノートを `pinnedAt` 降順、その後に未固定ノートを `updatedAt` 降順で `notes` に保持する。同値の場合は `updatedAt` 降順、`id` 昇順を使用して決定的に並べる。
 3. IndexedDB 初期化エラーがあれば `dbError` に反映する。
-4. `localStorage.lastBackupAt` を確認し、アプリメニューの `Backup All Notes` の下に `Last backup` と分単位の日時を2段で表示する。未実施時は `No backups yet` と表示する。
+4. `localStorage.lastBackupAt` を確認し、アプリメニューの `Backup All Notes` の下に `Last local backup` と分単位の日時を2段で表示する。未実施時は `No backups yet` と表示する。
 5. Backup項目のアイコンは複数行全体の中央ではなくタイトル行の上端へ揃え、メニュー項目間はコンパクトな余白を維持する。
 
 ### 7.2 新規ノート作成
