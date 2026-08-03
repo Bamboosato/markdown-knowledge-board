@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { KeyboardEvent } from 'react'
 
 type CloudActionDialogProps = {
-  kind: 'sign-in' | 'backup' | 'disconnect'
+  kind: 'sign-in' | 'backup' | 'restore' | 'disconnect'
   busy?: boolean
   onConfirm: () => void
   onCancel: () => void
@@ -17,6 +17,11 @@ const copy = {
   backup: {
     title: 'Save changes before cloud backup?',
     body: 'Cloud backup uses the saved notes in this browser. Save your changes before continuing.',
+    confirm: 'Save and Continue',
+  },
+  restore: {
+    title: 'Save changes before cloud restore?',
+    body: 'Save the current edit before applying the reviewed cloud restore.',
     confirm: 'Save and Continue',
   },
   disconnect: {

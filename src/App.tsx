@@ -50,8 +50,13 @@ import { MetadataDialog } from "./components/MetadataDialog";
 import { MermaidBlock } from "./components/MermaidBlock";
 import { CloudActionDialog } from "./components/cloud/CloudActionDialog";
 import { CloudBackupDialog } from "./components/cloud/CloudBackupDialog";
+import { CloudRestoreDialog } from "./components/cloud/CloudRestoreDialog";
 import { GitHubSection } from "./components/cloud/GitHubSection";
 import { useCloudBackup } from "./hooks/useCloudBackup";
+import {
+  CloudRestoreApplyError,
+  useCloudRestore,
+} from "./hooks/useCloudRestore";
 import { useGitHubSession } from "./hooks/useGitHubSession";
 import { CloudApiError } from "./lib/cloudApi";
 import {
@@ -96,12 +101,19 @@ type SaveStatus = "idle" | "draft" | "unsaved" | "saving" | "saved" | "error";
 type MobileView = "notes" | "editor";
 type ActiveTab = "edit" | "preview" | "slides";
 type UnsavedChoice = "save" | "discard" | "cancel";
-type CloudDialogKind = "sign-in" | "backup" | "disconnect";
+type CloudDialogKind = "sign-in" | "backup" | "restore" | "disconnect";
 type CloudBackupDialogKind =
   | "passphrase"
   | "empty-warning"
   | "selection"
   | "conflict";
+type CloudRestoreDialogKind =
+  | "downloading"
+  | "passphrase"
+  | "selection"
+  | "none"
+  | "preview"
+  | "result";
 type TocHeadingLevel = 1 | 2 | 3;
 type TocVisibilityState = "closed" | "opening" | "open" | "closing";
 type MarkdownMenuId = "format" | "paragraph" | "insert";
@@ -442,6 +454,11 @@ function App() {
     csrfToken: githubSession.csrfToken,
     isOnline: githubSession.isOnline,
   });
+  const cloudRestore = useCloudRestore({
+    enabled: cloudCapability.status === "enabled",
+    session: githubSession.session,
+    isOnline: githubSession.isOnline,
+  });
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
@@ -481,6 +498,11 @@ function App() {
   const [cloudBackupDialog, setCloudBackupDialog] =
     useState<CloudBackupDialogKind | null>(null);
   const [cloudBackupDialogError, setCloudBackupDialogError] = useState<
+    string | null
+  >(null);
+  const [cloudRestoreDialog, setCloudRestoreDialog] =
+    useState<CloudRestoreDialogKind | null>(null);
+  const [cloudRestoreDialogError, setCloudRestoreDialogError] = useState<
     string | null
   >(null);
   const unsavedChoiceResolverRef = useRef<((choice: UnsavedChoice) => void) | null>(
@@ -2026,8 +2048,11 @@ function App() {
   }
 
   function closeCloudDialog() {
+    const returnToRestore = cloudDialog === "restore";
     setCloudDialog(null);
-    window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
+    if (!returnToRestore) {
+      window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
+    }
   }
 
   async function confirmCloudDialog() {
@@ -2047,6 +2072,17 @@ function App() {
       if (saved) {
         setCloudDialog(null);
         await beginCloudBackup();
+      } else {
+        closeCloudDialog();
+        window.requestAnimationFrame(() => bodyRef.current?.focus());
+      }
+      return;
+    }
+    if (cloudDialog === "restore") {
+      const saved = await handleSave();
+      if (saved) {
+        setCloudDialog(null);
+        await applyCloudRestore();
       } else {
         closeCloudDialog();
         window.requestAnimationFrame(() => bodyRef.current?.focus());
@@ -2183,6 +2219,126 @@ function App() {
     }
   }
 
+  function closeCloudRestoreDialog() {
+    cloudRestore.clear();
+    setCloudRestoreDialog(null);
+    setCloudRestoreDialogError(null);
+    setIsAppMenuOpen(true);
+    window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
+  }
+
+  async function downloadCloudRestore(gistId: string) {
+    setCloudRestoreDialogError(null);
+    setCloudRestoreDialog("downloading");
+    try {
+      const downloaded = await cloudRestore.download(gistId);
+      if (downloaded) setCloudRestoreDialog("passphrase");
+    } catch (error) {
+      setCloudRestoreDialogError(
+        error instanceof Error
+          ? error.message
+          : "Cloud backup could not be downloaded."
+      );
+    }
+  }
+
+  async function beginCloudRestore() {
+    if (githubSession.session.status !== "signed-in") return;
+    let resolution = cloudBackup.discovery;
+    if (resolution.status === "idle" || resolution.status === "unavailable") {
+      const refreshed = await cloudBackup.discover(
+        cloudBackup.storedMetadata?.gistId
+      );
+      if (!refreshed) {
+        setIsAppMenuOpen(true);
+        return;
+      }
+      resolution = refreshed;
+    }
+    if (resolution.status === "selection-required") {
+      setCloudRestoreDialogError(null);
+      setCloudRestoreDialog("selection");
+      return;
+    }
+    if (resolution.status === "none") {
+      setCloudRestoreDialog("none");
+      return;
+    }
+    if (resolution.status === "selected") {
+      await downloadCloudRestore(resolution.backup.gistId);
+    }
+  }
+
+  function handleCloudRestoreStart() {
+    setIsAppMenuOpen(false);
+    cloudBackup.clearNotice();
+    cloudRestore.clear();
+    setCloudRestoreDialogError(null);
+    void beginCloudRestore();
+  }
+
+  async function selectCloudRestoreCandidate(gistId: string) {
+    setCloudRestoreDialogError(null);
+    try {
+      const selected = await cloudBackup.selectCandidate(gistId);
+      await downloadCloudRestore(selected.gistId);
+    } catch (error) {
+      setCloudRestoreDialogError(
+        error instanceof Error
+          ? error.message
+          : "The selected cloud backup could not be verified."
+      );
+    }
+  }
+
+  async function submitCloudRestorePassphrase(passphrase: string) {
+    setCloudRestoreDialogError(null);
+    try {
+      await cloudRestore.prepare(passphrase);
+      setCloudRestoreDialog("preview");
+    } catch (error) {
+      setCloudRestoreDialogError(
+        error instanceof Error
+          ? error.message
+          : "Cloud backup could not be decrypted."
+      );
+    }
+  }
+
+  async function applyCloudRestore() {
+    setCloudRestoreDialogError(null);
+    try {
+      await cloudRestore.apply();
+      const restoredNotes = sortNotes(await getAllNotes());
+      setNotes(restoredNotes);
+      setDbError(dbInitError);
+      if (selectedId) {
+        const restoredSelection = restoredNotes.find(
+          (note) => note.id === selectedId
+        );
+        if (restoredSelection) resetDraft(restoredSelection);
+      }
+      setCloudRestoreDialog("result");
+    } catch (error) {
+      setCloudRestoreDialogError(
+        error instanceof Error
+          ? error.message
+          : "Cloud restore could not be applied."
+      );
+      if (error instanceof CloudRestoreApplyError) {
+        setCloudRestoreDialog("result");
+      }
+    }
+  }
+
+  function handleCloudRestoreApply() {
+    if (isDirtyRef.current || tagInput.trim().length > 0) {
+      setCloudDialog("restore");
+      return;
+    }
+    void applyCloudRestore();
+  }
+
   useEffect(() => {
     const handleKeyboardShortcut = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.shiftKey) {
@@ -2203,6 +2359,8 @@ function App() {
       const isDialogOpen =
         unsavedDialog !== null ||
         cloudDialog !== null ||
+        cloudBackupDialog !== null ||
+        cloudRestoreDialog !== null ||
         isFilterDialogOpen ||
         operationDialog !== null ||
         deleteConfirmation !== null ||
@@ -2884,12 +3042,17 @@ function App() {
                       storedMetadata: cloudBackup.storedMetadata,
                       notice: cloudBackup.notice,
                       uploading: cloudBackup.uploading,
+                      restoring:
+                        cloudRestore.downloading ||
+                        cloudRestore.preparing ||
+                        cloudRestore.applying,
                     }}
                     onSignIn={handleGitHubSignIn}
                     onRetry={() => void githubSession.retry()}
                     onSignOut={() => void handleGitHubSignOut()}
                     onDisconnect={handleGitHubDisconnect}
                     onCloudBackup={handleCloudBackupStart}
+                    onCloudRestore={handleCloudRestoreStart}
                     onCloudRetry={() =>
                       void cloudBackup.discover(
                         cloudBackup.storedMetadata?.gistId
@@ -3993,6 +4156,59 @@ function App() {
           error={cloudBackupDialogError}
           onReplace={() => void replaceChangedCloudBackup()}
           onCancel={closeCloudBackupDialog}
+        />
+      ) : null}
+      {cloudRestoreDialog === "downloading" && cloudDialog !== "restore" ? (
+        <CloudRestoreDialog
+          kind="downloading"
+          busy={cloudRestore.downloading}
+          error={cloudRestoreDialogError}
+          onCancel={closeCloudRestoreDialog}
+        />
+      ) : null}
+      {cloudRestoreDialog === "passphrase" && cloudDialog !== "restore" ? (
+        <CloudRestoreDialog
+          kind="passphrase"
+          busy={cloudRestore.preparing}
+          error={cloudRestoreDialogError}
+          onSubmit={(passphrase) => void submitCloudRestorePassphrase(passphrase)}
+          onCancel={closeCloudRestoreDialog}
+        />
+      ) : null}
+      {cloudRestoreDialog === "selection" &&
+      cloudBackup.discovery.status === "selection-required" &&
+      cloudDialog !== "restore" ? (
+        <CloudRestoreDialog
+          kind="selection"
+          candidates={cloudBackup.discovery.candidates}
+          error={cloudRestoreDialogError}
+          onSelect={(gistId) => void selectCloudRestoreCandidate(gistId)}
+          onCancel={closeCloudRestoreDialog}
+        />
+      ) : null}
+      {cloudRestoreDialog === "none" && cloudDialog !== "restore" ? (
+        <CloudRestoreDialog kind="none" onClose={closeCloudRestoreDialog} />
+      ) : null}
+      {cloudRestoreDialog === "preview" &&
+      cloudRestore.preview &&
+      cloudDialog !== "restore" ? (
+        <CloudRestoreDialog
+          kind="preview"
+          preview={cloudRestore.preview}
+          busy={cloudRestore.applying}
+          error={cloudRestoreDialogError}
+          onApply={handleCloudRestoreApply}
+          onCancel={closeCloudRestoreDialog}
+        />
+      ) : null}
+      {cloudRestoreDialog === "result" &&
+      cloudRestore.result &&
+      cloudDialog !== "restore" ? (
+        <CloudRestoreDialog
+          kind="result"
+          counts={cloudRestore.result}
+          error={cloudRestoreDialogError}
+          onClose={closeCloudRestoreDialog}
         />
       ) : null}
       {isMetadataDialogOpen ? (

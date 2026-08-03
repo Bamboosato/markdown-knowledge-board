@@ -1,13 +1,13 @@
 # Markdown Knowledge Board フェーズ2 API・認証詳細設計
 
 作成日: 2026-07-30
-文書状態: PR6 Gist backup API実装と同期
+文書状態: PR7 Gist restore download API実装と同期
 
 ## 1. 目的
 
 本書は、[基本設計](./phase2-auth-cloud-backup-architecture.md)に基づき、Vercel Functions、GitHub App、Gist API の契約を定義する。ブラウザ内の暗号化・復元ロジックは[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)を参照する。
 
-> 実装状況（2026年8月3日時点）: PR4～PR5のProduction環境ゲート、exact Origin、session、CSRF、OAuth、Sign out、Disconnectに加え、PR6で`GET/POST /api/cloud-backups`、`PUT /api/cloud-backups/update`、最大1,000 Gistの検出、複数候補停止、Secret Gist作成、revision競合、SHA-256冪等性、4,500,000 bytes上限、検証済みraw取得を実装した。rawホストにはBearer tokenを送らない。cloud feature flagはPR8まで既定offとする。
+> 実装状況（2026年8月3日時点）: PR4～PR6のProduction環境ゲート、session、OAuth、Gist検出・作成・更新に加え、PR7で`GET /api/cloud-backups/content`を実装した。session所有者、exact Gist、暗号化envelope、1～4,500,000 bytes、SHA-256を検証し、raw取得は`gist.githubusercontent.com`限定、手動redirect最大2回、各hop再検証、Bearer非送信とする。cookie付きGETは同一OriginのOrigin／RefererとFetch Metadataを要求する。cloud feature flagはPR8まで既定offとする。
 
 ## 2. テスト設計観点
 

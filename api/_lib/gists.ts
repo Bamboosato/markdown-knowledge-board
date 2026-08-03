@@ -393,28 +393,44 @@ async function rawGistRequest(
   url: string,
   options: { fetchImpl?: typeof fetch; timeoutMs?: number },
 ): Promise<Response> {
-  let response: Response
-  try {
-    response = await (options.fetchImpl ?? fetch)(url, {
-      headers: { Accept: 'application/octet-stream' },
-      signal: AbortSignal.timeout(options.timeoutMs ?? 15_000),
-    })
-  } catch (error) {
-    throw new GistApiError(
-      error instanceof Error &&
-        (error.name === 'TimeoutError' || error.name === 'AbortError')
-        ? 'timeout'
-        : 'unavailable',
-    )
+  let currentUrl = validateRawUrl(url)
+  for (let redirects = 0; redirects <= 2; redirects += 1) {
+    let response: Response
+    try {
+      response = await (options.fetchImpl ?? fetch)(currentUrl, {
+        headers: { Accept: 'application/octet-stream' },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(options.timeoutMs ?? 15_000),
+      })
+    } catch (error) {
+      throw new GistApiError(
+        error instanceof Error &&
+          (error.name === 'TimeoutError' || error.name === 'AbortError')
+          ? 'timeout'
+          : 'unavailable',
+      )
+    }
+    if (response.ok) return response
+    if (response.status >= 300 && response.status < 400) {
+      if (redirects === 2) throw new GistApiError('invalid-response')
+      const location = response.headers.get('Location')
+      if (!location) throw new GistApiError('invalid-response')
+      try {
+        currentUrl = validateRawUrl(new URL(location, currentUrl).toString())
+      } catch {
+        throw new GistApiError('invalid-response')
+      }
+      continue
+    }
+    if (response.status === 404) throw new GistApiError('not-found')
+    if (response.status === 429) {
+      throw new GistApiError('rate-limit', {
+        retryAfterSeconds: retryAfter(response),
+      })
+    }
+    if (response.status >= 500) throw new GistApiError('unavailable')
+    throw new GistApiError('invalid-response')
   }
-  if (response.ok) return response
-  if (response.status === 404) throw new GistApiError('not-found')
-  if (response.status === 429) {
-    throw new GistApiError('rate-limit', {
-      retryAfterSeconds: retryAfter(response),
-    })
-  }
-  if (response.status >= 500) throw new GistApiError('unavailable')
   throw new GistApiError('invalid-response')
 }
 

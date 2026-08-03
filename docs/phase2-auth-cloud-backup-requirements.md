@@ -11,7 +11,7 @@
 
 本書における「フェーズ2」は、認証・クラウドバックアップ導入計画上のフェーズ名である。既存文書に記載された UI/UX 改善の Phase 番号とは別の区分として扱う。
 
-> 実装状況（2026年8月3日時点）: PR1～PR6でローカル共通基盤、復元用safe merge基盤、ブラウザ暗号化、Production API境界、任意GitHub認証、手動の暗号化Gistバックアップを実装した。クラウド復元とProduction有効化は未実装で、cloud feature flagは既定offを維持する。IndexedDBを正本とするローカル機能は引き続き利用できる。
+> 実装状況（2026年8月3日時点）: PR1～PR7でローカル共通基盤、ブラウザ暗号化、Production API境界、任意GitHub認証、手動の暗号化Gistバックアップ、復号・差分preview・safe merge復元を実装した。Production有効化は未実施で、cloud feature flagは既定offを維持する。IndexedDBを正本とするローカル機能は引き続き利用できる。
 
 ## 2. 採用方針サマリー
 

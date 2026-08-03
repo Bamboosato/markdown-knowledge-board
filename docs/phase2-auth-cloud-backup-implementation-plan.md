@@ -40,7 +40,7 @@ PR1基準では`npm audit`が既存のtransitive dependencyにhigh 2件、low 1�
 | ゲート | 実施時点 | 状態・証跡 |
 | --- | --- | --- |
 | 4,500,000 bytes成功／4,500,001 bytes拒否 | PR4でserver境界をunit固定、PR6でupload endpoint、PR8でProduction実経路 | PR6のendpoint境界値unitまで完了。Production実経路は未実施 |
-| 1 MB超Gistの`raw_url`取得 | PR6のGist discovery実装後 | 検証済みGitHub raw host、size、UTF-8、Bearer非送信をunit固定済み。実GistはPR8で確認 |
+| 1 MB超Gistの`raw_url`取得 | PR6のGist discovery実装後 | PR7でraw host固定、各redirect再検証、最大2回、size、UTF-8、Bearer非送信をunit固定済み。実GistはPR8で確認 |
 | Previewのcloud UI非表示・API拒否・Production secret非配布 | PR4以降の各PR | API拒否とUI非表示をunit／E2Eで確認済み。secret scopeはProduction設定時に管理者確認 |
 | 本番2 OriginのOAuth／Cookie分離 | PR5以降 | exact Origin、host-only Cookie、Origin別callback、state／PKCEをunit固定済み。実OAuthはPR8で確認する |
 
@@ -135,7 +135,20 @@ PR5の追加unitは22/22（OAuth／Sign out／Disconnect 16件、cloud capabilit
 
 PR6の追加unitは27/27（Gist adapter 10件、backup endpoint 13件、metadata cache 4件）、全unitは156/156、`npm run lint`、`npm run build`、追加stub E2Eは4/4、全Playwrightは71/71を1 workerで成功した。4,500,000／4,500,001 bytes、最大10 page、nullable description、権限／rate limit、raw host制限、Bearer非送信、dirty save、空backup警告、複数候補、revision競合を個別に固定した。Production secret、実GitHub、GitHub App権限、実OAuth、実GistはPR8まで実施しない。
 
-2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22、PR5はPR #23、PR6はPR #24としてsquash merge済みである。GitHub App作成、Production環境変数、実OAuth、実Gist、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
+### 5.6 PR7テスト観点
+
+| 分類 | 正常系・異常系・境界値・状態遷移 | 検証意図 |
+| --- | --- | --- |
+| 機能 | 明示download、browser復号、preview、added／updated適用、skipped／conflicted保持 | 利用者が内容と件数を確認するまでIndexedDBを変更せず、安全な差分だけを適用する |
+| 非機能 | passphrase非永続化、SHA-256再検証、raw redirect再検証、tab lock、単一transaction | 平文・資格情報漏えい、競合実行、部分反映を防ぐ |
+| データ | local-only保持、同一内容、cloud newer、local newer、同時刻異内容、custom metadata | 無警告の削除・上書き・属性欠落を防ぐ |
+| UI | Restore開始、単一passphrase、件数preview、競合理由、適用結果、390×844 | 状態と次操作をkeyboard・狭幅でも判断できるようにする |
+| 境界値 | 1／4,500,000／4,500,001 bytes、raw redirect 0／1／2／3回、0／1／複数Gist | 通信量と対象選択の許容境界をexactに固定する |
+| 異常・状態 | 誤passphrase、改ざん、dirty Cancel／保存成功／保存失敗、apply失敗、他tab変更、offline | DB不変、rollback、再previewへ安全に収束し、ローカル編集を妨げない |
+
+PR7の追加unitは14/14（raw redirect 2件、restore download endpoint 8件、browser download検証4件）、全unitは170/170、`npm run lint`、`npm run build`、追加stub E2Eは3/3、全Playwrightは74/74を1 workerで成功した。E2E初回失敗2件は`dl`行の相対locator指定、次の失敗1件はBackupDocumentから復元したMarkdown本文に生成済み見出しを含む既存契約をテスト期待値が省いていたことが原因で、いずれもテスト実装／データ前提として修正した。修正後の直列再実行にretry／flakyはない。Production secret、実GitHub、別browser、実mobileはPR8で確認する。
+
+2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22、PR5はPR #23、PR6はPR #24としてsquash merge済みであり、PR7はPR #26として実装した。GitHub App作成、Production環境変数、実OAuth、実Gist、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
 
 ## 6. 失敗時の証跡
 

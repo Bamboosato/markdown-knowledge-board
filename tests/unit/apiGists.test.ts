@@ -139,6 +139,72 @@ describe('GitHub Gist encrypted content handling', () => {
     const rawHeaders = new Headers(rawRequestInit?.headers)
     expect(rawHeaders.has('Authorization')).toBe(false)
     expect(rawHeaders.get('Accept')).toBe('application/octet-stream')
+    expect(rawRequestInit?.redirect).toBe('manual')
+  })
+
+  it('follows at most two validated raw-host redirects without forwarding authorization', async () => {
+    const content = 'redirected ciphertext'
+    const first = 'https://gist.githubusercontent.com/octocat/a1/raw/one/file'
+    const second = 'https://gist.githubusercontent.com/octocat/a1/raw/two/file'
+    const third = 'https://gist.githubusercontent.com/octocat/a1/raw/three/file'
+    const rawRequests: Array<{ url: string; init?: RequestInit }> = []
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url === 'https://api.github.com/gists/a1') {
+        return Response.json(gist({ content, truncated: true, rawUrl: first }))
+      }
+      rawRequests.push({ url, init })
+      if (url === first) return new Response(null, { status: 302, headers: { Location: second } })
+      if (url === second) return new Response(null, { status: 307, headers: { Location: third } })
+      return new Response(content)
+    })
+
+    await expect(
+      getVerifiedBackupGist('a1', TOKEN, USER_ID, 4_500_000, { fetchImpl }),
+    ).resolves.toMatchObject({ content })
+    expect(rawRequests.map(({ url }) => url)).toEqual([first, second, third])
+    for (const request of rawRequests) {
+      expect(new Headers(request.init?.headers).has('Authorization')).toBe(false)
+      expect(request.init?.redirect).toBe('manual')
+    }
+  })
+
+  it('rejects an untrusted redirect and a third redirect before fetching its target', async () => {
+    const content = 'ciphertext'
+    const first = 'https://gist.githubusercontent.com/octocat/a1/raw/one/file'
+    const untrustedFetch = vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === 'https://api.github.com/gists/a1') {
+        return Response.json(gist({ content, truncated: true, rawUrl: first }))
+      }
+      return new Response(null, {
+        status: 302,
+        headers: { Location: 'https://example.test/stolen' },
+      })
+    })
+    await expect(
+      getVerifiedBackupGist('a1', TOKEN, USER_ID, 4_500_000, {
+        fetchImpl: untrustedFetch,
+      }),
+    ).rejects.toMatchObject<GistApiError>({ kind: 'invalid-response' })
+    expect(untrustedFetch).toHaveBeenCalledTimes(2)
+
+    const urls = [first, '/octocat/a1/raw/two/file', '/octocat/a1/raw/three/file']
+    const excessiveFetch = vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === 'https://api.github.com/gists/a1') {
+        return Response.json(gist({ content, truncated: true, rawUrl: first }))
+      }
+      const index = excessiveFetch.mock.calls.length - 2
+      return new Response(null, {
+        status: 302,
+        headers: { Location: urls[index + 1] ?? '/octocat/a1/raw/four/file' },
+      })
+    })
+    await expect(
+      getVerifiedBackupGist('a1', TOKEN, USER_ID, 4_500_000, {
+        fetchImpl: excessiveFetch,
+      }),
+    ).rejects.toMatchObject<GistApiError>({ kind: 'invalid-response' })
+    expect(excessiveFetch).toHaveBeenCalledTimes(4)
   })
 
   it('rejects malformed and non-GitHub raw URLs before a second request', async () => {

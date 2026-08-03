@@ -50,10 +50,10 @@ npm run build
 - [フェーズ2 フロントエンド詳細設計](./docs/phase2-auth-cloud-backup-frontend-design.md)
 - [フェーズ2 実装計画・ゲート・PR分割](./docs/phase2-auth-cloud-backup-implementation-plan.md)
 
-2026年8月3日時点で、フェーズ2の任意GitHub認証と手動の暗号化Gistバックアップまで実装済みです。クラウド復元とProduction有効化は未実装のため、cloud feature flagは既定offです。IndexedDBをローカルデータの正本とし、未ログイン・認証エラー・オフラインでも従来の編集、保存、JSONバックアップ／インポートを利用できます。GitHub認証・クラウド機能はVercel Productionの2つの本番Originだけで提供し、Preview環境ではローカル機能だけを有効にします。
+2026年8月3日時点で、フェーズ2の任意GitHub認証、手動の暗号化Gistバックアップ、復号プレビュー後のsafe merge復元まで実装済みです。Production有効化は未実施のため、cloud feature flagは既定offです。IndexedDBをローカルデータの正本とし、未ログイン・認証エラー・オフラインでも従来の編集、保存、JSONバックアップ／インポートを利用できます。GitHub認証・クラウド機能はVercel Productionの2つの本番Originだけで提供し、Preview環境ではローカル機能だけを有効にします。
 
 ## 制限事項
 
 - cloud feature flagが既定offの間、通常利用では外部API通信を開始しません。
-- クラウド復元は未実装です。暗号化Gistからの復元はPR7以降で追加します。
+- cloud feature flagを有効化する前のため、実GitHub Gistを使うProduction経路の結合確認は未実施です。
 - ブラウザのストレージ容量の制限に依存します。
