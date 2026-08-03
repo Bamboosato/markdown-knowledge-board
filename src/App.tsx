@@ -48,6 +48,9 @@ import {
 import { MarpSlides } from "./components/MarpSlides";
 import { MetadataDialog } from "./components/MetadataDialog";
 import { MermaidBlock } from "./components/MermaidBlock";
+import { CloudActionDialog } from "./components/cloud/CloudActionDialog";
+import { GitHubSection } from "./components/cloud/GitHubSection";
+import { useGitHubSession } from "./hooks/useGitHubSession";
 import {
   DEFAULT_MARP_SETTINGS,
   MARP_HEADING_DIVIDERS,
@@ -84,11 +87,13 @@ import {
 } from "./lib/markdownEdit";
 import { getTaskLineIndexes, toggleTaskAtLine } from "./lib/markdownTasks";
 import { remarkSingleLineHighlight } from "./lib/remarkSingleLineHighlight";
+import { getCloudCapability } from "./lib/cloudCapability";
 
 type SaveStatus = "idle" | "draft" | "unsaved" | "saving" | "saved" | "error";
 type MobileView = "notes" | "editor";
 type ActiveTab = "edit" | "preview" | "slides";
 type UnsavedChoice = "save" | "discard" | "cancel";
+type CloudDialogKind = "sign-in" | "disconnect";
 type TocHeadingLevel = 1 | 2 | 3;
 type TocVisibilityState = "closed" | "opening" | "open" | "closing";
 type MarkdownMenuId = "format" | "paragraph" | "insert";
@@ -421,6 +426,8 @@ function App() {
   const newNoteTooltip = isMacPlatform
     ? "New Note (Option+N)"
     : "New Note (Alt+N)";
+  const cloudCapability = useMemo(() => getCloudCapability(), []);
+  const githubSession = useGitHubSession(cloudCapability.status);
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
@@ -456,6 +463,7 @@ function App() {
   const [mobileView, setMobileView] = useState<MobileView>("notes");
   const [unsavedDialog, setUnsavedDialog] =
     useState<UnsavedDialogState | null>(null);
+  const [cloudDialog, setCloudDialog] = useState<CloudDialogKind | null>(null);
   const unsavedChoiceResolverRef = useRef<((choice: UnsavedChoice) => void) | null>(
     null
   );
@@ -1985,6 +1993,54 @@ function App() {
     }
   }
 
+  function navigateToGitHubSignIn() {
+    window.location.assign("/api/auth/github/start?returnPath=%2F");
+  }
+
+  function handleGitHubSignIn() {
+    setIsAppMenuOpen(false);
+    if (isDirtyRef.current || tagInput.trim().length > 0) {
+      setCloudDialog("sign-in");
+      return;
+    }
+    navigateToGitHubSignIn();
+  }
+
+  function closeCloudDialog() {
+    setCloudDialog(null);
+    window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
+  }
+
+  async function confirmCloudDialog() {
+    if (cloudDialog === "sign-in") {
+      const saved = await handleSave();
+      if (saved) {
+        setCloudDialog(null);
+        navigateToGitHubSignIn();
+      } else {
+        closeCloudDialog();
+        window.requestAnimationFrame(() => bodyRef.current?.focus());
+      }
+      return;
+    }
+    if (cloudDialog === "disconnect") {
+      await githubSession.disconnect();
+      setCloudDialog(null);
+      setIsAppMenuOpen(true);
+      window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
+    }
+  }
+
+  async function handleGitHubSignOut() {
+    await githubSession.signOut();
+    window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
+  }
+
+  function handleGitHubDisconnect() {
+    setIsAppMenuOpen(false);
+    setCloudDialog("disconnect");
+  }
+
   useEffect(() => {
     const handleKeyboardShortcut = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.shiftKey) {
@@ -2004,6 +2060,7 @@ function App() {
 
       const isDialogOpen =
         unsavedDialog !== null ||
+        cloudDialog !== null ||
         isFilterDialogOpen ||
         operationDialog !== null ||
         deleteConfirmation !== null ||
@@ -2636,6 +2693,9 @@ function App() {
                 role="menu"
                 aria-label="Application menu"
               >
+                <div className="app-menu-section-label" role="presentation">
+                  Local data
+                </div>
                 <button
                   className="app-menu-item"
                   type="button"
@@ -2649,7 +2709,7 @@ function App() {
                   <Archive aria-hidden="true" />
                   <span className="app-menu-item-content">
                     <span>{isBackupBusy ? "Creating Backup" : "Backup All Notes"}</span>
-                    <span className="backup-last-label">Last backup</span>
+                    <span className="backup-last-label">Last local backup</span>
                     <span className="backup-last-value">
                       {lastBackupAt
                         ? formatBackupTimestamp(lastBackupAt)
@@ -2670,6 +2730,19 @@ function App() {
                   <Upload aria-hidden="true" />
                   {isImporting ? "Importing" : "Import Backup"}
                 </button>
+                {cloudCapability.status === "enabled" ? (
+                  <GitHubSection
+                    session={githubSession.session}
+                    isOnline={githubSession.isOnline}
+                    isSecondaryOrigin={cloudCapability.isSecondaryOrigin}
+                    notice={githubSession.notice}
+                    busyAction={githubSession.busyAction}
+                    onSignIn={handleGitHubSignIn}
+                    onRetry={() => void githubSession.retry()}
+                    onSignOut={() => void handleGitHubSignOut()}
+                    onDisconnect={handleGitHubDisconnect}
+                  />
+                ) : null}
               </div>
             ) : null}
             <input
@@ -3717,6 +3790,16 @@ function App() {
           </div>
         </div>
         ) : null}
+      {cloudDialog ? (
+        <CloudActionDialog
+          kind={cloudDialog}
+          busy={
+            saveStatus === "saving" || githubSession.busyAction !== null
+          }
+          onConfirm={() => void confirmCloudDialog()}
+          onCancel={closeCloudDialog}
+        />
+      ) : null}
       {isMetadataDialogOpen ? (
         <MetadataDialog
           managedEntries={buildFrontmatterEntries(getDraftSnapshot()).filter(

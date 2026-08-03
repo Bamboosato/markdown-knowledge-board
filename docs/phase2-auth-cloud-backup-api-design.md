@@ -1,13 +1,13 @@
 # Markdown Knowledge Board フェーズ2 API・認証詳細設計
 
 作成日: 2026-07-30
-文書状態: PR4 API基盤を実装中
+文書状態: PR5 OAuth・認証UI実装と同期
 
 ## 1. 目的
 
 本書は、[基本設計](./phase2-auth-cloud-backup-architecture.md)に基づき、Vercel Functions、GitHub App、Gist API の契約を定義する。ブラウザ内の暗号化・復元ロジックは[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)を参照する。
 
-> 実装状況（2026年8月3日時点）: PR4でProduction環境ゲート、exact Origin、session sealing／refresh、CSRF、共通HTTP応答、raw body上限、`GET /api/auth/session`を実装した。OAuth start／callback、Sign out、Disconnect、Gist中継endpointとフロントエンド接続は未実装であり、現行UIは引き続きローカル機能だけで動作する。
+> 実装状況（2026年8月3日時点）: PR4でProduction環境ゲート、exact Origin、session sealing／refresh、CSRF、共通HTTP応答、raw body上限、`GET /api/auth/session`を実装した。PR5でOAuth start／callback、PKCE、Sign out、Disconnectとフロントエンド認証UIを実装した。Gist中継endpointは未実装で、cloud feature flagはPR8まで既定offとする。
 
 ## 2. テスト設計観点
 
@@ -124,10 +124,11 @@ GitHub ログイン開始専用の navigation endpoint である。
 #### 処理
 
 1. Production環境ゲートを通過後、`Request.url`のOriginを本番2 Originのallowlistと照合する。
-2. 32 bytes の `state` を `crypto.randomBytes` で生成する。
-3. `{ state, originKey, returnPath, issuedAt, expiresAt }` を server key で封印する。
-4. `__Host-mkb_oauth_state` Cookie を設定する。
-5. 対応する callback URL を `redirect_uri` に明示して GitHub へ302 redirectする。
+2. 32 bytes の `state` と32 bytesのPKCE `code_verifier`を`crypto.randomBytes`で個別に生成する。
+3. `code_verifier`のSHA-256からbase64urlの`code_challenge`を作成し、`code_challenge_method=S256`を使用する。
+4. `{ state, codeVerifier, originKey, returnPath, issuedAt, expiresAt }` を server key で封印する。
+5. `__Host-mkb_oauth_state` Cookie を設定する。
+6. 対応する callback URL を `redirect_uri` に明示して GitHub へ302 redirectする。
 
 OAuth state Cookie は `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600` とし、`Domain` を付けない。`__Host-` prefix は `Path=/` を必須とするため callback path だけには狭めず、10分の期限と callback 後の即時削除で露出期間を限定する。OAuth URL やログに client secret を含めない。
 
@@ -135,7 +136,7 @@ OAuth state Cookie は `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600` と
 
 | 条件 | status/code |
 | --- | --- |
-| Origin 未許可 | `400 ORIGIN_NOT_ALLOWED` |
+| Production環境／Origin 未許可 | `404 CLOUD_NOT_AVAILABLE` |
 | returnPath 不許可 | `400 INVALID_RETURN_PATH` |
 | Cookie sealing 失敗 | `500 AUTH_START_FAILED` |
 
@@ -155,7 +156,7 @@ OAuth state Cookie は `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600` と
 2. state Cookie を復号し、期限、origin key、callback Origin、returnPath を検証する。
 3. query state と Cookie state を定数時間比較する。
 4. state Cookie を成功・失敗にかかわらず削除する。
-5. GitHub token endpoint へ `client_id`、`client_secret`、`code`、同じ `redirect_uri` を送る。
+5. GitHub token endpoint へ `client_id`、`client_secret`、`code`、同じ `redirect_uri`、開始時の`code_verifier`を送る。
 6. expiring access token、refresh token、有効期限を検証する。
 7. user endpoint から `id`、`login`、`avatar_url` だけを取得する。
 8. sealed session Cookie と CSRF Cookie を設定する。
@@ -173,7 +174,7 @@ callback ではバックアップ、復元、暗号文取得を実行しない�
 | `state_invalid` | state 不一致、期限切れ、Cookie 不在 |
 | `origin_invalid` | callback Origin 不一致 |
 | `exchange_failed` | code 交換失敗、timeout |
-| `permission_missing` | Gists 権限不足 |
+| `permission_missing` | Gists 権限不足。PR6のGist接続後に使用する予約code |
 
 ### 4.3 `GET /api/auth/session`
 

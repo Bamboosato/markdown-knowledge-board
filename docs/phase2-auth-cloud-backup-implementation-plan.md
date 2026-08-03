@@ -41,8 +41,8 @@ PR1基準では`npm audit`が既存のtransitive dependencyにhigh 2件、low 1�
 | --- | --- | --- |
 | 4,500,000 bytes成功／4,500,001 bytes拒否 | PR4でserver境界をunit固定、PR6でupload endpoint、PR8でProduction実経路 | server境界値unitは完了。Production実経路は未実施 |
 | 1 MB超Gistの`raw_url`取得 | PR6のGist discovery実装後 | 未着手 |
-| Previewのcloud UI非表示・API拒否・Production secret非配布 | PR4以降の各PR | API拒否はunit完了。UI非表示は未接続状態を維持。secret scopeはProduction設定時に管理者確認 |
-| 本番2 OriginのOAuth／Cookie分離 | PR5以降 | APIのexact Originとhost-only Cookie unitは完了。実OAuthは未着手 |
+| Previewのcloud UI非表示・API拒否・Production secret非配布 | PR4以降の各PR | API拒否とUI非表示をunit／E2Eで確認済み。secret scopeはProduction設定時に管理者確認 |
+| 本番2 OriginのOAuth／Cookie分離 | PR5以降 | exact Origin、host-only Cookie、Origin別callback、state／PKCEをunit固定済み。実OAuthはPR8で確認する |
 
 ## 4. 担当と権限
 
@@ -109,7 +109,20 @@ PR2のローカル検証は、unit 36/36（strict validation 20件、safe diff 3
 
 PR4の追加API unitは50/50、全unitは107/107、`npm run lint`、`npm run build`、全Playwright 58/58を1 workerで成功した。API単体から全unit、browser E2Eの順に直列実行し、retry／flakyはなかった。Production secretと実GitHubを使用する結合テストはPR8まで実施せず、PreviewではAPI拒否を検証する。
 
-2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21としてsquash merge済みで、`main`は`5c2bbe6`である。GitHub App作成、Production環境変数、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
+### 5.4 PR5テスト観点
+
+| 分類 | 正常系・異常系・境界値・状態遷移 | 検証意図 |
+| --- | --- | --- |
+| 機能 | signed out／signed in／reauthorization、OAuth start／callback、Sign out、Disconnect | 任意ログインと明示操作だけで認証状態が変わり、バックアップ／復元を自動開始しない |
+| 非機能 | state定数時間比較、PKCE S256、CSRF、timeout、offline、late response無効化 | 認証障害や競合をローカル編集から分離し、token／secretをブラウザへ露出しない |
+| データ | dirty draft、保存成功／失敗、ローカルnote、host-only Cookie、最小profile | OAuth前の未保存内容とSign out／Disconnect後のローカルデータを保持する |
+| UI | GitHub section、2択dialog、結果notice、390×844、primary／secondary Origin表示 | 状態と次操作を同じmenuで提示し、Discard導線や強制ログインを作らない |
+| 境界値 | exact 2 Production Origins、Preview／localhost／suffix類似Origin、10分state期限 | environment差とOrigin境界で認証機能を誤公開しない |
+| 異常・状態 | OAuth取消／state不一致／期限切れ、save失敗、revocation失敗、offline→online | 自動retryや誤成功表示を防ぎ、安全にsigned outまたは明示Retryへ収束させる |
+
+PR5の追加unitは22/22（OAuth／Sign out／Disconnect 16件、cloud capability 6件）、全unitは129/129、`npm run lint`、`npm run build`、追加stub E2Eは9/9、全Playwrightは67/67を1 workerで成功した。初回の追加E2E失敗1件は新規noteの`Draft`状態を`Unsaved`としたテストデータ前提、初回の全E2E失敗1件は`Last local backup`と280 px menuへ更新前の旧UI期待値が原因であり、実装問題ではなくテスト前提／UI契約更新として修正した。修正後の全再実行にretry／flakyはなかった。Production secret、実GitHub、GitHub App権限、実OAuthはPR8まで実施しない。
+
+2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22としてsquash merge済みで、`main`は`076aa0e`である。PR5は`codex/phase2-auth-ui`で実装・ローカル検証済みである。GitHub App作成、Production環境変数、実OAuth、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
 
 ## 6. 失敗時の証跡
 

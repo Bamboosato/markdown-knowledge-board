@@ -179,7 +179,7 @@ flowchart LR
 | --- | --- |
 | AUTH-001 | GitHub ログインは利用者が `Sign in with GitHub` を実行した場合のみ開始する。 |
 | AUTH-002 | GitHub App の User access token を発行する Web Application Flow を使用する。 |
-| AUTH-003 | 認証要求には推測困難な `state` を付与し、コールバックで一致を検証する。 |
+| AUTH-003 | 認証要求には推測困難な `state` とPKCE S256を付与し、コールバックで`state`一致と`code_verifier`を検証する。 |
 | AUTH-004 | 許可済みのコールバック URL 以外へリダイレクトしない。本番環境では 6.3 に記載した2つの callback URL だけを許可する。 |
 | AUTH-005 | ログイン完了後は元のアプリ画面へ戻る。ログイン専用画面を常設しない。 |
 | AUTH-006 | ログイン完了時にクラウドバックアップまたは復元を自動実行しない。 |

@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { parseCookies, serializeCookie } from './cookies.js'
+import { clearHostCookie, parseCookies, serializeCookie } from './cookies.js'
 import { findOriginConfig } from './origins.js'
 
 export const CSRF_COOKIE_NAME = '__Host-mkb_csrf'
@@ -22,6 +22,10 @@ export function csrfCookie(token: string): string {
     sameSite: 'Strict',
     path: '/',
   })
+}
+
+export function clearCsrfCookie(): string {
+  return clearHostCookie(CSRF_COOKIE_NAME)
 }
 
 export function getOrCreateCsrfToken(request: Request): {
