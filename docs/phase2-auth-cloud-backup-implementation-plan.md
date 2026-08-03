@@ -122,7 +122,7 @@ PR4の追加API unitは50/50、全unitは107/107、`npm run lint`、`npm run bui
 
 PR5の追加unitは22/22（OAuth／Sign out／Disconnect 16件、cloud capability 6件）、全unitは129/129、`npm run lint`、`npm run build`、追加stub E2Eは9/9、全Playwrightは67/67を1 workerで成功した。初回の追加E2E失敗1件は新規noteの`Draft`状態を`Unsaved`としたテストデータ前提、初回の全E2E失敗1件は`Last local backup`と280 px menuへ更新前の旧UI期待値が原因であり、実装問題ではなくテスト前提／UI契約更新として修正した。修正後の全再実行にretry／flakyはなかった。Production secret、実GitHub、GitHub App権限、実OAuthはPR8まで実施しない。
 
-2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22としてsquash merge済みで、`main`は`076aa0e`である。PR5は`codex/phase2-auth-ui`で実装・ローカル検証済みである。GitHub App作成、Production環境変数、実OAuth、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
+2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22としてsquash merge済みである。PR5はPR #23として実装・ローカル検証済みである。GitHub App作成、Production環境変数、実OAuth、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
 
 ## 6. 失敗時の証跡
 
