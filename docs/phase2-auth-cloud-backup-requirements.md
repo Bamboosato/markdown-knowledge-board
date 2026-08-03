@@ -1,7 +1,7 @@
 # Markdown Knowledge Board フェーズ2 認証・クラウドバックアップ要件定義
 
 作成日: 2026-07-29
-状態: 合意済み方針を反映した初版
+状態: PR8 Production readiness自動化と同期
 
 ## 1. 文書の目的
 
@@ -11,7 +11,7 @@
 
 本書における「フェーズ2」は、認証・クラウドバックアップ導入計画上のフェーズ名である。既存文書に記載された UI/UX 改善の Phase 番号とは別の区分として扱う。
 
-> 実装状況（2026年8月3日時点）: PR1～PR7でローカル共通基盤、ブラウザ暗号化、Production API境界、任意GitHub認証、手動の暗号化Gistバックアップ、復号・差分preview・safe merge復元を実装した。Production有効化は未実施で、cloud feature flagは既定offを維持する。IndexedDBを正本とするローカル機能は引き続き利用できる。
+> 実装状況（2026年8月3日時点）: PR1～PR7のローカル共通基盤、ブラウザ暗号化、Production API境界、任意GitHub認証、手動の暗号化Gistバックアップ、復号・差分preview・safe merge復元に加え、PR8のofflineローカル継続、390×844、keyboard/focus、Chromium・Firefox・WebKit回帰、依存脆弱性解消を実装した。Production有効化はGitHub App、GitHub用Production変数、実GitHub／実mobileゲートの完了まで保留し、cloud feature flagは既定offを維持する。
 
 ## 2. 採用方針サマリー
 

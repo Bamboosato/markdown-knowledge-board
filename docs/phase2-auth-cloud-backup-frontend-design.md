@@ -1,13 +1,13 @@
 # Markdown Knowledge Board フェーズ2 フロントエンド詳細設計
 
 作成日: 2026-07-30
-文書状態: PR7 safe Cloud Restore UI実装と同期
+文書状態: PR8 offline・mobile・accessibility自動化と同期
 
 ## 1. 目的
 
 本書は、[フェーズ2基本設計](./phase2-auth-cloud-backup-architecture.md)と[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)に基づき、React UI、状態管理、ローカルデータ、暗号化、バックアップ、復元の実装契約を定義する。
 
-> 実装状況（2026年8月3日時点）: PR1～PR6のローカルJSON、暗号化、任意GitHub認証、手動Cloud Backupに加え、PR7で明示的なdownload、単一パスフレーズ入力、ブラウザ復号、strict検証、added／updated／skipped／conflicted preview、適用直前のdirty保存確認、safe merge、単一IndexedDB transaction、rollback結果表示を接続した。パスフレーズ・token・暗号文は永続化せず、復元はcloud側の最終バックアップ時刻を更新しない。
+> 実装状況（2026年8月3日時点）: PR1～PR7のローカルJSON、暗号化、任意GitHub認証、手動Cloud Backup、明示download、復号preview、safe mergeに加え、PR8でoffline中のローカルedit/save/import/export、明示Retry、cloud送信抑止、390×844のmenu/dialog/result、focus trap／復帰、passphrase表示状態、主要3ブラウザ回帰を接続した。パスフレーズ・token・暗号文は永続化せず、復元はcloud側の最終バックアップ時刻を更新しない。
 
 ## 2. テスト設計観点
 
@@ -681,6 +681,8 @@ type CloudUiError = {
 | Preview policy | local機能、cloud UI非表示、API拒否 | Preview相当Origin + stub backend |
 | GitHub integration | 実OAuth、Gist create/update/raw restore/revoke | 専用account、serial実行 |
 | production smoke | 2 Origin、callback、local回帰 | 破壊しない専用データ |
+
+PR8の自動E2EはChromiumで全機能を実行し、Phase 2のauth／backup／restore／readinessをFirefoxとWebKitでも直列実行する。ChromiumとFirefoxのofflineはPlaywrightのnetwork-level offlineを使用する。Playwright WebKitはnetwork-level offline中にテスト用file inputを読み出せないため、WebKitだけは`navigator.onLine`と`offline`／`online`イベントでアプリ状態を再現し、cloud mutationが0回であることを別途assertする。これは実mobile計測やProduction実経路の代替証跡にはしない。
 
 ### 13.2 正常系
 

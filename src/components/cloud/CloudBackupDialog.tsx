@@ -100,6 +100,7 @@ export function CloudBackupDialog(props: CloudBackupDialogProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-busy={busy || undefined}
         onKeyDown={handleKeyDown}
       >
         <h2 id={titleId}>{title}</h2>
@@ -129,10 +130,11 @@ export function CloudBackupDialog(props: CloudBackupDialogProps) {
                   onChange={(event) => setPassphrase(event.target.value)}
                 />
                 <button
-                  className="icon-button"
+                  className="icon-button tooltip-button"
                   type="button"
                   aria-label={showPassphrase ? 'Hide passphrase' : 'Show passphrase'}
                   aria-pressed={showPassphrase}
+                  data-tooltip={showPassphrase ? 'Hide passphrase' : 'Show passphrase'}
                   disabled={busy}
                   onClick={() => setShowPassphrase((current) => !current)}
                 >

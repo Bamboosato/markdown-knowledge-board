@@ -1,13 +1,13 @@
 # Markdown Knowledge Board フェーズ2 認証・クラウドバックアップ基本設計
 
 作成日: 2026-07-30
-文書状態: PR7 safe Cloud Restore実装と同期
+文書状態: PR8 Production readiness自動化と同期
 
 ## 1. 目的と位置づけ
 
 本書は、[フェーズ2要件定義](./phase2-auth-cloud-backup-requirements.md)を実装可能な構成へ具体化する基本設計である。現行機能の詳細は[現行設計仕様](./design-spec.md)、HTTP 契約は[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)、ブラウザ内の状態・暗号化・復元は[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)、実行順序と担当は[実装計画](./phase2-auth-cloud-backup-implementation-plan.md)を参照する。
 
-2026年8月3日時点で、PR1～PR6のローカルJSON、暗号化、Production API境界、任意GitHub認証、Gist検出・候補選択・手動Cloud Backupに加え、PR7の検証済みdownload、ブラウザ復号、差分preview、safe merge、単一transaction復元を実装済みである。PR8のProduction有効化まではcloud feature flagを既定offとする。
+2026年8月3日時点で、PR1～PR7のローカルJSON、暗号化、Production API境界、任意GitHub認証、手動Cloud Backup、検証済みdownload、ブラウザ復号、差分preview、safe merge、単一transaction復元に加え、PR8のoffline、mobile viewport、focus、主要3ブラウザ回帰を実装済みである。Productionの`SESSION_KEYS`だけを準備し、Preview／Developmentへ秘密情報を配布していない。GitHub AppとGitHub用Production変数、実結合、実mobileのゲートが未完了のためcloud feature flagは既定offとする。
 
 | 領域 | 現行実装 | フェーズ2での扱い |
 | --- | --- | --- |

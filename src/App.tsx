@@ -545,6 +545,9 @@ function App() {
   );
   const [operationDialog, setOperationDialog] =
     useState<OperationDialogState | null>(null);
+  const operationDialogRef = useRef<HTMLDivElement | null>(null);
+  const operationDialogCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const operationDialogReturnFocusRef = useRef<HTMLElement | null>(null);
   const [isBackupBusy, setIsBackupBusy] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isAppMenuOpen, setIsAppMenuOpen] = useState(false);
@@ -570,6 +573,7 @@ function App() {
   const marpSettingsRef = useRef<HTMLDivElement | null>(null);
   const marpSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const markdownImportInputRef = useRef<HTMLInputElement | null>(null);
+  const markdownImportButtonRef = useRef<HTMLButtonElement | null>(null);
   const backupImportInputRef = useRef<HTMLInputElement | null>(null);
   const importDragDepthRef = useRef(0);
   const [isImportDragActive, setIsImportDragActive] = useState(false);
@@ -607,6 +611,57 @@ function App() {
   );
   const isTocRendered = tocVisibility !== "closed";
   const isTocOpen = tocVisibility === "opening" || tocVisibility === "open";
+
+  useEffect(() => {
+    if (!operationDialog) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() =>
+      operationDialogCloseButtonRef.current?.focus()
+    );
+    return () => window.cancelAnimationFrame(frame);
+  }, [operationDialog]);
+
+  const closeOperationDialog = useCallback(() => {
+    const returnTarget = operationDialogReturnFocusRef.current;
+    operationDialogReturnFocusRef.current = null;
+    setOperationDialog(null);
+    window.requestAnimationFrame(() => returnTarget?.focus());
+  }, []);
+
+  const handleOperationDialogKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeOperationDialog();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+      const focusable = Array.from(
+        operationDialogRef.current?.querySelectorAll<HTMLElement>(
+          "button:not(:disabled), summary"
+        ) ?? []
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) {
+        return;
+      }
+      if (first === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    [closeOperationDialog]
+  );
 
   useEffect(() => {
     const closeTimer = window.setTimeout(() => {
@@ -1592,6 +1647,10 @@ function App() {
         failed: failures.length,
         failures,
       });
+      operationDialogReturnFocusRef.current =
+        importKind === "backup"
+          ? appMenuButtonRef.current
+          : markdownImportButtonRef.current;
 
       setDbError(dbInitError);
     } finally {
@@ -2950,6 +3009,7 @@ function App() {
       }
       localStorage.setItem("lastBackupAt", nowIso);
       setLastBackupAt(nowIso);
+      operationDialogReturnFocusRef.current = appMenuButtonRef.current;
       setOperationDialog({
         kind: "backup",
         status,
@@ -3196,6 +3256,7 @@ function App() {
             + New Note
           </button>
           <button
+            ref={markdownImportButtonRef}
             className="markdown-import-button quiet-icon-button tooltip-button"
             type="button"
             aria-label="Import Markdown"
@@ -4224,10 +4285,12 @@ function App() {
       {operationDialog ? (
         <div className="modal-backdrop">
           <div
+            ref={operationDialogRef}
             className="result-dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="operation-result-title"
+            onKeyDown={handleOperationDialogKeyDown}
           >
             {operationDialog.kind === "backup" ? (
               <>
@@ -4298,9 +4361,10 @@ function App() {
             )}
             <div className="dialog-actions">
               <button
+                ref={operationDialogCloseButtonRef}
                 className="primary-button"
                 type="button"
-                onClick={() => setOperationDialog(null)}
+                onClick={closeOperationDialog}
               >
                 Close
               </button>

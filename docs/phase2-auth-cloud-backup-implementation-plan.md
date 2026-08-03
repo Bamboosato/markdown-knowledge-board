@@ -23,8 +23,8 @@
 | --- | --- | --- | --- |
 | ローカルJSON回帰 | 新旧version 1、空、Unicode、`pinnedAt`、Marp、`customMetadata`がunit/E2Eで成功 | test結果 | 完了（unit 10件、対象E2E 8件、全E2E 58件） |
 | PBKDF2 browser計測 | 600,000回をdesktop browserで3回以上計測 | `npm run benchmark:pbkdf2`出力 | 完了（候補値600,000回） |
-| 実mobile計測 | 対象mobile実機で同条件を計測 | 端末・OS・browser・測定値 | 管理者確認待ち |
-| GitHub App | 本番2 callback、expiring user token、`Gists: write`を確認 | 設定画面記録（secretを除く） | 管理者作業待ち |
+| 実mobile計測 | 対象mobile実機で同条件を計測 | 端末・OS・browser・測定値 | 接続実機なし。管理者確認待ち |
+| GitHub App | 本番2 callback、expiring user token、`Gists: write`を確認 | 設定画面記録（secretを除く） | App設定とGitHub client ID/secretが未完了。管理者作業待ち |
 | GitHub REST version | 実装時点の公式support値を固定 | `api/_lib/github.ts`、GitHub公式API Versions | 完了（`2026-03-10`） |
 
 mobile emulationはWeb Crypto互換確認には利用できるが、実機性能の代替証跡にはしない。
@@ -33,7 +33,7 @@ mobile emulationはWeb Crypto互換確認には利用できるが、実機性能
 
 同日のPR1回帰は`npm run test:unit`が10/10、Backup／Import対象Playwrightが8/8、全Playwrightを1 workerで58/58成功した。全実行を直列化し、単体成功後の通し実行でも状態残留や順序依存がないことを確認した。
 
-PR1基準では`npm audit`が既存のtransitive dependencyにhigh 2件、low 1件を報告する。Vitest追加前のlockfileにも同じ対象versionが存在するためPR1起因ではないが、PR8のsecurity smoke完了前に別の依存更新として解消し、全回帰を行う。
+PR1基準で報告された既存transitive dependencyのhigh 2件、low 1件は、PR8でlockfileの互換patch更新により解消した。`npm audit --audit-level=low`は0件で、更新後にunit／build／主要3ブラウザE2Eを全回帰した。
 
 ### 3.2 Phase 0-B: API基盤実装後に確認
 
@@ -41,7 +41,7 @@ PR1基準では`npm audit`が既存のtransitive dependencyにhigh 2件、low 1�
 | --- | --- | --- |
 | 4,500,000 bytes成功／4,500,001 bytes拒否 | PR4でserver境界をunit固定、PR6でupload endpoint、PR8でProduction実経路 | PR6のendpoint境界値unitまで完了。Production実経路は未実施 |
 | 1 MB超Gistの`raw_url`取得 | PR6のGist discovery実装後 | PR7でraw host固定、各redirect再検証、最大2回、size、UTF-8、Bearer非送信をunit固定済み。実GistはPR8で確認 |
-| Previewのcloud UI非表示・API拒否・Production secret非配布 | PR4以降の各PR | API拒否とUI非表示をunit／E2Eで確認済み。secret scopeはProduction設定時に管理者確認 |
+| Previewのcloud UI非表示・API拒否・Production secret非配布 | PR4以降の各PR | API拒否とUI非表示をunit／E2Eで確認済み。`SESSION_KEYS`はProductionだけに設定し、Preview／Developmentは変数0件を確認済み。GitHub secretは未設定 |
 | 本番2 OriginのOAuth／Cookie分離 | PR5以降 | exact Origin、host-only Cookie、Origin別callback、state／PKCEをunit固定済み。実OAuthはPR8で確認する |
 
 ## 4. 担当と権限
@@ -148,7 +148,22 @@ PR6の追加unitは27/27（Gist adapter 10件、backup endpoint 13件、metadata
 
 PR7の追加unitは14/14（raw redirect 2件、restore download endpoint 8件、browser download検証4件）、全unitは170/170、`npm run lint`、`npm run build`、追加stub E2Eは3/3、全Playwrightは74/74を1 workerで成功した。E2E初回失敗2件は`dl`行の相対locator指定、次の失敗1件はBackupDocumentから復元したMarkdown本文に生成済み見出しを含む既存契約をテスト期待値が省いていたことが原因で、いずれもテスト実装／データ前提として修正した。修正後の直列再実行にretry／flakyはない。Production secret、実GitHub、別browser、実mobileはPR8で確認する。
 
-2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22、PR5はPR #23、PR6はPR #24としてsquash merge済みであり、PR7はPR #26として実装した。GitHub App作成、Production環境変数、実OAuth、実Gist、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
+### 5.7 PR8テスト観点
+
+| 分類 | 正常系・異常系・境界値・状態遷移 | 検証意図 |
+| --- | --- | --- |
+| 機能 | 読み込み後offlineでedit/save/Markdown export/JSON backup・import、明示Retry | cloud障害と無関係に全ローカル経路を維持し、復旧で自動送信しない |
+| 非機能 | audit 0件、secret非bundle、1 worker、Chromium／Firefox／WebKit | 依存脆弱性、機密情報露出、順序依存、browser差をリリース前に検出する |
+| データ | IndexedDB、Markdown、JSON version 1、offline import、cloud mutation 0回 | offlineやfocus改善で保存内容を欠落・変形・送信しない |
+| UI | 390×844、menu scroll、dialog/result境界、初期focus、Tab containment、focus復帰、`aria-pressed` | keyboard・狭幅・支援技術で状態と次操作を判断可能にする |
+| 境界値 | online→offline→online、dialog表示後切断、desktop 1200×800／mobile 390×844 | タイミング競合とviewport境界でcloud処理やUIを誤作動させない |
+| 異常・状態 | offline判定を`AUTH_REQUIRED`より優先、WebKit test file I/O差、Production設定欠落 | 原因に合う表示を保ち、テスト環境差を製品不具合と混同しない |
+
+PR8自動ゲートは`npm audit --audit-level=low`が0件、`npm run lint`、`npm run test:unit`が170/170、`npm run build`、Playwrightが115/115を1 workerで成功した。内訳はChromium全77件、Firefox／WebKitはauth・backup・restore・readiness各19件で、retry／flakyはない。初回追加E2Eではoffline後の判定順が`AUTH_REQUIRED`になった実装問題を検出して`OFFLINE`優先へ修正した。ほかの失敗はdesktopで非表示のmobileボタンを選んだテスト観点不足、Playwright WebKitのnetwork-level offline中のfile input I/O制限というテスト環境問題であり、DB内容の直接確認とWebKit固有のofflineイベント再現へ修正した。
+
+同日のProduction監査では両Originのsession endpointは応答したが、GitHub開始endpointは`500 AUTH_START_FAILED`で、GitHub client ID/secretが未設定であることを確認した。Vercelには新規生成した`SESSION_KEYS`だけをProduction scopeへ設定し、Preview／Developmentは変数0件を維持した。GitHub App、実OAuth／Gist、1 MB超raw、Production 4.5 MB境界、別browser実復元、実mobile計測が未完了のため、`VITE_CLOUD_BACKUP_ENABLED`は設定せず既定offを維持する。
+
+2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22、PR5はPR #23、PR6はPR #24、PR7はPR #26としてsquash merge済みである。PR8は自動化・security readinessまで実装し、GitHub Appと実機を必要とする結合ゲートを引き続き追跡する。
 
 ## 6. 失敗時の証跡
 

@@ -81,6 +81,7 @@ export function CloudActionDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
+        aria-busy={busy || undefined}
         onKeyDown={handleKeyDown}
       >
         <h2 id={titleId}>{content.title}</h2>

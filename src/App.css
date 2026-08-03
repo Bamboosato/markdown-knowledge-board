@@ -1120,6 +1120,10 @@
   z-index: 40;
   display: flex;
   width: 280px;
+  max-height: calc(100vh - 74px);
+  max-height: calc(100dvh - 74px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   flex-direction: column;
   gap: 2px;
   padding: 6px;
@@ -3150,6 +3154,7 @@
   .unsaved-dialog,
   .cloud-action-dialog,
   .cloud-backup-dialog,
+  .cloud-restore-dialog,
   .result-dialog,
   .filter-dialog,
   .delete-dialog,
