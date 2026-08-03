@@ -39,8 +39,8 @@ PR1基準では`npm audit`が既存のtransitive dependencyにhigh 2件、low 1�
 
 | ゲート | 実施時点 | 状態・証跡 |
 | --- | --- | --- |
-| 4,500,000 bytes成功／4,500,001 bytes拒否 | PR4でserver境界をunit固定、PR6でupload endpoint、PR8でProduction実経路 | server境界値unitは完了。Production実経路は未実施 |
-| 1 MB超Gistの`raw_url`取得 | PR6のGist discovery実装後 | 未着手 |
+| 4,500,000 bytes成功／4,500,001 bytes拒否 | PR4でserver境界をunit固定、PR6でupload endpoint、PR8でProduction実経路 | PR6のendpoint境界値unitまで完了。Production実経路は未実施 |
+| 1 MB超Gistの`raw_url`取得 | PR6のGist discovery実装後 | 検証済みGitHub raw host、size、UTF-8、Bearer非送信をunit固定済み。実GistはPR8で確認 |
 | Previewのcloud UI非表示・API拒否・Production secret非配布 | PR4以降の各PR | API拒否とUI非表示をunit／E2Eで確認済み。secret scopeはProduction設定時に管理者確認 |
 | 本番2 OriginのOAuth／Cookie分離 | PR5以降 | exact Origin、host-only Cookie、Origin別callback、state／PKCEをunit固定済み。実OAuthはPR8で確認する |
 
@@ -122,7 +122,20 @@ PR4の追加API unitは50/50、全unitは107/107、`npm run lint`、`npm run bui
 
 PR5の追加unitは22/22（OAuth／Sign out／Disconnect 16件、cloud capability 6件）、全unitは129/129、`npm run lint`、`npm run build`、追加stub E2Eは9/9、全Playwrightは67/67を1 workerで成功した。初回の追加E2E失敗1件は新規noteの`Draft`状態を`Unsaved`としたテストデータ前提、初回の全E2E失敗1件は`Last local backup`と280 px menuへ更新前の旧UI期待値が原因であり、実装問題ではなくテスト前提／UI契約更新として修正した。修正後の全再実行にretry／flakyはなかった。Production secret、実GitHub、GitHub App権限、実OAuthはPR8まで実施しない。
 
-2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22としてsquash merge済みである。PR5はPR #23として実装・ローカル検証済みである。GitHub App作成、Production環境変数、実OAuth、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
+### 5.5 PR6テスト観点
+
+| 分類 | 正常系・異常系・境界値・状態遷移 | 検証意図 |
+| --- | --- | --- |
+| 機能 | Gist検出、0件作成、1件更新、複数候補選択、明示操作だけのupload | ログイン完了ではuploadせず、利用者が選んだ対象だけを更新する |
+| 非機能 | browser暗号化、CSRF、timeout、rate limit、raw host固定、Bearer非送信、tab lock | token・平文漏えい、二重実行、外部hostへの資格情報送信を防ぐ |
+| データ | deterministic snapshot、Secret Gist、SHA-256、revision、ユーザー別metadata | 重複作成、アカウント混同、無警告上書き、ローカル変更を防ぐ |
+| UI | dirty Save and Continue、候補選択、passphrase、空backup警告、競合停止、390×844 | 危険操作と次の選択をkeyboard・mobileでも明確に提示する |
+| 境界値 | 0／1／複数Gist、10 page、11／12文字、4,500,000／4,500,001 bytes、1 MB超raw | 上限の内外をexactに判定し、不完全探索を成功扱いしない |
+| 異常・状態 | offline、CSRF／hash不一致、権限／rate limit、remote revision変更、同一hash再送 | ローカルデータを変えず、自動上書き・自動再作成をしない |
+
+PR6の追加unitは27/27（Gist adapter 10件、backup endpoint 13件、metadata cache 4件）、全unitは156/156、`npm run lint`、`npm run build`、追加stub E2Eは4/4、全Playwrightは71/71を1 workerで成功した。4,500,000／4,500,001 bytes、最大10 page、nullable description、権限／rate limit、raw host制限、Bearer非送信、dirty save、空backup警告、複数候補、revision競合を個別に固定した。Production secret、実GitHub、GitHub App権限、実OAuth、実GistはPR8まで実施しない。
+
+2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22、PR5はPR #23としてsquash merge済みである。PR6は実装・ローカル検証済みである。GitHub App作成、Production環境変数、実OAuth、実Gist、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
 
 ## 6. 失敗時の証跡
 

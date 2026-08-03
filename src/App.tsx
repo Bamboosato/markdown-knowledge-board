@@ -49,8 +49,11 @@ import { MarpSlides } from "./components/MarpSlides";
 import { MetadataDialog } from "./components/MetadataDialog";
 import { MermaidBlock } from "./components/MermaidBlock";
 import { CloudActionDialog } from "./components/cloud/CloudActionDialog";
+import { CloudBackupDialog } from "./components/cloud/CloudBackupDialog";
 import { GitHubSection } from "./components/cloud/GitHubSection";
+import { useCloudBackup } from "./hooks/useCloudBackup";
 import { useGitHubSession } from "./hooks/useGitHubSession";
+import { CloudApiError } from "./lib/cloudApi";
 import {
   DEFAULT_MARP_SETTINGS,
   MARP_HEADING_DIVIDERS,
@@ -93,7 +96,12 @@ type SaveStatus = "idle" | "draft" | "unsaved" | "saving" | "saved" | "error";
 type MobileView = "notes" | "editor";
 type ActiveTab = "edit" | "preview" | "slides";
 type UnsavedChoice = "save" | "discard" | "cancel";
-type CloudDialogKind = "sign-in" | "disconnect";
+type CloudDialogKind = "sign-in" | "backup" | "disconnect";
+type CloudBackupDialogKind =
+  | "passphrase"
+  | "empty-warning"
+  | "selection"
+  | "conflict";
 type TocHeadingLevel = 1 | 2 | 3;
 type TocVisibilityState = "closed" | "opening" | "open" | "closing";
 type MarkdownMenuId = "format" | "paragraph" | "insert";
@@ -428,6 +436,12 @@ function App() {
     : "New Note (Alt+N)";
   const cloudCapability = useMemo(() => getCloudCapability(), []);
   const githubSession = useGitHubSession(cloudCapability.status);
+  const cloudBackup = useCloudBackup({
+    enabled: cloudCapability.status === "enabled",
+    session: githubSession.session,
+    csrfToken: githubSession.csrfToken,
+    isOnline: githubSession.isOnline,
+  });
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
@@ -464,6 +478,11 @@ function App() {
   const [unsavedDialog, setUnsavedDialog] =
     useState<UnsavedDialogState | null>(null);
   const [cloudDialog, setCloudDialog] = useState<CloudDialogKind | null>(null);
+  const [cloudBackupDialog, setCloudBackupDialog] =
+    useState<CloudBackupDialogKind | null>(null);
+  const [cloudBackupDialogError, setCloudBackupDialogError] = useState<
+    string | null
+  >(null);
   const unsavedChoiceResolverRef = useRef<((choice: UnsavedChoice) => void) | null>(
     null
   );
@@ -2023,6 +2042,17 @@ function App() {
       }
       return;
     }
+    if (cloudDialog === "backup") {
+      const saved = await handleSave();
+      if (saved) {
+        setCloudDialog(null);
+        await beginCloudBackup();
+      } else {
+        closeCloudDialog();
+        window.requestAnimationFrame(() => bodyRef.current?.focus());
+      }
+      return;
+    }
     if (cloudDialog === "disconnect") {
       await githubSession.disconnect();
       setCloudDialog(null);
@@ -2039,6 +2069,118 @@ function App() {
   function handleGitHubDisconnect() {
     setIsAppMenuOpen(false);
     setCloudDialog("disconnect");
+  }
+
+  function closeCloudBackupDialog() {
+    setCloudBackupDialog(null);
+    setCloudBackupDialogError(null);
+    window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
+  }
+
+  async function openCloudEncryptionDialog(hasExistingBackup: boolean) {
+    try {
+      const savedNotes = await getAllNotes();
+      setCloudBackupDialogError(null);
+      setCloudBackupDialog(
+        hasExistingBackup && savedNotes.length === 0
+          ? "empty-warning"
+          : "passphrase"
+      );
+    } catch {
+      setDbError("Local notes could not be read for cloud backup.");
+      setIsAppMenuOpen(true);
+    }
+  }
+
+  async function beginCloudBackup() {
+    if (githubSession.session.status !== "signed-in") return;
+    let resolution = cloudBackup.discovery;
+    if (resolution.status === "idle" || resolution.status === "unavailable") {
+      const refreshed = await cloudBackup.discover(
+        cloudBackup.storedMetadata?.gistId
+      );
+      if (!refreshed) {
+        setIsAppMenuOpen(true);
+        return;
+      }
+      resolution = refreshed;
+    }
+    if (resolution.status === "selection-required") {
+      setCloudBackupDialogError(null);
+      setCloudBackupDialog("selection");
+      return;
+    }
+    if (resolution.status === "none" || resolution.status === "selected") {
+      await openCloudEncryptionDialog(resolution.status === "selected");
+    }
+  }
+
+  function handleCloudBackupStart() {
+    setIsAppMenuOpen(false);
+    cloudBackup.clearNotice();
+    if (isDirtyRef.current || tagInput.trim().length > 0) {
+      setCloudDialog("backup");
+      return;
+    }
+    void beginCloudBackup();
+  }
+
+  async function selectCloudBackupCandidate(gistId: string) {
+    setCloudBackupDialogError(null);
+    try {
+      await cloudBackup.selectCandidate(gistId);
+      await openCloudEncryptionDialog(true);
+    } catch (error) {
+      setCloudBackupDialogError(
+        error instanceof Error
+          ? error.message
+          : "The selected cloud backup could not be verified."
+      );
+    }
+  }
+
+  async function submitCloudBackup(
+    passphrase: string,
+    confirmation: string
+  ) {
+    setCloudBackupDialogError(null);
+    try {
+      await cloudBackup.upload(passphrase, confirmation);
+      setCloudBackupDialog(null);
+      setIsAppMenuOpen(true);
+      window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
+    } catch (error) {
+      if (
+        error instanceof CloudApiError &&
+        error.code === "REMOTE_REVISION_CHANGED"
+      ) {
+        setCloudBackupDialog("conflict");
+        return;
+      }
+      setCloudBackupDialogError(
+        error instanceof Error
+          ? error.message
+          : "Cloud backup could not be completed."
+      );
+    }
+  }
+
+  async function replaceChangedCloudBackup() {
+    if (cloudBackup.discovery.status !== "selected") {
+      setCloudBackupDialogError("The latest cloud backup could not be identified.");
+      return;
+    }
+    setCloudBackupDialogError(null);
+    try {
+      await cloudBackup.selectCandidate(cloudBackup.discovery.backup.gistId);
+      await openCloudEncryptionDialog(true);
+    } catch (error) {
+      setCloudBackupDialogError(
+        error instanceof Error
+          ? error.message
+          : "The latest cloud backup could not be verified."
+      );
+    }
   }
 
   useEffect(() => {
@@ -2737,10 +2879,22 @@ function App() {
                     isSecondaryOrigin={cloudCapability.isSecondaryOrigin}
                     notice={githubSession.notice}
                     busyAction={githubSession.busyAction}
+                    cloudBackup={{
+                      discovery: cloudBackup.discovery,
+                      storedMetadata: cloudBackup.storedMetadata,
+                      notice: cloudBackup.notice,
+                      uploading: cloudBackup.uploading,
+                    }}
                     onSignIn={handleGitHubSignIn}
                     onRetry={() => void githubSession.retry()}
                     onSignOut={() => void handleGitHubSignOut()}
                     onDisconnect={handleGitHubDisconnect}
+                    onCloudBackup={handleCloudBackupStart}
+                    onCloudRetry={() =>
+                      void cloudBackup.discover(
+                        cloudBackup.storedMetadata?.gistId
+                      )
+                    }
                   />
                 ) : null}
               </div>
@@ -3798,6 +3952,47 @@ function App() {
           }
           onConfirm={() => void confirmCloudDialog()}
           onCancel={closeCloudDialog}
+        />
+      ) : null}
+      {cloudBackupDialog === "passphrase" ? (
+        <CloudBackupDialog
+          kind="passphrase"
+          busy={cloudBackup.uploading}
+          error={cloudBackupDialogError}
+          onSubmit={(passphrase, confirmation) =>
+            void submitCloudBackup(passphrase, confirmation)
+          }
+          onCancel={closeCloudBackupDialog}
+        />
+      ) : null}
+      {cloudBackupDialog === "empty-warning" ? (
+        <CloudBackupDialog
+          kind="empty-warning"
+          onConfirm={() => {
+            setCloudBackupDialogError(null);
+            setCloudBackupDialog("passphrase");
+          }}
+          onCancel={closeCloudBackupDialog}
+        />
+      ) : null}
+      {cloudBackupDialog === "selection" &&
+      cloudBackup.discovery.status === "selection-required" ? (
+        <CloudBackupDialog
+          kind="selection"
+          busy={false}
+          candidates={cloudBackup.discovery.candidates}
+          error={cloudBackupDialogError}
+          onSelect={(gistId) => void selectCloudBackupCandidate(gistId)}
+          onCancel={closeCloudBackupDialog}
+        />
+      ) : null}
+      {cloudBackupDialog === "conflict" ? (
+        <CloudBackupDialog
+          kind="conflict"
+          busy={cloudBackup.discovery.status === "checking"}
+          error={cloudBackupDialogError}
+          onReplace={() => void replaceChangedCloudBackup()}
+          onCancel={closeCloudBackupDialog}
         />
       ) : null}
       {isMetadataDialogOpen ? (

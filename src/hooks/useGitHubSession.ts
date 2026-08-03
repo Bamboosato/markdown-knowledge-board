@@ -7,6 +7,7 @@ import {
   type GitHubUser,
 } from '../lib/cloudApi'
 import type { CloudCapability } from '../lib/cloudCapability'
+import { removeStoredCloudBackupMetadata } from '../lib/cloudMetadata'
 
 export type GitHubSessionState =
   | { status: 'checking' }
@@ -60,6 +61,7 @@ export function useGitHubSession(capability: CloudCapability) {
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
   const [notice, setNotice] = useState<AuthNotice | null>(null)
   const [busyAction, setBusyAction] = useState<BusyAction>(null)
+  const [csrfToken, setCsrfToken] = useState<string | null>(null)
   const csrfTokenRef = useRef<string | null>(null)
   const operationRef = useRef(0)
 
@@ -76,6 +78,7 @@ export function useGitHubSession(capability: CloudCapability) {
       const result = await getGitHubSession()
       if (operation !== operationRef.current) return
       csrfTokenRef.current = result.csrfToken
+      setCsrfToken(result.csrfToken)
       if (result.status === 'signed-in') {
         setSession({ status: 'signed-in', user: result.user })
       } else {
@@ -138,6 +141,7 @@ export function useGitHubSession(capability: CloudCapability) {
       await signOutGitHub(csrfToken)
       operationRef.current += 1
       csrfTokenRef.current = null
+      setCsrfToken(null)
       setSession({ status: 'signed-out' })
       setNotice({
         tone: 'success',
@@ -161,12 +165,15 @@ export function useGitHubSession(capability: CloudCapability) {
   const disconnect = useCallback(async () => {
     const csrfToken = csrfTokenRef.current
     if (!csrfToken || busyAction) return false
+    const userId = session.status === 'signed-in' ? session.user.id : null
     setBusyAction('disconnect')
     setNotice(null)
     try {
       const result = await disconnectGitHub(csrfToken)
       operationRef.current += 1
       csrfTokenRef.current = null
+      setCsrfToken(null)
+      if (userId !== null) removeStoredCloudBackupMetadata(userId)
       setSession({ status: 'signed-out' })
       setNotice(
         result.revocation === 'succeeded'
@@ -195,13 +202,14 @@ export function useGitHubSession(capability: CloudCapability) {
     } finally {
       setBusyAction(null)
     }
-  }, [busyAction])
+  }, [busyAction, session])
 
   return {
     session,
     isOnline,
     notice,
     busyAction,
+    csrfToken,
     retry: checkSession,
     signOut,
     disconnect,
