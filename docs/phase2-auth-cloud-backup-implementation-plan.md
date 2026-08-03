@@ -148,7 +148,7 @@ PR6の追加unitは27/27（Gist adapter 10件、backup endpoint 13件、metadata
 
 PR7の追加unitは14/14（raw redirect 2件、restore download endpoint 8件、browser download検証4件）、全unitは170/170、`npm run lint`、`npm run build`、追加stub E2Eは3/3、全Playwrightは74/74を1 workerで成功した。E2E初回失敗2件は`dl`行の相対locator指定、次の失敗1件はBackupDocumentから復元したMarkdown本文に生成済み見出しを含む既存契約をテスト期待値が省いていたことが原因で、いずれもテスト実装／データ前提として修正した。修正後の直列再実行にretry／flakyはない。Production secret、実GitHub、別browser、実mobileはPR8で確認する。
 
-2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22、PR5はPR #23、PR6はPR #24としてsquash merge済みである。GitHub App作成、Production環境変数、実OAuth、実Gist、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
+2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22、PR5はPR #23、PR6はPR #24としてsquash merge済みであり、PR7はPR #26として実装した。GitHub App作成、Production環境変数、実OAuth、実Gist、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
 
 ## 6. 失敗時の証跡
 
