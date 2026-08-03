@@ -39,7 +39,7 @@ PR1基準では`npm audit`が既存のtransitive dependencyにhigh 2件、low 1�
 
 | ゲート | 実施時点 | 状態・証跡 |
 | --- | --- | --- |
-| 4,500,000 bytes成功／4,500,001 bytes拒否 | PR4のProduction API基盤反映後 | 完了（raw `Request` bodyの境界値unit） |
+| 4,500,000 bytes成功／4,500,001 bytes拒否 | PR4でserver境界をunit固定、PR6でupload endpoint、PR8でProduction実経路 | server境界値unitは完了。Production実経路は未実施 |
 | 1 MB超Gistの`raw_url`取得 | PR6のGist discovery実装後 | 未着手 |
 | Previewのcloud UI非表示・API拒否・Production secret非配布 | PR4以降の各PR | API拒否はunit完了。UI非表示は未接続状態を維持。secret scopeはProduction設定時に管理者確認 |
 | 本番2 OriginのOAuth／Cookie分離 | PR5以降 | APIのexact Originとhost-only Cookie unitは完了。実OAuthは未着手 |
@@ -62,8 +62,8 @@ secret、token、session key、テストアカウントの資格情報をGit、P
 | PR1 | `backup.ts`抽出、現行JSON回帰、Phase 0計測 | `LOCAL-001..008`、`BACKUP`のデータ形式 | unit、既存Backup／Import E2E |
 | PR2 | strict schema、diff、IndexedDB transaction | `RESTORE-006..019`のlocal基盤 | unit、fake IndexedDB commit／rollback |
 | PR3 | AES-GCM、PBKDF2、envelope | `CRYPTO-001..011` | 固定vector、改ざん、境界値、性能 |
-| PR4 | Production gate、session、CSRF、Origin | `SESSION-001..005`、`ENV-001..005` | API unit／integration、Preview拒否 |
-| PR5 | OAuth UI、Save and Continue、Sign out、Disconnect | `AUTH-001..015`、`SIGNOUT-001..004`、`DISCONNECT-001..007` | component、stub E2E、2 Origin |
+| PR4 | Production gate、session server、CSRF、Origin | `SESSION-003..005`のserver側、`ENV-001..005` | API unit／integration、Preview拒否 |
+| PR5 | session client、OAuth UI、Save and Continue、Sign out、Disconnect | `SESSION-001..002`・`005`のclient側、`AUTH-001..015`、`SIGNOUT-001..004`、`DISCONNECT-001..007` | component、stub E2E、2 Origin |
 | PR6 | Gist discovery、候補選択、Cloud Backup | `BACKUP-001..019` | API stub、revision競合、4.5 MB |
 | PR7 | download、復号、preview、safe merge | `RESTORE-001..020` | merge matrix、rollback、別browser |
 | PR8 | offline、mobile、アクセシビリティ、Production有効化 | `OFFLINE-001..005`、横断要件 | full E2E、実GitHub serial、security smoke |
