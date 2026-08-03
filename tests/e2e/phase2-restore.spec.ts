@@ -86,13 +86,15 @@ async function stubSignedInRestore(
   })
 }
 
-async function openApplicationMenu(page: Page) {
+async function openGitHubMenu(page: Page) {
   await page.getByRole('button', { name: 'Open application menu' }).click()
-  return page.getByRole('menu', { name: 'Application menu' })
+  const menu = page.getByRole('menu', { name: 'Application menu' })
+  await menu.getByRole('menuitem', { name: 'GitHub', exact: true }).click()
+  return menu
 }
 
 async function beginRestore(page: Page) {
-  const menu = await openApplicationMenu(page)
+  const menu = await openGitHubMenu(page)
   const restore = menu.getByRole('menuitem', { name: 'Restore from Cloud' })
   await expect(restore).toBeEnabled()
   await restore.click()

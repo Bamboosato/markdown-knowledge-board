@@ -118,6 +118,12 @@ async function openApplicationMenu(page: Page) {
   return page.getByRole('menu', { name: 'Application menu' })
 }
 
+async function openAppMenuSection(page: Page, section: 'Local Data' | 'GitHub') {
+  const menu = await openApplicationMenu(page)
+  await menu.getByRole('menuitem', { name: section, exact: true }).click()
+  return menu
+}
+
 async function createSavedNote(page: Page, title: string, body: string) {
   await page.getByRole('button', { name: /new note/i }).click()
   await page.getByLabel('Title').fill(title)
@@ -154,7 +160,7 @@ test.describe('Phase 2 Production readiness', () => {
     await forceBackupDownloadFallback(page)
     await page.goto('/?cloudTest=1')
 
-    let menu = await openApplicationMenu(page)
+    let menu = await openAppMenuSection(page, 'GitHub')
     await expect(menu.getByText('Connected as @octocat')).toBeVisible()
     expect(calls.session).toBe(1)
     expect(calls.discovery).toBe(1)
@@ -162,6 +168,7 @@ test.describe('Phase 2 Production readiness', () => {
     await setOfflineState(context, page, browserName, true)
     await expect(menu.getByText('Offline. Local editing remains available.')).toBeVisible()
     await expect(menu.getByRole('menuitem', { name: 'Retry' })).toBeDisabled()
+    await page.keyboard.press('Escape')
     await page.keyboard.press('Escape')
 
     await createSavedNote(page, 'Offline local note', '# Offline\n\nLocal body stays')
@@ -174,7 +181,7 @@ test.describe('Phase 2 Production readiness', () => {
     expect(downloadPath).toBeTruthy()
     expect(await readFile(downloadPath!, 'utf8')).toContain('Local body stays')
 
-    menu = await openApplicationMenu(page)
+    menu = await openAppMenuSection(page, 'Local Data')
     const backupDownloadPromise = page.waitForEvent('download')
     await menu.getByRole('menuitem', { name: /Backup All Notes/ }).click()
     const backupDownload = await backupDownloadPromise
@@ -227,7 +234,7 @@ test.describe('Phase 2 Production readiness', () => {
     expect(calls.mutation).toBe(0)
 
     await setOfflineState(context, page, browserName, false)
-    menu = await openApplicationMenu(page)
+    menu = await openAppMenuSection(page, 'GitHub')
     await expect(
       menu.getByText('Connection restored. Retry to check GitHub.'),
     ).toBeVisible()
@@ -247,7 +254,7 @@ test.describe('Phase 2 Production readiness', () => {
     await mockBackupSavePicker(page)
     await page.goto('/?cloudTest=1')
 
-    let menu = await openApplicationMenu(page)
+    let menu = await openAppMenuSection(page, 'GitHub')
     await expectInsideViewport(menu, page)
     await expect(menu).toHaveCSS('overflow-y', 'auto')
     await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
@@ -277,7 +284,7 @@ test.describe('Phase 2 Production readiness', () => {
     const menuButton = page.getByRole('button', { name: 'Open application menu' })
     await expect(menuButton).toBeFocused()
 
-    menu = await openApplicationMenu(page)
+    menu = await openAppMenuSection(page, 'Local Data')
     await menu.getByRole('menuitem', { name: /Backup All Notes/ }).click()
     const result = page.getByRole('dialog', { name: 'Backup Complete' })
     await expectInsideViewport(result, page)
@@ -296,7 +303,7 @@ test.describe('Phase 2 Production readiness', () => {
   }) => {
     const calls = await stubSignedInCloud(page)
     await page.goto('/?cloudTest=1')
-    const menu = await openApplicationMenu(page)
+    const menu = await openAppMenuSection(page, 'GitHub')
     await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
     const dialog = page.getByRole('dialog', { name: 'Encrypt Cloud Backup' })
     await expect(dialog).toBeVisible()

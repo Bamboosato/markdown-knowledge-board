@@ -46,6 +46,12 @@ async function openApplicationMenu(page: Page) {
   return page.getByRole('menu', { name: 'Application menu' })
 }
 
+async function openAppMenuSection(page: Page, section: 'Local Data' | 'GitHub') {
+  const menu = await openApplicationMenu(page)
+  await menu.getByRole('menuitem', { name: section, exact: true }).click()
+  return menu
+}
+
 async function createDraft(page: Page, title: string, body: string) {
   await page.getByRole('button', { name: /new note/i }).click()
   await page.getByLabel('Title').fill(title)
@@ -85,10 +91,49 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     await page.goto('/')
 
     const menu = await openApplicationMenu(page)
-    await expect(menu.getByText('Local data')).toBeVisible()
+    const localData = menu.getByRole('menuitem', {
+      name: 'Local Data',
+      exact: true,
+    })
+    await expect(localData).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: 'GitHub', exact: true })).toHaveCount(0)
+    await localData.click()
     await expect(menu.getByRole('menuitem', { name: 'Backup All Notes' })).toBeVisible()
-    await expect(menu.getByText('GitHub', { exact: true })).toHaveCount(0)
     expect(sessionCalls).toBe(0)
+  })
+
+  test('separates Local Data and GitHub into focused menu levels', async ({
+    page,
+  }) => {
+    await stubSession(page)
+    await page.goto('/?cloudTest=1')
+
+    const menu = await openApplicationMenu(page)
+    const localData = menu.getByRole('menuitem', { name: 'Local Data', exact: true })
+    const github = menu.getByRole('menuitem', { name: 'GitHub', exact: true })
+
+    await expect(localData).toBeVisible()
+    await expect(github).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: 'Backup All Notes' })).toHaveCount(0)
+    await expect(menu.getByRole('menuitem', { name: 'Sign in with GitHub' })).toHaveCount(0)
+
+    await localData.click()
+    await expect(menu.getByRole('menuitem', { name: 'Back to application menu' })).toBeFocused()
+    await expect(menu.getByRole('menuitem', { name: 'Backup All Notes' })).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: 'Sign in with GitHub' })).toHaveCount(0)
+
+    await page.keyboard.press('Escape')
+    await expect(localData).toBeFocused()
+    await github.click()
+    await expect(menu.getByRole('menuitem', { name: 'Back to application menu' })).toBeFocused()
+    await expect(menu.getByRole('menuitem', { name: 'Sign in with GitHub' })).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: 'Backup All Notes' })).toHaveCount(0)
+
+    await page.keyboard.press('Escape')
+    await expect(github).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Open application menu' })).toBeFocused()
   })
 
   test('offers only Save and Continue or Cancel for a dirty sign-in', async ({
@@ -98,7 +143,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     await page.goto('/?cloudTest=1')
     await createDraft(page, 'Unsaved OAuth draft', 'Keep this body')
 
-    const menu = await openApplicationMenu(page)
+    const menu = await openAppMenuSection(page, 'GitHub')
     await menu.getByRole('menuitem', { name: 'Sign in with GitHub' }).click()
     const dialog = page.getByRole('dialog', {
       name: 'Save changes before signing in?',
@@ -134,7 +179,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     })
     await page.goto('/?cloudTest=1')
 
-    const menu = await openApplicationMenu(page)
+    const menu = await openAppMenuSection(page, 'GitHub')
     await menu.getByRole('menuitem', { name: 'Sign in with GitHub' }).click()
     await expect.poll(() => startCalls).toBe(1)
     await expect(
@@ -154,7 +199,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     await page.goto('/?cloudTest=1')
     await createDraft(page, 'Saved before OAuth', 'Persisted body')
 
-    const menu = await openApplicationMenu(page)
+    const menu = await openAppMenuSection(page, 'GitHub')
     await menu.getByRole('menuitem', { name: 'Sign in with GitHub' }).click()
     await page
       .getByRole('dialog', { name: 'Save changes before signing in?' })
@@ -216,7 +261,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
         true
     })
 
-    const menu = await openApplicationMenu(page)
+    const menu = await openAppMenuSection(page, 'GitHub')
     await menu.getByRole('menuitem', { name: 'Sign in with GitHub' }).click()
     await page
       .getByRole('dialog', { name: 'Save changes before signing in?' })
@@ -244,7 +289,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     await createDraft(page, 'Local note', 'Retained after sign out')
     await page.getByRole('button', { name: /^Save$/ }).click()
 
-    const menu = await openApplicationMenu(page)
+    const menu = await openAppMenuSection(page, 'GitHub')
     await expect(menu.getByText('Connected as @octocat')).toBeVisible()
     await menu.getByRole('menuitem', { name: 'Sign out' }).click()
     await expect(menu.getByText('Signed out. Local notes were not changed.')).toBeVisible()
@@ -277,7 +322,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     await createDraft(page, 'Disconnect local note', 'Local body stays')
     await page.getByRole('button', { name: /^Save$/ }).click()
 
-    const menu = await openApplicationMenu(page)
+    const menu = await openAppMenuSection(page, 'GitHub')
     await menu.getByRole('menuitem', { name: 'Disconnect GitHub' }).click()
     const dialog = page.getByRole('dialog', { name: 'Disconnect GitHub?' })
     await expect(dialog).toContainText(
@@ -311,7 +356,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     await expect.poll(getSessionCalls).toBe(1)
 
     await context.setOffline(true)
-    const menu = await openApplicationMenu(page)
+    const menu = await openAppMenuSection(page, 'GitHub')
     await expect(menu.getByText('Offline. Local editing remains available.')).toBeVisible()
     await expect(menu.getByRole('menuitem', { name: 'Retry' })).toBeDisabled()
     await context.setOffline(false)
@@ -322,7 +367,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
   test('shows callback status without retaining auth query parameters', async ({ page }) => {
     await stubSession(page, 'signed-in')
     await page.goto('/?cloudTest=1&auth=connected')
-    const menu = await openApplicationMenu(page)
+    const menu = await openAppMenuSection(page, 'GitHub')
     await expect(
       menu.getByText('GitHub connected. No backup or restore was started.'),
     ).toBeVisible()

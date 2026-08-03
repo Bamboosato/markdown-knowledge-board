@@ -51,9 +51,11 @@ async function stubSignedInSession(page: Page) {
   })
 }
 
-async function openApplicationMenu(page: Page) {
+async function openGitHubMenu(page: Page) {
   await page.getByRole('button', { name: 'Open application menu' }).click()
-  return page.getByRole('menu', { name: 'Application menu' })
+  const menu = page.getByRole('menu', { name: 'Application menu' })
+  await menu.getByRole('menuitem', { name: 'GitHub', exact: true }).click()
+  return menu
 }
 
 async function createDraft(page: Page, title: string, body: string) {
@@ -105,7 +107,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
 
     await page.goto('/?cloudTest=1')
     await createDraft(page, 'Private project note', 'Never send this plaintext')
-    const menu = await openApplicationMenu(page)
+  const menu = await openGitHubMenu(page)
     const backupItem = menu.getByRole('menuitem', { name: 'Cloud Backup' })
     await expect(backupItem).toBeEnabled()
     await backupItem.click()
@@ -223,7 +225,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await createDraft(page, 'URL1 note', 'Back up this Origin')
     await page.getByRole('button', { name: /^Save$/ }).click()
 
-    const menu = await openApplicationMenu(page)
+    const menu = await openGitHubMenu(page)
     await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
     await expect.poll(() => discoveryCalls).toBeGreaterThan(callsBeforeRemoteChange)
     await submitPassphrase(page)
@@ -283,7 +285,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await page.goto('/?cloudTest=1')
     await createDraft(page, 'Concurrent URL1 note', 'Keep this local content')
     await page.getByRole('button', { name: /^Save$/ }).click()
-    let menu = await openApplicationMenu(page)
+    let menu = await openGitHubMenu(page)
     await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
     await expect(
       page.getByRole('dialog', { name: 'Encrypt Cloud Backup' }),
@@ -297,7 +299,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     )
     await blockedDialog.getByRole('button', { name: 'Cancel' }).click()
 
-    menu = await openApplicationMenu(page)
+    menu = await openGitHubMenu(page)
     await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
     await submitPassphrase(page)
 
@@ -324,7 +326,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
       }
     })
     await page.goto('/?cloudTest=1')
-    const menu = await openApplicationMenu(page)
+    const menu = await openGitHubMenu(page)
     const backupItem = menu.getByRole('menuitem', { name: 'Cloud Backup' })
     await expect(backupItem).toBeEnabled()
     await backupItem.click()
@@ -370,7 +372,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await page.goto('/?cloudTest=1')
     await createDraft(page, 'Saved candidate note', 'Candidate body')
     await page.getByRole('button', { name: /^Save$/ }).click()
-    const menu = await openApplicationMenu(page)
+    const menu = await openGitHubMenu(page)
     await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
 
     const selection = page.getByRole('dialog', { name: 'Select Cloud Backup' })
@@ -411,7 +413,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await page.goto('/?cloudTest=1')
     await createDraft(page, 'Conflict note', 'Keep local content')
     await page.getByRole('button', { name: /^Save$/ }).click()
-    const menu = await openApplicationMenu(page)
+    const menu = await openGitHubMenu(page)
     await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
     await submitPassphrase(page)
 

@@ -89,18 +89,18 @@ flowchart TD
 type CloudCapability = "enabled" | "local-only";
 ```
 
-`CloudCapability`は、`VITE_CLOUD_BACKUP_ENABLED === "true"`かつ現在のOriginが本番2 Originのいずれかに完全一致する場合だけ`enabled`とする。Vercel Previewとlocalhostは`local-only`とし、GitHub sectionをrenderせず、session/cloud APIを呼ばない。frontend判定はUX上の制御であり、backendのProduction環境ゲートを代替しない。
+`CloudCapability`は、`VITE_CLOUD_BACKUP_ENABLED === "true"`かつ現在のOriginが本番2 Originのいずれかに完全一致する場合だけ`enabled`とする。Vercel Previewとlocalhostは`local-only`とし、application menu の GitHub カテゴリをrenderせず、session/cloud APIを呼ばない。frontend判定はUX上の制御であり、backendのProduction環境ゲートを代替しない。
 
 ```text
 App mount
   +-> IndexedDB load -> notes UI ready
-  +-> cloud enabled の場合だけ GET /api/auth/session -> GitHub section only update
+  +-> cloud enabled の場合だけ GET /api/auth/session -> GitHub 階層の状態だけを更新
   +-> online/offline listeners -> cloud availability only update
 ```
 
 IndexedDB 読み込みと session 確認は独立して開始する。session response、timeout、offline を待ってから editor を表示してはならない。
 
-local developmentのunit/component/E2Eではtest configでcloud UIを有効にし、`fetch`をstubする。現行のE2EはVite developmentかつloopback Originで`?cloudTest=1`を明示した場合だけGitHub sectionを表示し、認証APIをroute stubする。このtest opt-inはProduction buildでは有効にならない。実GitHub callback、token、Gistを使用しない。実GitHub結合確認はProductionの専用テストアカウントでのみ行う。
+local developmentのunit/component/E2Eではtest configでcloud UIを有効にし、`fetch`をstubする。現行のE2EはVite developmentかつloopback Originで`?cloudTest=1`を明示した場合だけGitHubカテゴリを表示し、認証APIをroute stubする。このtest opt-inはProduction buildでは有効にならない。実GitHub callback、token、Gistを使用しない。実GitHub結合確認はProductionの専用テストアカウントでのみ行う。
 
 ### 4.2 session state
 
@@ -125,7 +125,7 @@ unavailable -> checking                 user Retry / online event後の明示Ret
 
 `online` event は表示を更新するだけで、session retry、backup、restore を自動開始しない。利用者が `Retry` または cloud 操作を明示した時だけ通信する。
 
-session が `signed-in` になった直後は `GET /api/cloud-backups` を1回だけ呼び、候補有無、Gist更新日時、revisionなどの metadata を解決してよい。この処理では暗号文本体を取得・復号せず、backup/restoreも開始しない。失敗は GitHub section の metadata unavailable として扱う。
+session が `signed-in` になった直後は `GET /api/cloud-backups` を1回だけ呼び、候補有無、Gist更新日時、revisionなどの metadata を解決してよい。この処理では暗号文本体を取得・復号せず、backup/restoreも開始しない。失敗は GitHub 階層の metadata unavailable として扱う。
 
 Cloud BackupまたはRestore from Cloudの開始時は、Origin別のcacheが`none`または`selected`でも`GET /api/cloud-backups`を再実行する。別Originや別端末で初回作成・更新されたGistを反映してから、0件はcreate／none表示、1件はupdate／download、複数件はselection dialogへ進む。再検出失敗時はupload/downloadを開始せず、ローカル機能を継続する。
 
@@ -140,7 +140,7 @@ Cloud BackupまたはRestore from Cloudの開始時は、Origin別のcacheが`no
 ### 4.4 offline
 
 - `navigator.onLine` と request error の両方で判断し、`navigator.onLine === true` だけで通信成功を断定しない。
-- offline 中は `Cloud Backup` と `Restore from Cloud` を disabled にし、同じ GitHub section 内に `Offline` を表示する。
+- offline 中は `Cloud Backup` と `Restore from Cloud` を disabled にし、同じ GitHub 階層内に `Offline` を表示する。
 - ローカル操作は disabled にしない。
 - 開いた tab での編集・保存を保証し、完全 offline の reload は保証外であることを help text に記載する。
 
@@ -181,7 +181,7 @@ Cloud Backup と restore apply は同じ component を使用し、title/body の
 
 - `auth=connected` は non-blocking status として表示し、URL query を即時除去する。
 - session を再取得するが、backup/restore を呼ばない。
-- `auth=error` は GitHub section に表示し、editor/global DB error に送らない。
+- `auth=error` は GitHub 階層に表示し、editor/global DB error に送らない。
 - callback から戻った draft は保存済みのため、IndexedDB から通常どおり復元する。
 
 ## 6. クラウドバックアップ設計
@@ -569,15 +569,21 @@ lock 未対応では同一tabのsingle-flightだけを保証する。別tab競�
 
 ### 11.1 application menu
 
-既存 menu を次の順にする。
+既存 menu を同一 popover 内の階層表示にする。第1階層ではカテゴリだけを表示し、第2階層では選択したカテゴリの操作だけを表示する。
 
 ```text
-Local data
+Application menu
+  Local Data >
+  GitHub >                              cloud enabled の場合だけ表示
+
+Local Data
+  Back to application menu
   Backup All Notes
     Last local backup: ...
   Import Backup
 
 GitHub
+  Back to application menu
   Checking GitHub connection…             checking
   Sign in with GitHub                      signed out
   Connected as @login                      signed in
@@ -591,7 +597,9 @@ GitHub
 
 現行 `Last backup` は `Last local backup` へ明確化する。local menu item は GitHub状態で disabled にしない。処理中はラベル領域の幅・高さを維持し、menu全体をレイアウトシフトさせない。
 
-Vercel secondary Origin では GitHub section 下部に次を表示する。
+カテゴリ選択後は `Back to application menu` へ focus を移す。第2階層で Escape を押した場合は第1階層へ戻して遷移元カテゴリへ focus を戻し、第1階層で Escape を押した場合は popover を閉じて application menu ボタンへ focus を戻す。popover 外の pointer 操作では閉じ、次回は第1階層から開く。
+
+Vercel secondary Origin では GitHub 階層の下部に次を表示する。
 
 ```text
 Local data is stored separately for this address.
@@ -600,7 +608,7 @@ Open the primary address
 
 link は `https://mkb.bamboosato.com/`。自動redirectしない。
 
-Vercel PreviewとlocalhostではGitHub section全体を表示しない。`Backup All Notes`と`Import Backup`を含むローカルmenuは通常どおり表示する。Preview URLから`/api/auth/*`または`/api/cloud-backups*`を直接呼んでもbackendが拒否する前提とする。
+Vercel Previewとlocalhostでは第1階層に GitHub カテゴリを表示しない。`Local Data` カテゴリと、その配下の `Backup All Notes`／`Import Backup` は通常どおり表示する。Preview URLから`/api/auth/*`または`/api/cloud-backups*`を直接呼んでもbackendが拒否する前提とする。
 
 ### 11.2 passphrase dialog
 
@@ -624,7 +632,7 @@ Vercel PreviewとlocalhostではGitHub section全体を表示しない。`Backup
 ### 11.4 status と error
 
 - `aria-live="polite"` に段階変化、`role="alert"` に失敗結果を通知する。
-- cloud error は GitHub section または CloudResultDialog に表示する。
+- cloud error は GitHub 階層または CloudResultDialog に表示する。
 - DB error bannerへcloud errorを混ぜない。
 - error codeに応じて `Retry`、`Sign in with GitHub`、`Restore from Cloud`、`Backup All Notes` の次操作を1つ以上提示する。
 - request ID は詳細欄に表示し、通常本文を圧迫しない。
@@ -698,6 +706,7 @@ PR8の自動E2EはChromiumで全機能を実行し、Phase 2のauth／backup／r
 | FE-N-06 | local新旧混在 | Restore | added/updated/skipped/conflictedを規則どおり分類すること |
 | FE-N-07 | signed in | Sign out | local noteとmetadataを保持しcloud操作だけ隠すこと |
 | FE-N-08 | signed in | Disconnect | local note/Gistを保持し当該user metadataを削除すること |
+| FE-N-09 | cloud enabled | Local Data／GitHubを選択し、Back／Escapeで戻る | 2カテゴリの操作が同時表示されず、階層遷移後のfocusが予測可能であること |
 
 ### 13.3 異常系
 
@@ -711,7 +720,7 @@ PR8の自動E2EはChromiumで全機能を実行し、Phase 2のauth／backup／r
 | FE-E-06 | transaction途中失敗 | 全rollback、結果failed | 部分復元を防ぐこと |
 | FE-E-07 | offline→online | 自動cloud操作なし | 再接続時の意図しないuploadを防ぐこと |
 | FE-E-08 | late response | 新operation stateを上書きしない | timing依存の誤表示を防ぐこと |
-| FE-E-09 | Vercel Preview Origin | GitHub section非表示、session API未呼出 | Previewを認証・クラウド環境として使用しないこと |
+| FE-E-09 | Vercel Preview Origin | GitHubカテゴリ非表示、session API未呼出 | Previewを認証・クラウド環境として使用しないこと |
 
 ### 13.4 境界値・データ
 

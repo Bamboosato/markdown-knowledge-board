@@ -1161,6 +1161,50 @@
   margin-top: 2px;
 }
 
+.app-menu-category,
+.app-menu-back {
+  align-items: center;
+}
+
+.app-menu-category {
+  min-height: 52px;
+}
+
+.app-menu-category > svg,
+.app-menu-back > svg {
+  margin-top: 0;
+}
+
+.app-menu-category-content {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  text-align: left;
+}
+
+.app-menu-category-content > span:last-child {
+  color: #777;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.app-menu-category > .app-menu-category-chevron {
+  width: 15px;
+  height: 15px;
+  margin: 0 0 0 auto;
+  color: #777;
+}
+
+.app-menu-back {
+  color: #555;
+  font-size: 0.78rem;
+}
+
+.app-menu-submenu-title {
+  padding-top: 6px;
+}
+
 .app-menu-item-content {
   display: grid;
   min-width: 0;

@@ -119,7 +119,7 @@ PR4の追加API unitは50/50、全unitは107/107、`npm run lint`、`npm run bui
 | 機能 | signed out／signed in／reauthorization、OAuth start／callback、Sign out、Disconnect | 任意ログインと明示操作だけで認証状態が変わり、バックアップ／復元を自動開始しない |
 | 非機能 | state定数時間比較、PKCE S256、CSRF、timeout、offline、late response無効化 | 認証障害や競合をローカル編集から分離し、token／secretをブラウザへ露出しない |
 | データ | dirty draft、保存成功／失敗、ローカルnote、host-only Cookie、最小profile | OAuth前の未保存内容とSign out／Disconnect後のローカルデータを保持する |
-| UI | GitHub section、2択dialog、結果notice、390×844、primary／secondary Origin表示 | 状態と次操作を同じmenuで提示し、Discard導線や強制ログインを作らない |
+| UI | Local Data／GitHub の2階層menu、2択dialog、結果notice、390×844、primary／secondary Origin表示 | 第1階層ではカテゴリだけを表示し、第2階層では選択した操作と状態だけを提示して、Discard導線や強制ログインを作らない |
 | 境界値 | exact 2 Production Origins、Preview／localhost／suffix類似Origin、10分state期限 | environment差とOrigin境界で認証機能を誤公開しない |
 | 異常・状態 | OAuth取消／state不一致／期限切れ、save失敗、revocation失敗、offline→online | 自動retryや誤成功表示を防ぎ、安全にsigned outまたは明示Retryへ収束させる |
 

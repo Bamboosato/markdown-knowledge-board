@@ -67,8 +67,6 @@ export function GitHubSection({
 
   return (
     <div className="github-menu-section" role="presentation">
-      <div className="app-menu-separator" role="separator" />
-      <div className="app-menu-section-label">GitHub</div>
       <div className="github-menu-status" aria-live="polite">
         {session.status === 'checking' ? 'Checking GitHub connection…' : null}
         {session.status === 'signed-in'
