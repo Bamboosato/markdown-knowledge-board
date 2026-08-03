@@ -48,8 +48,9 @@ npm run build
 - [フェーズ2 認証・クラウドバックアップ基本設計](./docs/phase2-auth-cloud-backup-architecture.md)
 - [フェーズ2 API・認証詳細設計](./docs/phase2-auth-cloud-backup-api-design.md)
 - [フェーズ2 フロントエンド詳細設計](./docs/phase2-auth-cloud-backup-frontend-design.md)
+- [フェーズ2 実装計画・ゲート・PR分割](./docs/phase2-auth-cloud-backup-implementation-plan.md)
 
-フェーズ2の認証・クラウドバックアップは設計段階であり、現行アプリには未実装です。実装後も IndexedDB をローカルデータの正本とし、GitHub ログインは任意とします。GitHub認証・クラウド機能はVercel Productionの2つの本番Originだけで提供し、Preview環境ではローカル機能だけを有効にする方針です。
+2026年8月3日時点で、フェーズ2のGitHub認証・暗号化Gistバックアップは設計段階であり、現行アプリには未実装です。現行のローカルJSONバックアップ／インポートは利用できます。実装後も IndexedDB をローカルデータの正本とし、GitHub ログインは任意とします。GitHub認証・クラウド機能はVercel Productionの2つの本番Originだけで提供し、Preview環境ではローカル機能だけを有効にする方針です。
 
 ## 制限事項
 

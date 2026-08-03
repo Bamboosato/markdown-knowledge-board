@@ -64,12 +64,16 @@ import type {
 } from "./lib/types";
 import { dbInitError, deleteNote, getAllNotes, saveNote } from "./lib/db";
 import {
+  createBackupDocument,
+  parseImportFileContent,
+} from "./lib/backup";
+import {
   areCustomMetadataEqual,
   buildFrontmatterEntries,
   cloneCustomMetadata,
-  parseMarkdownWithFrontmatter,
   toMarkdownWithFrontmatter,
 } from "./lib/frontmatter";
+import { createId, getCurrentTimestamp, getPinnedAt } from "./lib/note";
 import {
   insertCodeBlock,
   insertLink,
@@ -179,22 +183,6 @@ type MarkdownCodeElementProps = {
 
 const TAG_SUGGESTION_LIMIT = 8;
 
-type BackupDocument = {
-  app: "markdown-knowledge-board";
-  version: 1;
-  createdAt: string;
-  noteCount: number;
-  notes: Array<{
-    id: string;
-    title: string;
-    tags: string[];
-    updatedAt: number;
-    pinnedAt?: number;
-    customMetadata?: CustomMetadataEntry[];
-    markdown: string;
-  }>;
-};
-
 type FilePickerWritable = {
   write(data: Blob): Promise<void>;
   close(): Promise<void>;
@@ -213,22 +201,6 @@ type ShowSaveFilePicker = (options?: {
 }) => Promise<SaveFilePickerHandle>;
 
 const UNDO_DELETE_TIMEOUT_MS = 8000;
-
-function extractTitle(content: string, fallback: string): string {
-  const lines = content.split(/\r?\n/);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    const match = /^#\s+(.+)$/.exec(trimmed);
-    if (match) {
-      return match[1].trim();
-    }
-  }
-  return fallback || "Untitled";
-}
-
-function filenameToTitle(name: string): string {
-  return name.replace(/\.(?:md|markdown|txt)$/i, "").trim();
-}
 
 function getPreviewNoteLinkTitle(href: string): string | null {
   if (
@@ -253,17 +225,6 @@ function getPreviewNoteLinkTitle(href: string): string | null {
   } catch {
     return null;
   }
-}
-
-function createId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `note-${getCurrentTimestamp()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function getCurrentTimestamp(): number {
-  return Date.now();
 }
 
 function formatDate(timestamp: number): string {
@@ -312,14 +273,6 @@ function filterNotes(notes: Note[], conditions: FilterConditions): Note[] {
   });
 }
 
-function getPinnedAt(note: Pick<Note, "pinnedAt">): number | undefined {
-  return typeof note.pinnedAt === "number" &&
-    Number.isFinite(note.pinnedAt) &&
-    note.pinnedAt >= 0
-    ? note.pinnedAt
-    : undefined;
-}
-
 function isNotePinned(note: Pick<Note, "pinnedAt">): boolean {
   return getPinnedAt(note) !== undefined;
 }
@@ -348,10 +301,6 @@ function compareNotes(left: Note, right: Note): number {
 
 function sortNotes(notes: readonly Note[]): Note[] {
   return [...notes].sort(compareNotes);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function sanitizeDownloadName(name: string): string {
@@ -411,129 +360,6 @@ async function saveBackupBlob(
     }
     throw error;
   }
-}
-
-function createBackupDocument(notes: Note[], createdAt: string): BackupDocument {
-  return {
-    app: "markdown-knowledge-board",
-    version: 1,
-    createdAt,
-    noteCount: notes.length,
-    notes: notes.map((note) => ({
-      id: note.id,
-      title: note.title,
-      tags: note.tags,
-      updatedAt: note.updatedAt,
-      pinnedAt: getPinnedAt(note),
-      customMetadata: cloneCustomMetadata(note.customMetadata),
-      markdown: toMarkdownWithFrontmatter(note),
-    })),
-  };
-}
-
-function createNoteFromMarkdown(
-  content: string,
-  fileName: string,
-  overrides?: Partial<
-    Pick<
-      Note,
-      "id" | "title" | "tags" | "updatedAt" | "pinnedAt" | "customMetadata"
-    >
-  >,
-  preferFileNameTitle = false
-): Note {
-  if (content.trim().length === 0) {
-    throw new Error("File is empty.");
-  }
-
-  const parsed = parseMarkdownWithFrontmatter(content);
-  const fallbackTitle = filenameToTitle(fileName);
-  const body = parsed.body ?? content;
-  const title =
-    overrides?.title ??
-    parsed.title ??
-    (preferFileNameTitle ? fallbackTitle : extractTitle(body, fallbackTitle));
-
-  return {
-    id: overrides?.id ?? parsed.id ?? createId(),
-    title: title.trim() || "Untitled",
-    body,
-    tags: overrides?.tags ?? parsed.tags ?? [],
-    updatedAt:
-      overrides?.updatedAt ?? parsed.updatedAt ?? getCurrentTimestamp(),
-    pinnedAt: overrides?.pinnedAt,
-    marp: parsed.marp,
-    customMetadata:
-      overrides?.customMetadata ?? cloneCustomMetadata(parsed.customMetadata),
-  };
-}
-
-function parseBackupNotes(content: string, fileName: string): Note[] {
-  const parsed: unknown = JSON.parse(content);
-  if (!isRecord(parsed)) {
-    throw new Error("Backup file must be a JSON object.");
-  }
-  if (parsed.app !== "markdown-knowledge-board" || parsed.version !== 1) {
-    throw new Error("Unsupported backup format.");
-  }
-  if (!Array.isArray(parsed.notes)) {
-    throw new Error("Backup file does not contain a notes array.");
-  }
-
-  return parsed.notes.map((item, index) => {
-    if (!isRecord(item)) {
-      throw new Error(`Backup note ${index + 1} is invalid.`);
-    }
-    if (typeof item.markdown !== "string") {
-      throw new Error(`Backup note ${index + 1} is missing Markdown content.`);
-    }
-
-    const id = typeof item.id === "string" ? item.id : undefined;
-    const title = typeof item.title === "string" ? item.title : undefined;
-    const tags =
-      Array.isArray(item.tags) && item.tags.every((tag) => typeof tag === "string")
-        ? item.tags
-        : undefined;
-    const updatedAt =
-      typeof item.updatedAt === "number" && Number.isFinite(item.updatedAt)
-        ? item.updatedAt
-        : undefined;
-    const pinnedAt =
-      typeof item.pinnedAt === "number" &&
-      Number.isFinite(item.pinnedAt) &&
-      item.pinnedAt >= 0
-        ? item.pinnedAt
-        : undefined;
-    const customMetadata = Array.isArray(item.customMetadata)
-      ? cloneCustomMetadata(item.customMetadata as CustomMetadataEntry[])
-      : undefined;
-
-    return createNoteFromMarkdown(item.markdown, `${fileName}#${index + 1}`, {
-      id,
-      title,
-      tags,
-      updatedAt,
-      pinnedAt,
-      customMetadata,
-    });
-  });
-}
-
-function parseImportFileContent(
-  content: string,
-  fileName: string,
-  importKind: "markdown" | "backup"
-): Note[] {
-  if (importKind === "backup") {
-    if (!/\.json$/i.test(fileName)) {
-      throw new Error("Only .json backup files can be imported here.");
-    }
-    return parseBackupNotes(content, fileName);
-  }
-  if (!/\.(?:md|markdown|txt)$/i.test(fileName)) {
-    throw new Error("Only .md, .markdown, and .txt files can be imported here.");
-  }
-  return [createNoteFromMarkdown(content, fileName, undefined, true)];
 }
 
 function getTaskLabelText(lineText: string): string {

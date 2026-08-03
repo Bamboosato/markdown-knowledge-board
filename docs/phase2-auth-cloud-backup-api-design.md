@@ -7,6 +7,8 @@
 
 本書は、[基本設計](./phase2-auth-cloud-backup-architecture.md)に基づき、Vercel Functions、GitHub App、Gist API の契約を定義する。ブラウザ内の暗号化・復元ロジックは[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)を参照する。
 
+> 実装状況（2026年8月3日時点）: Vercel Functions、GitHub OAuth callback、session、Gist中継endpointは未実装であり、本書は実装目標のAPI契約である。現行アプリは外部APIを呼ばず、ローカル機能だけで動作する。
+
 ## 2. テスト設計観点
 
 API ケースの詳細化前に、次の観点を必ず確認する。

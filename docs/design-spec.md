@@ -71,6 +71,10 @@ Markdown Knowledge Board は、Markdown 形式のノートをブラウザ内で�
   - IndexedDB の初期化、取得、保存、削除を担当する。
 - `src/lib/frontmatter.ts`
   - Markdown frontmatter の parse/export を担当する。
+- `src/lib/note.ts`
+  - Note ID・timestamp・pin値の正規化と、MarkdownからのNote生成を担当する。
+- `src/lib/backup.ts`
+  - ローカルJSON backup version 1の作成・parseと、import種別の振り分けを担当する。
 - `src/lib/markdownEdit.ts`
   - Markdown 編集補助を担当する。
 - `src/lib/markdownTasks.ts`

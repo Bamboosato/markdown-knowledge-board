@@ -5,9 +5,17 @@
 
 ## 1. 目的と位置づけ
 
-本書は、[フェーズ2要件定義](./phase2-auth-cloud-backup-requirements.md)を実装可能な構成へ具体化する基本設計である。現行機能の詳細は[現行設計仕様](./design-spec.md)、HTTP 契約は[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)、ブラウザ内の状態・暗号化・復元は[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)を参照する。
+本書は、[フェーズ2要件定義](./phase2-auth-cloud-backup-requirements.md)を実装可能な構成へ具体化する基本設計である。現行機能の詳細は[現行設計仕様](./design-spec.md)、HTTP 契約は[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)、ブラウザ内の状態・暗号化・復元は[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)、実行順序と担当は[実装計画](./phase2-auth-cloud-backup-implementation-plan.md)を参照する。
 
-本書に記載する認証・クラウド機能は未実装である。実装完了までは IndexedDB とローカル JSON バックアップだけが実動作となる。
+2026年8月3日時点で、本書に記載する認証・クラウド機能は未実装である。実装完了までは IndexedDB とローカル JSON バックアップだけが実動作となる。
+
+| 領域 | 現行実装 | フェーズ2での扱い |
+| --- | --- | --- |
+| ローカル保存 | IndexedDB version 1、`notes` store、単件get/put/delete | 正本として維持し、復元用の単一transactionを追加する |
+| ノートデータ | `pinnedAt`、Marp設定、`customMetadata`を含む`Note` | 暗号化snapshotと競合判定で全項目を保持する |
+| JSONバックアップ | `src/lib/backup.ts`のversion 1作成・parse、手動保存／インポート | PR1で共通moduleへの抽出と現行roundtrip回帰を完了。クラウド暗号化でも再利用する |
+| 認証・クラウドUI | 未実装 | 任意ログインと明示操作だけを追加する |
+| Vercel Functions／Gist／暗号化 | `api/`、session、cloud moduleとも未実装 | 本書と詳細設計に従って新規実装する |
 
 ## 2. 設計原則
 
@@ -27,7 +35,7 @@
 | --- | --- | --- |
 | 機能 | 任意ログイン、手動バックアップ、手動復元、Sign out、連携解除 | 認証・クラウド機能が要求した操作だけを実行すること |
 | 非機能 | 機密情報、CSRF、SSRF、可用性、タイムアウト、性能、監査 | クラウド障害や攻撃がローカルデータと秘密情報へ波及しないこと |
-| データ | Origin 分離、暗号形式、Gist 識別、リビジョン、マージ、rollback | データの取り違え、欠落、無警告上書きを防ぐこと |
+| データ | Origin 分離、暗号形式、Gist 識別、リビジョン、`pinnedAt`、`customMetadata`、マージ、rollback | データの取り違え、欠落、無警告上書きを防ぐこと |
 | UI | application menu、ダイアログ、処理中表示、mobile、支援技術 | 状態と次の操作を誤解なく、端末差があっても利用できること |
 
 正常系・異常系・境界値・状態遷移は次のように切り分ける。
@@ -36,7 +44,7 @@
 | --- | --- |
 | 正常系 | 未ログインのローカル利用、OAuth 成功、初回作成、更新、別ブラウザ復元、Sign out、連携解除 |
 | 異常系 | OAuth 拒否、state 不一致、Preview/localhostからのAPI要求、401/403/404/429/5xx、timeout、offline、復号失敗、保存失敗、payload破損 |
-| 境界値 | 0件、1件、100件以上、1 MB 前後、4,500,000 bytes、4,500,001 bytes、重複 ID、複数 Gist |
+| 境界値 | 0件、1件、100件以上、1 MB 前後、4,500,000 bytes、4,500,001 bytes、重複 ID、複数 Gist、メタデータ20/21階層・1,000/1,001要素 |
 | 状態遷移 | 未保存→保存→OAuth、token refresh、upload retry、revision conflict、preview→apply→rollback |
 
 最優先で防止する事象は、平文流出、token 流出、OAuth による未保存編集の消失、復元・更新による無警告上書き、認証障害によるローカル機能停止である。
@@ -47,7 +55,7 @@
 
 - React、TypeScript、Vite の SPA
 - IndexedDB `markdown-knowledge-board` / object store `notes`
-- `Note` とローカル JSON バックアップ version 1
+- `pinnedAt`、Marp設定、`customMetadata`を含む`Note`とローカル JSON バックアップ version 1
 - Markdown の作成、編集、閲覧、保存、削除、import/export
 - `Backup All Notes` と `Import Backup`
 - application menu と英語の利用者向け文言
@@ -342,6 +350,7 @@ rollback 時はクラウド UI と Functions route を無効化しても、Index
 4. GitHub App の expiring token、2 callback URL、`Gists: write` 権限をテストアカウントで確認する。
 5. GitHub REST version header の採用値を実装時点の公式サポート一覧から固定する。
 6. Preview URLでcloud UIが無効、APIがGitHubを呼ばず拒否、本番秘密情報が未配布、ローカル機能が利用可能であることを確認する。
+7. 現行ローカルJSON version 1について、`pinnedAt`、Marp設定、`customMetadata`を含むroundtrip回帰を確認する。
 
 ## 16. 参照資料
 
