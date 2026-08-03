@@ -11,6 +11,8 @@
 
 本書における「フェーズ2」は、認証・クラウドバックアップ導入計画上のフェーズ名である。既存文書に記載された UI/UX 改善の Phase 番号とは別の区分として扱う。
 
+> 実装状況（2026年8月3日時点）: GitHub認証、Vercel Functions、暗号化Gistバックアップ、クラウド復元は未実装である。IndexedDB、ローカルJSONバックアップ／インポート、`pinnedAt`、Marp設定、`customMetadata`は現行実装で利用できる。本書のクラウド要件は、この現行データを欠落なく引き継ぐ追加実装の契約とする。
+
 ## 2. 採用方針サマリー
 
 | No. | 方針 | 決定内容 |
@@ -303,6 +305,19 @@ flowchart LR
 暗号化対象となる内部データは、既存ローカル JSON バックアップ形式を基礎とする。
 
 ```ts
+type FrontmatterValue =
+  | string
+  | number
+  | boolean
+  | null
+  | FrontmatterValue[]
+  | { [key: string]: FrontmatterValue };
+
+type CustomMetadataEntry = {
+  key: string;
+  value: FrontmatterValue;
+};
+
 type BackupDocument = {
   app: "markdown-knowledge-board";
   version: 1;
@@ -314,6 +329,7 @@ type BackupDocument = {
     tags: string[];
     updatedAt: number;
     pinnedAt?: number;
+    customMetadata?: CustomMetadataEntry[];
     markdown: string;
   }>;
 };
@@ -322,7 +338,9 @@ type BackupDocument = {
 - `noteCount` は `notes.length` と一致しなければならない。
 - `id` はバックアップ内で一意でなければならない。
 - `pinnedAt` は固定済みノートだけが持つ任意属性とし、指定する場合はfiniteかつ0以上のnumberでなければならない。未指定は未固定として扱う。
-- `markdown` の parse 結果とメタデータが矛盾する場合は、既存 JSON インポート仕様と同じ優先順位を適用する。
+- `customMetadata` は既存version 1との互換性のため任意とする。指定時は配列順を維持し、各要素を`key`と`FrontmatterValue`として検証する。未指定時は`markdown`のfrontmatterから復元する。
+- `customMetadata` のkeyは空文字、予約済みfrontmatter key、`__proto__`、`prototype`、`constructor`を許可しない。値はfinite numberを含む`FrontmatterValue`だけを許可し、現行実装と同じくネスト20階層、1配列または1 object当たり1,000要素を上限とする。
+- wrapperの`id`、`title`、`tags`、`updatedAt`、`customMetadata`が存在する場合は、現行JSONインポートと同様に`markdown`のparse結果より優先する。クラウド復元では正規化後の`customMetadata`を同一性判定に必ず含める。
 - 将来の拡張に備え、未知の `version` を推測して復元しない。
 
 ### 8.2 暗号化エンベロープ
@@ -595,6 +613,9 @@ validating -> conflicted
 | T-BD-010 | 複数 Gist 候補を検証する | 同じ description/filename が2件 | 自動選択せず候補を表示する |
 | T-BD-011 | 別アカウント分離を検証する | Account A 保存後に Account B ログイン | A の Gist ID を B の操作に使用しない |
 | T-BD-012 | 本番2 origin のローカルデータ分離を検証する | 独自ドメイン側だけにノートを保存 | Vercel URL 側へ IndexedDB、localStorage、認証 Cookie が自動共有されない |
+| T-BD-013 | カスタムメタデータのroundtripを検証する | scalar、配列、object、日本語を含む`customMetadata` | key順・配列順・値を保持して復元される |
+| T-BD-014 | メタデータだけが異なる競合を検証する | 同一ID・本文・updatedAt、異なる`customMetadata` | 同一扱いせずconflictedとして表示する |
+| T-BD-015 | 不正なカスタムメタデータを拒否する | unsafe key、非finite number、21階層、1,001要素 | preview前に拒否しIndexedDBを変更しない |
 
 ### 13.4 状態遷移・競合
 

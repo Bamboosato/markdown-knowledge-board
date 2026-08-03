@@ -7,6 +7,8 @@
 
 本書は、[フェーズ2基本設計](./phase2-auth-cloud-backup-architecture.md)と[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)に基づき、React UI、状態管理、ローカルデータ、暗号化、バックアップ、復元の実装契約を定義する。
 
+> 実装状況（2026年8月3日時点）: 現行`App.tsx`にはローカルJSON version 1の作成・インポートがあり、`pinnedAt`と`customMetadata`を保持する。GitHub session hook、cloud UI、Web Crypto、Gist API client、復元transactionは未実装であり、本書のmodule構成は実装目標である。
+
 ## 2. テスト設計観点
 
 テストケースを実装する前に、以下の観点を列挙してレビューする。
@@ -48,6 +50,7 @@ src/
     useCloudBackup.ts             cloud operation orchestration
   lib/
     backup.ts                     BackupDocument v1 共通処理
+    note.ts                       Note生成、ID・timestamp・pin値の正規化
     cloudApi.ts                   same-origin API client
     cloudCrypto.ts                Web Crypto と envelope
     cloudMetadata.ts              user別 non-secret metadata
@@ -56,7 +59,7 @@ src/
     types.ts                      cloud domain type を追加
 ```
 
-`App.tsx` から現行の `BackupDocument`、`createBackupDocument`、`parseBackupNotes` を `src/lib/backup.ts` へ移す。ローカル JSON import/export の動作を変えず、クラウド暗号化も同じ BackupDocument を使用する。
+PR1で`App.tsx`から`BackupDocument`、`createBackupDocument`、`parseBackupNotes`を`src/lib/backup.ts`へ、Note生成と共通値の正規化を`src/lib/note.ts`へ移す。ローカル JSON import/export の動作を変えず、クラウド暗号化も同じ BackupDocument を使用する。
 
 ### 3.2 依存方向
 
@@ -292,11 +295,12 @@ download responseは最大4,500,000 bytesとし、client側でも読み込み後
 - object、`app === "markdown-knowledge-board"`、`version === 1`
 - `createdAt` が有効な ISO 8601 UTC
 - `noteCount` が non-negative integer で `notes.length` と一致
-- `notes` の各 item が `id`、`title`、`tags`、`updatedAt`、`markdown` を持ち、任意の `pinnedAt` 以外は許可済みschemaに従う
+- `notes` の各 item が `id`、`title`、`tags`、`updatedAt`、`markdown` を持ち、任意の `pinnedAt`、`customMetadata`を含む許可済みschemaに従う
 - `id` が空でなく重複しない
 - `title` と `markdown` が string、`tags` が string array
 - `updatedAt` が finite non-negative integer
 - `pinnedAt` が存在する場合は finite non-negative integer
+- `customMetadata` が存在する場合は`{ key: string; value: FrontmatterValue }[]`であり、key、値、ネスト、要素数が要件8.1の制約を満たす
 - Markdown/frontmatter parse 後の ID が wrapper ID と矛盾しない
 - JSON 全体が暗号化後サイズ上限から合理的に導ける範囲
 
@@ -314,12 +318,14 @@ type ComparableNote = {
   tags: string[];
   pinnedAt?: number;
   marp: MarpSettings;
+  customMetadata: CustomMetadataEntry[];
 };
 ```
 
 - tag の順序と文字大小は現行データとして保持し、完全一致で比較する。
 - `marp` 未指定は `DEFAULT_MARP_SETTINGS` に展開して比較する。
 - `pinnedAt` 未指定は未固定として比較し、クラウド復元で固定状態だけが異なる場合も無確認で上書きしない。
+- `customMetadata` 未指定は空配列へ正規化し、key順、配列順、object内容を保持して比較する。メタデータだけが異なる場合も同一扱いしない。
 - object key 順を固定した canonical JSON の SHA-256 を fingerprint とする。
 - fingerprint は比較用であり認証・暗号鍵に使用しない。
 
@@ -715,6 +721,9 @@ type CloudUiError = {
 | FE-B-06 | duplicate ID/noteCount不一致 | preview前に拒否 | 破損backupを適用しないこと |
 | FE-B-07 | 同一ID・同一時刻・異内容 | conflicted | 無警告上書きを防ぐこと |
 | FE-B-08 | 2 candidate Gists | 選択dialog | 自動誤選択を防ぐこと |
+| FE-B-09 | nested/Unicode `customMetadata` | 値と順序を保持してroundtrip | 現行メタデータを欠落させないこと |
+| FE-B-10 | 本文同一・`customMetadata`だけ異なる | conflicted | メタデータの無警告上書きを防ぐこと |
+| FE-B-11 | unsafe key、21階層、1,001要素 | preview前に拒否、DB不変 | 不正・過大なメタデータを適用しないこと |
 
 ### 13.5 状態遷移・競合
 
