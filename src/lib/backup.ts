@@ -5,20 +5,22 @@ import {
 import { createNoteFromMarkdown, getPinnedAt } from "./note";
 import type { CustomMetadataEntry, Note } from "./types";
 
+export type BackupNoteRecord = {
+  id: string;
+  title: string;
+  tags: string[];
+  updatedAt: number;
+  pinnedAt?: number;
+  customMetadata?: CustomMetadataEntry[];
+  markdown: string;
+};
+
 export type BackupDocument = {
   app: "markdown-knowledge-board";
   version: 1;
   createdAt: string;
   noteCount: number;
-  notes: Array<{
-    id: string;
-    title: string;
-    tags: string[];
-    updatedAt: number;
-    pinnedAt?: number;
-    customMetadata?: CustomMetadataEntry[];
-    markdown: string;
-  }>;
+  notes: BackupNoteRecord[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

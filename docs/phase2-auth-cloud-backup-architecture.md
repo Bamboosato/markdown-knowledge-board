@@ -7,13 +7,14 @@
 
 本書は、[フェーズ2要件定義](./phase2-auth-cloud-backup-requirements.md)を実装可能な構成へ具体化する基本設計である。現行機能の詳細は[現行設計仕様](./design-spec.md)、HTTP 契約は[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)、ブラウザ内の状態・暗号化・復元は[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)、実行順序と担当は[実装計画](./phase2-auth-cloud-backup-implementation-plan.md)を参照する。
 
-2026年8月3日時点で、本書に記載する認証・クラウド機能は未実装である。実装完了までは IndexedDB とローカル JSON バックアップだけが実動作となる。
+2026年8月3日時点で、PR1のローカルJSON共通化と、PR2のstrict BackupDocument検証・safe merge差分・復元用IndexedDB transaction基盤を実装済みである。認証、暗号化、Gist通信、復元UIは未実装であり、これらの基盤はまだ利用者向け操作へ接続しない。
 
 | 領域 | 現行実装 | フェーズ2での扱い |
 | --- | --- | --- |
-| ローカル保存 | IndexedDB version 1、`notes` store、単件get/put/delete | 正本として維持し、復元用の単一transactionを追加する |
+| ローカル保存 | IndexedDB version 1、`notes` store、単件get/put/delete、復元用の単一transaction | 正本として維持し、復元失敗時は全rollbackする |
 | ノートデータ | `pinnedAt`、Marp設定、`customMetadata`を含む`Note` | 暗号化snapshotと競合判定で全項目を保持する |
 | JSONバックアップ | `src/lib/backup.ts`のversion 1作成・parse、手動保存／インポート | PR1で共通moduleへの抽出と現行roundtrip回帰を完了。クラウド暗号化でも再利用する |
+| 復元基盤 | `src/lib/cloudRestore.ts`のstrict検証、fingerprint、merge planと`db.ts`のtransaction apply | PR2でlocal-only基盤を実装。PR7で復号・preview・UI orchestrationへ接続する |
 | 認証・クラウドUI | 未実装 | 任意ログインと明示操作だけを追加する |
 | Vercel Functions／Gist／暗号化 | `api/`、session、cloud moduleとも未実装 | 本書と詳細設計に従って新規実装する |
 

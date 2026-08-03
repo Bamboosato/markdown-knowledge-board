@@ -60,7 +60,7 @@ secret、token、session key、テストアカウントの資格情報をGit、P
 | PR | 実装範囲 | 主な要件 | 主なテスト |
 | --- | --- | --- | --- |
 | PR1 | `backup.ts`抽出、現行JSON回帰、Phase 0計測 | `LOCAL-001..008`、`BACKUP`のデータ形式 | unit、既存Backup／Import E2E |
-| PR2 | strict schema、diff、IndexedDB transaction | `RESTORE-001..020` | unit、fake IndexedDB commit／rollback |
+| PR2 | strict schema、diff、IndexedDB transaction | `RESTORE-006..019`のlocal基盤 | unit、fake IndexedDB commit／rollback |
 | PR3 | AES-GCM、PBKDF2、envelope | `CRYPTO-001..011` | 固定vector、改ざん、境界値、性能 |
 | PR4 | Production gate、session、CSRF、Origin | `SESSION-001..005`、`ENV-001..005` | API unit／integration、Preview拒否 |
 | PR5 | OAuth UI、Save and Continue、Sign out、Disconnect | `AUTH-001..015`、`SIGNOUT-001..004`、`DISCONNECT-001..007` | component、stub E2E、2 Origin |
@@ -70,7 +70,20 @@ secret、token、session key、テストアカウントの資格情報をGit、P
 
 PR1からPR7まではcloud feature flagを既定offとする。各PRで未ログインlocal回帰を実行し、PR本文に対象要件ID、追加テスト、未実施の本番ゲート、rollback方法を記載する。PR8の完了条件を満たした場合だけProductionでcloud UIを有効にする。
 
-2026年8月3日時点でPR1のローカル実装と検証は完了し、GitHub公開前の状態である。GitHub App作成、Production環境変数、実mobile計測はプロジェクト所有者の資格情報または実機を必要とするため、PR1と並行する管理者作業として追跡する。
+### 5.1 PR2テスト観点
+
+| 分類 | 正常系・異常系・境界値・状態遷移 | 検証意図 |
+| --- | --- | --- |
+| 機能 | strict validation、`added`／`updated`／`skipped`／`conflicted`、適用対象抽出 | RESTORE-006、010〜016、018、019の判定をUI接続前に固定する |
+| 非機能 | SHA-256 fingerprint、pure validation/diff、単一transaction | preview前のDB不変と部分反映防止を保証する |
+| データ | 必須／未知field、重複ID、noteCount、UTC日時、frontmatter ID、metadata | 破損・曖昧・非対応データを推測復元しない |
+| UI | このPRではUI非接続、cloud feature flag off | 未完成の復元導線や自動適用を利用者へ公開しない |
+| 境界値 | 0件、同一時刻・異内容、metadata深度20／21、配列1,000／1,001 | 許容境界を実装とテストで一致させる |
+| 状態・競合 | local-only保持、apply途中失敗、testごとのDB初期化 | safe mergeとrollbackを順序依存なく再現する |
+
+PR2のローカル検証は、unit 36/36（strict validation 20件、safe diff 3件、既存backup 10件、fake IndexedDB transaction 3件）、`npm run lint`、`npm run build`、全Playwright 58/58を1 workerで成功した。E2Eにretry／flakyはなく、既存の未ログインローカル操作に回帰がないことを確認した。
+
+2026年8月3日時点でPR1はPR #19としてsquash merge済みで、`main`は`a4e3eb6`である。PR2はlocal-only復元基盤として実装し、GitHub App作成、Production環境変数、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
 
 ## 6. 失敗時の証跡
 
