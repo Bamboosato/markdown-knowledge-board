@@ -29,6 +29,8 @@ import {
   Minimize2,
   MoreHorizontal,
   MoreVertical,
+  Pin,
+  PinOff,
   Quote,
   RotateCcw,
   Settings,
@@ -187,6 +189,7 @@ type BackupDocument = {
     title: string;
     tags: string[];
     updatedAt: number;
+    pinnedAt?: number;
     customMetadata?: CustomMetadataEntry[];
     markdown: string;
   }>;
@@ -309,6 +312,44 @@ function filterNotes(notes: Note[], conditions: FilterConditions): Note[] {
   });
 }
 
+function getPinnedAt(note: Pick<Note, "pinnedAt">): number | undefined {
+  return typeof note.pinnedAt === "number" &&
+    Number.isFinite(note.pinnedAt) &&
+    note.pinnedAt >= 0
+    ? note.pinnedAt
+    : undefined;
+}
+
+function isNotePinned(note: Pick<Note, "pinnedAt">): boolean {
+  return getPinnedAt(note) !== undefined;
+}
+
+function compareNotes(left: Note, right: Note): number {
+  const leftPinnedAt = getPinnedAt(left);
+  const rightPinnedAt = getPinnedAt(right);
+
+  if (leftPinnedAt !== undefined || rightPinnedAt !== undefined) {
+    if (leftPinnedAt === undefined) {
+      return 1;
+    }
+    if (rightPinnedAt === undefined) {
+      return -1;
+    }
+    if (leftPinnedAt !== rightPinnedAt) {
+      return rightPinnedAt - leftPinnedAt;
+    }
+  }
+
+  if (left.updatedAt !== right.updatedAt) {
+    return right.updatedAt - left.updatedAt;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function sortNotes(notes: readonly Note[]): Note[] {
+  return [...notes].sort(compareNotes);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -383,6 +424,7 @@ function createBackupDocument(notes: Note[], createdAt: string): BackupDocument 
       title: note.title,
       tags: note.tags,
       updatedAt: note.updatedAt,
+      pinnedAt: getPinnedAt(note),
       customMetadata: cloneCustomMetadata(note.customMetadata),
       markdown: toMarkdownWithFrontmatter(note),
     })),
@@ -393,7 +435,10 @@ function createNoteFromMarkdown(
   content: string,
   fileName: string,
   overrides?: Partial<
-    Pick<Note, "id" | "title" | "tags" | "updatedAt" | "customMetadata">
+    Pick<
+      Note,
+      "id" | "title" | "tags" | "updatedAt" | "pinnedAt" | "customMetadata"
+    >
   >,
   preferFileNameTitle = false
 ): Note {
@@ -416,6 +461,7 @@ function createNoteFromMarkdown(
     tags: overrides?.tags ?? parsed.tags ?? [],
     updatedAt:
       overrides?.updatedAt ?? parsed.updatedAt ?? getCurrentTimestamp(),
+    pinnedAt: overrides?.pinnedAt,
     marp: parsed.marp,
     customMetadata:
       overrides?.customMetadata ?? cloneCustomMetadata(parsed.customMetadata),
@@ -452,6 +498,12 @@ function parseBackupNotes(content: string, fileName: string): Note[] {
       typeof item.updatedAt === "number" && Number.isFinite(item.updatedAt)
         ? item.updatedAt
         : undefined;
+    const pinnedAt =
+      typeof item.pinnedAt === "number" &&
+      Number.isFinite(item.pinnedAt) &&
+      item.pinnedAt >= 0
+        ? item.pinnedAt
+        : undefined;
     const customMetadata = Array.isArray(item.customMetadata)
       ? cloneCustomMetadata(item.customMetadata as CustomMetadataEntry[])
       : undefined;
@@ -461,6 +513,7 @@ function parseBackupNotes(content: string, fileName: string): Note[] {
       title,
       tags,
       updatedAt,
+      pinnedAt,
       customMetadata,
     });
   });
@@ -513,6 +566,7 @@ function areNotesEquivalent(left: Note, right: Note): boolean {
     left.title === right.title &&
     left.body === right.body &&
     left.updatedAt === right.updatedAt &&
+    getPinnedAt(left) === getPinnedAt(right) &&
     areStringArraysEqual(left.tags, right.tags) &&
     areMarpSettingsEqual(left, right) &&
     areCustomMetadataEqual(left.customMetadata, right.customMetadata)
@@ -581,6 +635,9 @@ function App() {
   );
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
   const noteListRef = useRef<HTMLUListElement | null>(null);
+  const [pendingNoteListRevealId, setPendingNoteListRevealId] = useState<
+    string | null
+  >(null);
   const editorSelectionRef = useRef<EditorSelectionSnapshot | null>(null);
   const [editorSelection, setEditorSelection] =
     useState<EditorSelectionSnapshot | null>(null);
@@ -628,6 +685,9 @@ function App() {
   );
   const [noteCardMenuPosition, setNoteCardMenuPosition] =
     useState<NoteCardMenuPosition | null>(null);
+  const [noteCardActionBusyId, setNoteCardActionBusyId] = useState<
+    string | null
+  >(null);
   const noteCardMenuRef = useRef<HTMLDivElement | null>(null);
   const noteCardMenuItemRef = useRef<HTMLButtonElement | null>(null);
   const noteCardMenuButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -1065,7 +1125,7 @@ function App() {
     const load = async () => {
       const stored = await getAllNotes();
       if (active) {
-        setNotes(stored.slice().sort((a, b) => b.updatedAt - a.updatedAt));
+        setNotes(sortNotes(stored));
         setDbError(dbInitError);
       }
     };
@@ -1277,6 +1337,10 @@ function App() {
       customMetadata: cloneCustomMetadata(draftCustomMetadata),
     };
     const marp = getDraftMarpSettings();
+    const pinnedAt = selectedNote ? getPinnedAt(selectedNote) : undefined;
+    if (pinnedAt !== undefined) {
+      note.pinnedAt = pinnedAt;
+    }
     if (marp) {
       note.marp = marp;
     }
@@ -1599,6 +1663,12 @@ function App() {
             if (matchIndex >= 0) {
               const existing = workingNotes[matchIndex];
               const nextNote = { ...candidate, id: existing.id };
+              if (importKind === "markdown") {
+                const pinnedAt = getPinnedAt(existing);
+                if (pinnedAt !== undefined) {
+                  nextNote.pinnedAt = pinnedAt;
+                }
+              }
               if (areNotesEquivalent(existing, nextNote)) {
                 skipped += 1;
                 continue;
@@ -1628,14 +1698,14 @@ function App() {
 
       if (imported.length > 0 || skipped > 0) {
         setNotes((prev) =>
-          [
+          sortNotes([
             ...workingNotes.filter((note) =>
               prev.some((item) => item.id === note.id)
             ),
             ...workingNotes.filter(
               (note) => !prev.some((item) => item.id === note.id)
             ),
-          ].sort((a, b) => b.updatedAt - a.updatedAt)
+          ])
         );
       }
 
@@ -1718,6 +1788,7 @@ function App() {
     if (!canContinue) {
       return;
     }
+    setPendingNoteListRevealId(null);
     const note: Note = {
       id: createId(),
       title: "",
@@ -2047,6 +2118,10 @@ function App() {
       updatedAt: now,
       customMetadata: cloneCustomMetadata(draftCustomMetadata),
     };
+    const pinnedAt = selectedNote ? getPinnedAt(selectedNote) : undefined;
+    if (pinnedAt !== undefined) {
+      note.pinnedAt = pinnedAt;
+    }
     const marp = getDraftMarpSettings();
     if (marp) {
       note.marp = marp;
@@ -2060,7 +2135,7 @@ function App() {
       setDbError(dbInitError);
       setNotes((prev) => {
         const without = prev.filter((item) => item.id !== note.id);
-        return [note, ...without].sort((a, b) => b.updatedAt - a.updatedAt);
+        return sortNotes([note, ...without]);
       });
       setSelectedId(note.id);
       setIsDirty(false);
@@ -2131,6 +2206,7 @@ function App() {
     if (!canContinue) {
       return;
     }
+    setPendingNoteListRevealId(null);
     setSelectedId(note.id);
     resetDraft(note);
     setMobileView("editor");
@@ -2161,7 +2237,16 @@ function App() {
     if (previewRef.current) {
       previewRef.current.scrollTop = 0;
     }
-    setPreviewLinkNotice(null);
+    const targetIsVisibleInCurrentFilter = filterNotes(notes, {
+      query: searchQuery,
+      tags: activeTagFilterValues,
+    }).some((note) => note.id === targetNote.id);
+    setPreviewLinkNotice(
+      targetIsVisibleInCurrentFilter
+        ? null
+        : `Linked note is hidden by the current filter: ${targetNote.title}`
+    );
+    setPendingNoteListRevealId(targetNote.id);
     setIsEditorExpanded(false);
     setSelectedId(targetNote.id);
     resetDraft(targetNote);
@@ -2368,8 +2453,65 @@ function App() {
     query: searchQuery,
     tags: activeTagFilterValues,
   });
+  const pendingNoteListRevealIsVisible =
+    pendingNoteListRevealId !== null &&
+    filteredNotes.some((note) => note.id === pendingNoteListRevealId);
+
+  useLayoutEffect(() => {
+    if (!pendingNoteListRevealId) {
+      return;
+    }
+
+    if (!pendingNoteListRevealIsVisible) {
+      return;
+    }
+
+    const isMobile = window.matchMedia("(max-width: 900px)").matches;
+    if (isMobile && mobileView !== "notes") {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const list = noteListRef.current;
+      const noteButton = Array.from(
+        list?.querySelectorAll<HTMLButtonElement>(".note-card-select") ?? []
+      ).find((button) => button.dataset.noteId === pendingNoteListRevealId);
+      const card = noteButton?.closest<HTMLElement>(".note-item");
+      if (!list || !card || list.clientHeight === 0) {
+        return;
+      }
+
+      const listRect = list.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      let targetScrollTop = list.scrollTop;
+      if (cardRect.top < listRect.top) {
+        targetScrollTop += cardRect.top - listRect.top;
+      } else if (cardRect.bottom > listRect.bottom) {
+        targetScrollTop += cardRect.bottom - listRect.bottom;
+      }
+
+      if (targetScrollTop !== list.scrollTop) {
+        const reducedMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)"
+        ).matches;
+        list.scrollTo({
+          top: Math.max(0, targetScrollTop),
+          behavior: reducedMotion ? "auto" : "smooth",
+        });
+      }
+
+      setPendingNoteListRevealId(null);
+      setPreviewLinkNotice(null);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    mobileView,
+    pendingNoteListRevealId,
+    pendingNoteListRevealIsVisible,
+  ]);
   const openNoteCardMenuNote =
-    openNoteCardMenuId && openNoteCardMenuId === selectedId
+    openNoteCardMenuId
     ? filteredNotes.find((note) => note.id === openNoteCardMenuId) ?? null
     : null;
   const filterDraftPreviewCount = filterNotes(notes, {
@@ -2452,6 +2594,59 @@ function App() {
     }
   };
 
+  const focusNoteCardActionOrigin = (noteId: string) => {
+    window.requestAnimationFrame(() => {
+      const trigger = noteCardMenuButtonRef.current;
+      if (trigger?.isConnected) {
+        trigger.focus();
+        return;
+      }
+
+      const noteButton = Array.from(
+        noteListRef.current?.querySelectorAll<HTMLButtonElement>(
+          ".note-card-select"
+        ) ?? []
+      ).find((button) => button.dataset.noteId === noteId);
+      noteButton?.focus();
+    });
+  };
+
+  const handleNotePinChange = async (note: Note, shouldPin: boolean) => {
+    if (noteCardActionBusyId !== null) {
+      return;
+    }
+
+    const nextNote: Note = { ...note };
+    if (shouldPin) {
+      nextNote.pinnedAt = getCurrentTimestamp();
+    } else {
+      delete nextNote.pinnedAt;
+    }
+
+    setNoteCardActionBusyId(note.id);
+    try {
+      await saveNote(nextNote);
+      setNotes((prev) =>
+        sortNotes(
+          prev.map((item) => (item.id === nextNote.id ? nextNote : item))
+        )
+      );
+      setDbError(dbInitError);
+      setOpenNoteCardMenuId(null);
+      setNoteCardMenuPosition(null);
+      focusNoteCardActionOrigin(note.id);
+    } catch (error) {
+      setDbError(
+        getErrorMessage(
+          error,
+          shouldPin ? "Failed to pin the note." : "Failed to unpin the note."
+        )
+      );
+    } finally {
+      setNoteCardActionBusyId(null);
+    }
+  };
+
   const handleDelete = () => {
     const targetNote =
       selectedNote && !isDirtyRef.current && tagInput.trim().length === 0
@@ -2481,10 +2676,11 @@ function App() {
 
   const closeDeleteConfirmation = () => {
     const focusTarget = deleteConfirmation?.focusTarget;
+    const noteId = deleteConfirmation?.note.id;
     setDeleteConfirmation(null);
     window.requestAnimationFrame(() => {
-      if (focusTarget === "note-card") {
-        noteCardMenuButtonRef.current?.focus();
+      if (focusTarget === "note-card" && noteId) {
+        focusNoteCardActionOrigin(noteId);
         return;
       }
       actionsMenuButtonRef.current?.focus();
@@ -2498,6 +2694,9 @@ function App() {
 
     const targetNote = deleteConfirmation.note;
     setDeleteConfirmation(null);
+    if (pendingNoteListRevealId === targetNote.id) {
+      setPendingNoteListRevealId(null);
+    }
 
     await finalizePendingDelete();
 
@@ -2859,12 +3058,18 @@ function App() {
                   key={note.id}
                   className={`note-item${
                     note.id === selectedId ? " active" : ""
+                  }${isNotePinned(note) ? " pinned" : ""}${
+                    note.id === selectedId || isNotePinned(note)
+                      ? " has-card-action"
+                      : ""
                   }`}
+                  data-pinned={isNotePinned(note) || undefined}
                   data-menu-open={openNoteCardMenuId === note.id || undefined}
                 >
                   <button
                     className="note-card-select"
                     type="button"
+                    data-note-id={note.id}
                     aria-label={`Open note: ${note.title || "Untitled"}`}
                     aria-current={note.id === selectedId ? "true" : undefined}
                     onClick={() => void handleSelectNote(note)}
@@ -2888,13 +3093,20 @@ function App() {
                       {formatDate(note.updatedAt)}
                     </span>
                   </button>
-                  {note.id === selectedId ? (
+                  {note.id === selectedId || isNotePinned(note) ? (
                     <button
-                      ref={noteCardMenuButtonRef}
-                      className="note-card-menu-trigger"
+                      className={`note-card-menu-trigger${
+                        isNotePinned(note) ? " is-pinned" : ""
+                      }`}
                       type="button"
-                      aria-label="Selected note actions"
-                      title="More actions"
+                      aria-label={
+                        isNotePinned(note)
+                          ? `Pinned note actions: ${note.title || "Untitled"}`
+                          : "Selected note actions"
+                      }
+                      title={
+                        isNotePinned(note) ? "Pinned note actions" : "More actions"
+                      }
                       aria-haspopup="menu"
                       aria-expanded={openNoteCardMenuId === note.id}
                       aria-controls={
@@ -2902,7 +3114,8 @@ function App() {
                           ? "note-card-actions-menu"
                           : undefined
                       }
-                      onClick={() => {
+                      onClick={(event) => {
+                        noteCardMenuButtonRef.current = event.currentTarget;
                         setIsActionsMenuOpen(false);
                         setNoteCardMenuPosition(null);
                         setOpenNoteCardMenuId((current) =>
@@ -2910,7 +3123,11 @@ function App() {
                         );
                       }}
                     >
-                      <MoreVertical aria-hidden="true" />
+                      {isNotePinned(note) ? (
+                        <Pin aria-hidden="true" />
+                      ) : (
+                        <MoreVertical aria-hidden="true" />
+                      )}
                     </button>
                   ) : null}
                 </li>
@@ -3781,6 +3998,9 @@ function App() {
               aria-label={`Actions for ${
                 openNoteCardMenuNote.title || "Untitled"
               }`}
+              aria-busy={
+                noteCardActionBusyId === openNoteCardMenuNote.id || undefined
+              }
               style={{
                 top: noteCardMenuPosition?.top ?? 0,
                 left: noteCardMenuPosition?.left ?? 0,
@@ -3789,9 +4009,30 @@ function App() {
             >
               <button
                 ref={noteCardMenuItemRef}
+                className="actions-menu-item"
+                type="button"
+                role="menuitem"
+                disabled={noteCardActionBusyId === openNoteCardMenuNote.id}
+                onClick={() =>
+                  void handleNotePinChange(
+                    openNoteCardMenuNote,
+                    !isNotePinned(openNoteCardMenuNote)
+                  )
+                }
+              >
+                {isNotePinned(openNoteCardMenuNote) ? (
+                  <PinOff aria-hidden="true" />
+                ) : (
+                  <Pin aria-hidden="true" />
+                )}
+                {isNotePinned(openNoteCardMenuNote) ? "Unpin" : "Pin to top"}
+              </button>
+              <div className="actions-menu-separator" role="separator" />
+              <button
                 className="actions-menu-item actions-menu-item-danger"
                 type="button"
                 role="menuitem"
+                disabled={noteCardActionBusyId === openNoteCardMenuNote.id}
                 onClick={() => handleNoteCardDelete(openNoteCardMenuNote)}
               >
                 <Trash2 aria-hidden="true" />

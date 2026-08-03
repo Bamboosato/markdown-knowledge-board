@@ -41,6 +41,7 @@ export type Note = {
   body: string;
   tags: string[];
   updatedAt: number;
+  pinnedAt?: number;
   marp?: MarpSettings;
   customMetadata?: CustomMetadataEntry[];
 };
