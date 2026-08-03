@@ -1,13 +1,13 @@
 # Markdown Knowledge Board フェーズ2 認証・クラウドバックアップ基本設計
 
 作成日: 2026-07-30
-文書状態: Phase 2基盤を段階実装中
+文書状態: PR6 手動Cloud Backup実装と同期
 
 ## 1. 目的と位置づけ
 
 本書は、[フェーズ2要件定義](./phase2-auth-cloud-backup-requirements.md)を実装可能な構成へ具体化する基本設計である。現行機能の詳細は[現行設計仕様](./design-spec.md)、HTTP 契約は[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)、ブラウザ内の状態・暗号化・復元は[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)、実行順序と担当は[実装計画](./phase2-auth-cloud-backup-implementation-plan.md)を参照する。
 
-2026年8月3日時点で、PR1のローカルJSON共通化、PR2のstrict BackupDocument検証・safe merge差分・復元用IndexedDB transaction、PR3のAES-256-GCM・PBKDF2・暗号化エンベロープ基盤、PR4のProduction gate・session・CSRF・Origin API基盤、PR5のOAuth・session client・認証UI・Sign out・Disconnectを実装済みである。Gist通信とCloud Backup／Restore UIは未実装で、PR8のProduction有効化まではcloud feature flagを既定offとする。
+2026年8月3日時点で、PR1～PR5のローカルJSON、safe restore、暗号化、Production API境界、任意GitHub認証に加え、PR6のGist検出・候補選択・作成・更新と手動Cloud Backup UIを実装済みである。Cloud Restore UIは未実装で、PR8のProduction有効化まではcloud feature flagを既定offとする。
 
 | 領域 | 現行実装 | フェーズ2での扱い |
 | --- | --- | --- |
@@ -15,8 +15,8 @@
 | ノートデータ | `pinnedAt`、Marp設定、`customMetadata`を含む`Note` | 暗号化snapshotと競合判定で全項目を保持する |
 | JSONバックアップ | `src/lib/backup.ts`のversion 1作成・parse、手動保存／インポート | PR1で共通moduleへの抽出と現行roundtrip回帰を完了。クラウド暗号化でも再利用する |
 | 復元基盤 | `src/lib/cloudRestore.ts`のstrict検証、fingerprint、merge planと`db.ts`のtransaction apply | PR2でlocal-only基盤を実装。PR7で復号・preview・UI orchestrationへ接続する |
-| 認証・クラウドUI | session hook、任意ログイン、Save and Continue、Sign out、Disconnectを実装済み。feature flagは既定off | PR6以降で明示的なCloud Backup／Restoreだけを追加する |
-| Vercel Functions／Gist／暗号化 | `cloudCrypto.ts`のbrowser暗号基盤と、`api/`のProduction gate・session・OAuth・CSRF・4.5 MB raw body上限を実装済み。Gist通信は未実装 | PR3～PR5の基盤をPR6以降でGist通信へ接続し、暗号基盤は明示操作だけから使用する |
+| 認証・クラウドUI | session hook、任意ログイン、Save and Continue、Sign out、Disconnect、明示的なCloud Backupを実装済み。feature flagは既定off | PR7で明示的なRestoreを追加し、PR8のゲート完了後だけProductionで有効化する |
+| Vercel Functions／Gist／暗号化 | Production gate、session、OAuth、CSRF、4.5 MB上限、Gist検出・候補選択・Secret Gist作成・revision付き更新、browser暗号化を実装済み | PR7で検証済みraw downloadと復元へ接続し、暗号処理は明示操作だけから使用する |
 
 ## 2. 設計原則
 

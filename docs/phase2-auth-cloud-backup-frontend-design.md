@@ -1,13 +1,13 @@
 # Markdown Knowledge Board フェーズ2 フロントエンド詳細設計
 
 作成日: 2026-07-30
-文書状態: Phase 2基盤を段階実装中
+文書状態: PR6 手動Cloud Backup UI実装と同期
 
 ## 1. 目的
 
 本書は、[フェーズ2基本設計](./phase2-auth-cloud-backup-architecture.md)と[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)に基づき、React UI、状態管理、ローカルデータ、暗号化、バックアップ、復元の実装契約を定義する。
 
-> 実装状況（2026年8月3日時点）: PR1でローカルJSON version 1を`backup.ts`へ共通化し、PR2で`cloudRestore.ts`のstrict validation・fingerprint・merge planと`db.ts`の単一transaction apply、PR3で`cloudCrypto.ts`のAES-256-GCM・PBKDF2・暗号化エンベロープ、PR4でバックエンドのsession API基盤、PR5でsession hook、GitHub認証UI、Save and Continue、Sign out、Disconnectを実装した。Gist API clientとCloud Backup／Restore UI接続はPR6以降で実装する。
+> 実装状況（2026年8月3日時点）: PR1～PR5のローカルJSON、safe restore基盤、AES-256-GCM／PBKDF2、session、任意GitHub認証に加え、PR6でGist metadata discovery、ユーザーによる複数候補選択、保存済みIndexedDB snapshot、パスフレーズ確認、browser内暗号化、明示的な作成／更新、空ローカル警告、revision競合停止、ユーザー別metadata cacheを接続した。パスフレーズ・token・暗号文は永続化しない。Cloud Restore UIはPR7で実装する。
 
 ## 2. テスト設計観点
 

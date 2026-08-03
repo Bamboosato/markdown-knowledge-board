@@ -20,6 +20,27 @@ export type DisconnectData = {
   githubSettingsUrl?: string
 }
 
+export type CloudBackupMetadata = {
+  gistId: string
+  revision: string
+  updatedAt: string
+  htmlUrl: string
+  encryptedSize: number
+}
+
+export type CloudBackupResolution =
+  | { status: 'none' }
+  | { status: 'selected'; backup: CloudBackupMetadata }
+  | { status: 'selection-required'; candidates: CloudBackupMetadata[] }
+
+export type CloudBackupWriteData = {
+  gistId: string
+  revision: string
+  updatedAt: string
+  encryptedSize: number
+  sha256: string
+}
+
 type ApiSuccess<T> = {
   ok: true
   data: T
@@ -28,7 +49,13 @@ type ApiSuccess<T> = {
 
 type ApiFailure = {
   ok: false
-  error: { code: string; message: string; retryable: boolean }
+  error: {
+    code: string
+    message: string
+    retryable: boolean
+    stage?: string
+    retryAfterSeconds?: number
+  }
   requestId: string
 }
 
@@ -36,17 +63,26 @@ export class CloudApiError extends Error {
   readonly code: string
   readonly requestId?: string
   readonly retryable: boolean
+  readonly stage?: string
+  readonly retryAfterSeconds?: number
 
   constructor(
     code: string,
     message: string,
-    options: { requestId?: string; retryable?: boolean } = {},
+    options: {
+      requestId?: string
+      retryable?: boolean
+      stage?: string
+      retryAfterSeconds?: number
+    } = {},
   ) {
     super(message)
     this.name = 'CloudApiError'
     this.code = code
     this.requestId = options.requestId
     this.retryable = options.retryable ?? false
+    this.stage = options.stage
+    this.retryAfterSeconds = options.retryAfterSeconds
   }
 }
 
@@ -61,6 +97,7 @@ async function apiRequest<T>(
     const response = await fetch(path, {
       ...init,
       credentials: 'same-origin',
+      redirect: 'error',
       headers: {
         Accept: 'application/json',
         ...init.headers,
@@ -81,6 +118,8 @@ async function apiRequest<T>(
       throw new CloudApiError(envelope.error.code, envelope.error.message, {
         requestId: envelope.requestId,
         retryable: envelope.error.retryable,
+        stage: envelope.error.stage,
+        retryAfterSeconds: envelope.error.retryAfterSeconds,
       })
     }
     throw new CloudApiError(
@@ -125,4 +164,59 @@ export function disconnectGitHub(csrfToken: string): Promise<DisconnectData> {
     method: 'POST',
     headers: { 'X-CSRF-Token': csrfToken },
   })
+}
+
+export function discoverCloudBackups(
+  cachedGistId?: string,
+): Promise<CloudBackupResolution> {
+  const query = cachedGistId
+    ? `?gistId=${encodeURIComponent(cachedGistId)}`
+    : ''
+  return apiRequest<CloudBackupResolution>(`/api/cloud-backups${query}`, {}, 15_000)
+}
+
+function encodeBase64Url(bytes: Uint8Array): string {
+  let binary = ''
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '')
+}
+
+export async function sha256Base64Url(content: Uint8Array): Promise<string> {
+  const copy = new Uint8Array(content)
+  const digest = await crypto.subtle.digest('SHA-256', copy.buffer)
+  return encodeBase64Url(new Uint8Array(digest))
+}
+
+export async function uploadCloudBackup(options: {
+  content: Uint8Array
+  csrfToken: string
+  current?: Pick<CloudBackupMetadata, 'gistId' | 'revision'>
+}): Promise<CloudBackupWriteData> {
+  const sha256 = await sha256Base64Url(options.content)
+  const isUpdate = options.current !== undefined
+  const path = isUpdate
+    ? `/api/cloud-backups/update?gistId=${encodeURIComponent(options.current!.gistId)}`
+    : '/api/cloud-backups'
+  return apiRequest<CloudBackupWriteData>(
+    path,
+    {
+      method: isUpdate ? 'PUT' : 'POST',
+      headers: {
+        'Content-Type': 'application/vnd.mkb.encrypted-backup+json',
+        'X-CSRF-Token': options.csrfToken,
+        'X-MKB-Operation-Id': crypto.randomUUID(),
+        'X-MKB-Content-SHA256': sha256,
+        ...(isUpdate
+          ? { 'X-MKB-Expected-Revision': options.current!.revision }
+          : {}),
+      },
+      body: new Uint8Array(options.content).buffer,
+    },
+    30_000,
+  )
 }

@@ -1,5 +1,17 @@
-import { CircleUser, ExternalLink, LogOut, RefreshCw, Unlink } from 'lucide-react'
+import {
+  CircleUser,
+  CloudUpload,
+  ExternalLink,
+  LogOut,
+  RefreshCw,
+  Unlink,
+} from 'lucide-react'
+import type {
+  CloudBackupDiscoveryState,
+  CloudBackupNotice,
+} from '../../hooks/useCloudBackup'
 import type { GitHubSessionState } from '../../hooks/useGitHubSession'
+import type { StoredCloudBackupMetadata } from '../../lib/cloudMetadata'
 import { CLOUD_PRIMARY_ORIGIN } from '../../lib/cloudCapability'
 
 type GitHubSectionProps = {
@@ -12,10 +24,18 @@ type GitHubSectionProps = {
     settingsUrl?: string
   } | null
   busyAction: 'signout' | 'disconnect' | null
+  cloudBackup: {
+    discovery: CloudBackupDiscoveryState
+    storedMetadata: StoredCloudBackupMetadata | null
+    notice: CloudBackupNotice | null
+    uploading: boolean
+  }
   onSignIn: () => void
   onRetry: () => void
   onSignOut: () => void
   onDisconnect: () => void
+  onCloudBackup: () => void
+  onCloudRetry: () => void
 }
 
 export function GitHubSection({
@@ -24,10 +44,13 @@ export function GitHubSection({
   isSecondaryOrigin,
   notice,
   busyAction,
+  cloudBackup,
   onSignIn,
   onRetry,
   onSignOut,
   onDisconnect,
+  onCloudBackup,
+  onCloudRetry,
 }: GitHubSectionProps) {
   const unavailableLabel =
     session.status === 'unavailable' && session.reason === 'offline'
@@ -85,6 +108,33 @@ export function GitHubSection({
             className="app-menu-item"
             type="button"
             role="menuitem"
+            disabled={
+              !isOnline ||
+              busyAction !== null ||
+              cloudBackup.uploading ||
+              cloudBackup.discovery.status === 'checking'
+            }
+            onClick={onCloudBackup}
+          >
+            <CloudUpload aria-hidden="true" />
+            {cloudBackup.uploading ? 'Backing Up' : 'Cloud Backup'}
+          </button>
+          {cloudBackup.discovery.status === 'unavailable' ? (
+            <button
+              className="app-menu-item"
+              type="button"
+              role="menuitem"
+              disabled={!isOnline || busyAction !== null}
+              onClick={onCloudRetry}
+            >
+              <RefreshCw aria-hidden="true" />
+              Retry Cloud Check
+            </button>
+          ) : null}
+          <button
+            className="app-menu-item"
+            type="button"
+            role="menuitem"
             disabled={busyAction !== null}
             onClick={onSignOut}
           >
@@ -104,6 +154,22 @@ export function GitHubSection({
               : 'Disconnect GitHub'}
           </button>
         </>
+      ) : null}
+
+      {session.status === 'signed-in' && cloudBackup.storedMetadata ? (
+        <div className="github-menu-status">
+          Last cloud backup:{' '}
+          {new Date(cloudBackup.storedMetadata.updatedAt).toLocaleString()}
+        </div>
+      ) : null}
+
+      {session.status === 'signed-in' && cloudBackup.notice ? (
+        <div
+          className={`github-menu-notice github-menu-notice-${cloudBackup.notice.tone}`}
+          role={cloudBackup.notice.tone === 'warning' ? 'alert' : 'status'}
+        >
+          {cloudBackup.notice.message}
+        </div>
       ) : null}
 
       {notice ? (

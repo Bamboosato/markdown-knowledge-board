@@ -51,6 +51,27 @@ async function createDraft(page: Page, title: string, body: string) {
   await page.getByLabel('Body').fill(body)
 }
 
+async function seedCloudMetadata(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'mkb.cloud-backup.v1',
+      JSON.stringify({
+        version: 1,
+        users: {
+          123: {
+            gistId: 'a1',
+            revision: 'a'.repeat(40),
+            updatedAt: '2026-08-03T05:00:00.000Z',
+            htmlUrl: 'https://gist.github.com/octocat/a1',
+            encryptedSize: 1024,
+            sha256: 's'.repeat(43),
+          },
+        },
+      }),
+    )
+  })
+}
+
 test.describe('Phase 2 optional GitHub authentication', () => {
   test('keeps localhost local-only unless the explicit stub config is used', async ({
     page,
@@ -208,6 +229,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
 
   test('signs out without deleting the local note', async ({ page }) => {
     await stubSession(page, 'signed-in')
+    await seedCloudMetadata(page)
     await page.route('**/api/auth/signout', async (route) => {
       expect(route.request().headers()['x-csrf-token']).toBe(csrfToken)
       await route.fulfill({
@@ -226,12 +248,18 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     await expect(menu.getByText('Signed out. Local notes were not changed.')).toBeVisible()
     await expect(page.getByLabel('Title')).toHaveValue('Local note')
     await expect(page.getByLabel('Body')).toHaveValue('Retained after sign out')
+    await expect
+      .poll(() =>
+        page.evaluate(() => localStorage.getItem('mkb.cloud-backup.v1')),
+      )
+      .toContain('"gistId":"a1"')
   })
 
   test('disconnects this browser while retaining local data and the Gist', async ({
     page,
   }) => {
     await stubSession(page, 'signed-in')
+    await seedCloudMetadata(page)
     await page.route('**/api/auth/disconnect', async (route) => {
       await route.fulfill({
         status: 200,
@@ -265,6 +293,10 @@ test.describe('Phase 2 optional GitHub authentication', () => {
       'https://github.com/settings/applications',
     )
     await expect(page.getByLabel('Body')).toHaveValue('Local body stays')
+    const cached = await page.evaluate(() =>
+      localStorage.getItem('mkb.cloud-backup.v1'),
+    )
+    expect(cached).toBe('{"version":1,"users":{}}')
   })
 
   test('does not retry session or start cloud work automatically after reconnect', async ({

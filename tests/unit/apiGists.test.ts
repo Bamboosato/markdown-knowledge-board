@@ -1,0 +1,203 @@
+import { Buffer } from 'node:buffer'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  BACKUP_GIST_DESCRIPTION,
+  BACKUP_GIST_FILENAME,
+  createBackupGist,
+  getVerifiedBackupGist,
+  GistApiError,
+  resolveCloudBackup,
+  updateBackupGist,
+} from '../../api/_lib/gists.js'
+
+const USER_ID = 123
+const TOKEN = 'ghu_access'
+const REVISION = 'a'.repeat(40)
+
+function gist(options: {
+  id?: string
+  content?: string
+  truncated?: boolean
+  rawUrl?: string
+  description?: string
+  ownerId?: number
+  revision?: string
+} = {}) {
+  const id = options.id ?? 'a1'
+  const content = options.content ?? '{"encrypted":true}'
+  return {
+    id,
+    description: options.description ?? BACKUP_GIST_DESCRIPTION,
+    owner: { id: options.ownerId ?? USER_ID },
+    updated_at: '2026-08-03T05:00:00.000Z',
+    html_url: `https://gist.github.com/octocat/${id}`,
+    history: [{ version: options.revision ?? REVISION }],
+    files: {
+      [BACKUP_GIST_FILENAME]: {
+        size: Buffer.byteLength(content, 'utf8'),
+        truncated: options.truncated ?? false,
+        ...(options.truncated ? {} : { content }),
+        ...(options.rawUrl ? { raw_url: options.rawUrl } : {}),
+      },
+    },
+  }
+}
+
+describe('GitHub Gist backup discovery', () => {
+  it('uses a valid cached Gist without listing every Gist', async () => {
+    const fetchImpl = vi.fn(async () => Response.json(gist()))
+
+    await expect(
+      resolveCloudBackup(TOKEN, USER_ID, 'a1', { fetchImpl }),
+    ).resolves.toMatchObject({
+      status: 'selected',
+      backup: { gistId: 'a1', revision: REVISION },
+    })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+      'https://api.github.com/gists/a1',
+    )
+  })
+
+  it('returns all exact-match candidates and never selects among multiples', async () => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes('?per_page=100&page=1')) {
+        return Response.json([gist({ id: 'a1' }), gist({ id: 'b2' })])
+      }
+      if (url.endsWith('/a1')) return Response.json(gist({ id: 'a1' }))
+      if (url.endsWith('/b2')) {
+        return Response.json(gist({ id: 'b2', revision: 'b'.repeat(40) }))
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+
+    await expect(
+      resolveCloudBackup(TOKEN, USER_ID, undefined, { fetchImpl }),
+    ).resolves.toMatchObject({
+      status: 'selection-required',
+      candidates: [{ gistId: 'a1' }, { gistId: 'b2' }],
+    })
+  })
+
+  it('fails closed when pagination continues beyond the 1,000-Gist bound', async () => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input))
+      const page = Number(url.searchParams.get('page'))
+      return Response.json([], {
+        headers: {
+          Link: `<https://api.github.com/gists?per_page=100&page=${page + 1}>; rel="next"`,
+        },
+      })
+    })
+
+    await expect(
+      resolveCloudBackup(TOKEN, USER_ID, undefined, { fetchImpl }),
+    ).rejects.toMatchObject<GistApiError>({ kind: 'discovery-incomplete' })
+    expect(fetchImpl).toHaveBeenCalledTimes(10)
+  })
+
+  it('ignores same-named Gists owned by another user', async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json([gist({ ownerId: USER_ID + 1 })]),
+    )
+    await expect(
+      resolveCloudBackup(TOKEN, USER_ID, undefined, { fetchImpl }),
+    ).resolves.toEqual({ status: 'none' })
+  })
+
+  it('ignores ordinary Gists whose description is null', async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json([{ ...gist(), description: null }]),
+    )
+    await expect(
+      resolveCloudBackup(TOKEN, USER_ID, undefined, { fetchImpl }),
+    ).resolves.toEqual({ status: 'none' })
+  })
+})
+
+describe('GitHub Gist encrypted content handling', () => {
+  it('downloads a truncated file only from the pinned raw Gist host', async () => {
+    const content = '暗号化バックアップ'
+    const rawUrl = 'https://gist.githubusercontent.com/octocat/a1/raw/revision/file'
+    let rawRequestInit: RequestInit | undefined
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input) === 'https://api.github.com/gists/a1') {
+        return Response.json(gist({ content, truncated: true, rawUrl }))
+      }
+      rawRequestInit = init
+      return new Response(content)
+    })
+
+    await expect(
+      getVerifiedBackupGist('a1', TOKEN, USER_ID, 4_500_000, { fetchImpl }),
+    ).resolves.toMatchObject({
+      metadata: { encryptedSize: Buffer.byteLength(content, 'utf8') },
+      content,
+    })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    const rawHeaders = new Headers(rawRequestInit?.headers)
+    expect(rawHeaders.has('Authorization')).toBe(false)
+    expect(rawHeaders.get('Accept')).toBe('application/octet-stream')
+  })
+
+  it('rejects malformed and non-GitHub raw URLs before a second request', async () => {
+    for (const rawUrl of [
+      'not a URL',
+      'https://example.test/stolen',
+      'https://user:secret@gist.githubusercontent.com/octocat/a1/raw/file',
+      'https://gist.githubusercontent.com:444/octocat/a1/raw/file',
+    ]) {
+      const fetchImpl = vi.fn(async () =>
+        Response.json(gist({ truncated: true, rawUrl })),
+      )
+      await expect(
+        getVerifiedBackupGist('a1', TOKEN, USER_ID, 4_500_000, { fetchImpl }),
+      ).rejects.toMatchObject<GistApiError>({ kind: 'invalid-response' })
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it('rejects a malformed pagination URL as an API response error', async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json([], { headers: { Link: '<not a URL>; rel="next"' } }),
+    )
+    await expect(
+      resolveCloudBackup(TOKEN, USER_ID, undefined, { fetchImpl }),
+    ).rejects.toMatchObject<GistApiError>({ kind: 'invalid-response' })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects malformed Gist HTML URLs as an API response error', async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json({ ...gist(), html_url: 'not a URL' }),
+    )
+    await expect(
+      resolveCloudBackup(TOKEN, USER_ID, 'a1', { fetchImpl }),
+    ).rejects.toMatchObject<GistApiError>({ kind: 'invalid-response' })
+  })
+
+  it('creates a secret Gist and updates only the backup file', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = []
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push({ url: String(input), init })
+      return init?.method === 'POST' ? Response.json(gist()) : new Response(null)
+    })
+
+    await expect(
+      createBackupGist('ciphertext', TOKEN, { fetchImpl }),
+    ).resolves.toBe('a1')
+    await updateBackupGist('a1', 'new-ciphertext', TOKEN, { fetchImpl })
+
+    const created = JSON.parse(String(requests[0]?.init?.body))
+    expect(created).toEqual({
+      description: BACKUP_GIST_DESCRIPTION,
+      public: false,
+      files: { [BACKUP_GIST_FILENAME]: { content: 'ciphertext' } },
+    })
+    const updated = JSON.parse(String(requests[1]?.init?.body))
+    expect(updated).toEqual({
+      files: { [BACKUP_GIST_FILENAME]: { content: 'new-ciphertext' } },
+    })
+  })
+})
