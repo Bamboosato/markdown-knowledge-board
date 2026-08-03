@@ -129,11 +129,11 @@ export function useCloudBackup(options: {
 
   const upload = useCallback(
     async (passphrase: string, confirmation: string) => {
-      if (!user || !options.csrfToken) {
-        throw new CloudApiError('AUTH_REQUIRED', 'GitHub sign-in is required.')
-      }
       if (!options.isOnline) {
         throw new CloudApiError('OFFLINE', 'You are offline.')
+      }
+      if (!user || !options.csrfToken) {
+        throw new CloudApiError('AUTH_REQUIRED', 'GitHub sign-in is required.')
       }
       if (uploading) {
         throw new CloudApiError(

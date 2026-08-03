@@ -1120,6 +1120,10 @@
   z-index: 40;
   display: flex;
   width: 280px;
+  max-height: calc(100vh - 74px);
+  max-height: calc(100dvh - 74px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   flex-direction: column;
   gap: 2px;
   padding: 6px;
@@ -1155,6 +1159,50 @@
 
 .app-menu-item > svg {
   margin-top: 2px;
+}
+
+.app-menu-category,
+.app-menu-back {
+  align-items: center;
+}
+
+.app-menu-category {
+  min-height: 52px;
+}
+
+.app-menu-category > svg,
+.app-menu-back > svg {
+  margin-top: 0;
+}
+
+.app-menu-category-content {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  text-align: left;
+}
+
+.app-menu-category-content > span:last-child {
+  color: #777;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.app-menu-category > .app-menu-category-chevron {
+  width: 15px;
+  height: 15px;
+  margin: 0 0 0 auto;
+  color: #777;
+}
+
+.app-menu-back {
+  color: #555;
+  font-size: 0.78rem;
+}
+
+.app-menu-submenu-title {
+  padding-top: 6px;
 }
 
 .app-menu-item-content {
@@ -2371,6 +2419,17 @@
   height: 17px;
 }
 
+.cloud-backup-password-control .tooltip-button::after {
+  right: 0;
+  left: auto;
+  transform: translateY(-2px);
+}
+
+.cloud-backup-password-control .tooltip-button:hover::after,
+.cloud-backup-password-control .tooltip-button:focus-visible::after {
+  transform: translateY(0);
+}
+
 .cloud-backup-help,
 .cloud-backup-warning,
 .cloud-backup-error {
@@ -2392,6 +2451,15 @@
   border-radius: 6px;
   background: #fff0f0;
   color: #8c1d1d;
+}
+
+.cloud-backup-help,
+.cloud-backup-warning,
+.cloud-backup-error,
+.cloud-backup-candidate,
+.cloud-restore-conflicts strong,
+.cloud-restore-conflicts span {
+  overflow-wrap: anywhere;
 }
 
 .cloud-backup-candidates {
@@ -3150,6 +3218,7 @@
   .unsaved-dialog,
   .cloud-action-dialog,
   .cloud-backup-dialog,
+  .cloud-restore-dialog,
   .result-dialog,
   .filter-dialog,
   .delete-dialog,

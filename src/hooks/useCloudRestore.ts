@@ -129,11 +129,11 @@ export function useCloudRestore(options: {
 
   const download = useCallback(
     async (gistId: string) => {
-      if (!options.enabled || !signedIn) {
-        throw new CloudApiError('AUTH_REQUIRED', 'GitHub sign-in is required.')
-      }
       if (!options.isOnline) {
         throw new CloudApiError('OFFLINE', 'You are offline.')
+      }
+      if (!options.enabled || !signedIn) {
+        throw new CloudApiError('AUTH_REQUIRED', 'GitHub sign-in is required.')
       }
       const operation = ++operationRef.current
       contentRef.current = null

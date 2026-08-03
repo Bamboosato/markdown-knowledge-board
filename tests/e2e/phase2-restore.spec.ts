@@ -7,6 +7,7 @@ import {
 } from '../../src/lib/cloudCrypto'
 import { sha256Base64Url } from '../../src/lib/cloudApi'
 import type { Note } from '../../src/lib/types'
+import { expectNoHorizontalOverflow } from './dialog-layout'
 
 const passphrase = 'correct horse battery staple'
 const csrfToken = 'a'.repeat(43)
@@ -25,7 +26,11 @@ async function encryptedBackup(notes: Note[]) {
   return { content, sha256: await sha256Base64Url(content) }
 }
 
-async function stubSignedInRestore(page: Page, notes: Note[]) {
+async function stubSignedInRestore(
+  page: Page,
+  notes: Note[],
+  discoveryStatus: () => 'none' | 'selected' = () => 'selected',
+) {
   const backup = await encryptedBackup(notes)
   await page.route('**/api/auth/session', async (route) => {
     await route.fulfill({
@@ -59,34 +64,43 @@ async function stubSignedInRestore(page: Page, notes: Note[]) {
     })
   })
   await page.route(/\/api\/cloud-backups(?:\?.*)?$/, async (route) => {
+    const status = discoveryStatus()
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: success({
-        status: 'selected',
-        backup: {
-          gistId: 'a1',
-          revision,
-          updatedAt: gistUpdatedAt,
-          htmlUrl: 'https://gist.github.com/octocat/a1',
-          encryptedSize: backup.content.byteLength,
-        },
-      }),
+      body: success(
+        status === 'none'
+          ? { status }
+          : {
+              status,
+              backup: {
+                gistId: 'a1',
+                revision,
+                updatedAt: gistUpdatedAt,
+                htmlUrl: 'https://gist.github.com/octocat/a1',
+                encryptedSize: backup.content.byteLength,
+              },
+            },
+      ),
     })
   })
 }
 
-async function openApplicationMenu(page: Page) {
+async function openGitHubMenu(page: Page) {
   await page.getByRole('button', { name: 'Open application menu' }).click()
-  return page.getByRole('menu', { name: 'Application menu' })
+  const menu = page.getByRole('menu', { name: 'Application menu' })
+  await menu.getByRole('menuitem', { name: 'GitHub', exact: true }).click()
+  return menu
 }
 
 async function beginRestore(page: Page) {
-  const menu = await openApplicationMenu(page)
+  const menu = await openGitHubMenu(page)
   const restore = menu.getByRole('menuitem', { name: 'Restore from Cloud' })
   await expect(restore).toBeEnabled()
   await restore.click()
-  return page.getByRole('dialog', { name: 'Decrypt Cloud Backup' })
+  const dialog = page.getByRole('dialog', { name: 'Decrypt Cloud Backup' })
+  await expectNoHorizontalOverflow(dialog, 'restore passphrase')
+  return dialog
 }
 
 async function submitRestorePassphrase(page: Page, value: string) {
@@ -145,6 +159,35 @@ async function readNote(page: Page, id: string): Promise<Note | undefined> {
 }
 
 test.describe('Phase 2 safe cloud restore', () => {
+  test('refreshes stale none discovery before restoring a backup created from another Origin', async ({
+    page,
+  }) => {
+    const cloudNote: Note = {
+      id: 'cross-origin-cloud-note',
+      title: 'Created from another Origin',
+      body: 'Remote data',
+      tags: ['cloud'],
+      updatedAt: Date.UTC(2026, 7, 3, 3, 0, 0),
+    }
+    let remoteExists = false
+    let discoveryCalls = 0
+    await stubSignedInRestore(page, [cloudNote], () => {
+      discoveryCalls += 1
+      return remoteExists ? 'selected' : 'none'
+    })
+    await page.goto('/?cloudTest=1')
+    await expect.poll(() => discoveryCalls).toBeGreaterThan(0)
+    const callsBeforeRemoteChange = discoveryCalls
+    remoteExists = true
+
+    await beginRestore(page)
+
+    await expect.poll(() => discoveryCalls).toBeGreaterThan(callsBeforeRemoteChange)
+    await expect(
+      page.getByRole('dialog', { name: 'Decrypt Cloud Backup' }),
+    ).toBeVisible()
+  })
+
   test('downloads explicitly, prompts for dirty data only before apply, and retains local-only notes', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 })
     const cloudNote: Note = {
@@ -167,6 +210,7 @@ test.describe('Phase 2 safe cloud restore', () => {
     await submitRestorePassphrase(page, passphrase)
 
     const preview = page.getByRole('dialog', { name: 'Review Cloud Restore' })
+    await expectNoHorizontalOverflow(preview, 'restore preview')
     await expectCount(preview, 'Added', 1)
     await expectCount(preview, 'Conflicted', 0)
     await preview.getByRole('button', { name: 'Apply Safe Merge' }).click()
@@ -174,12 +218,14 @@ test.describe('Phase 2 safe cloud restore', () => {
     const saveDialog = page.getByRole('dialog', {
       name: 'Save changes before cloud restore?',
     })
+    await expectNoHorizontalOverflow(saveDialog, 'restore save confirmation')
     await saveDialog.getByRole('button', { name: 'Cancel' }).click()
     await expect(preview).toBeVisible()
 
     await preview.getByRole('button', { name: 'Apply Safe Merge' }).click()
     await saveDialog.getByRole('button', { name: 'Save and Continue' }).click()
     const result = page.getByRole('dialog', { name: 'Cloud Restore Complete' })
+    await expectNoHorizontalOverflow(result, 'restore result')
     await expectCount(result, 'Added', 1)
     await expectCount(result, 'Failed', 0)
     await result.getByRole('button', { name: 'Close' }).click()
@@ -249,10 +295,12 @@ test.describe('Phase 2 safe cloud restore', () => {
     await beginRestore(page)
     await submitRestorePassphrase(page, passphrase)
     const preview = page.getByRole('dialog', { name: 'Review Cloud Restore' })
+    await expectNoHorizontalOverflow(preview, 'restore conflict preview')
     await expectCount(preview, 'Conflicted', 1)
     await expect(preview).toContainText('Local note is newer.')
     await preview.getByRole('button', { name: 'Apply Safe Merge' }).click()
     const result = page.getByRole('dialog', { name: 'Cloud Restore Complete' })
+    await expectNoHorizontalOverflow(result, 'restore conflict result')
     await expectCount(result, 'Conflicted', 1)
     expect(await readNote(page, 'shared-note')).toMatchObject(localNote)
   })

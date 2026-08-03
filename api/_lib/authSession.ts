@@ -64,7 +64,7 @@ export async function handleAuthSessionRequest(
   const requestId = (dependencies.createRequestId ?? createRequestId)()
   const env = dependencies.env ?? process.env
   const gate = requireProductionCloudEnvironment(request, requestId, env)
-  if (!gate.ok) return gate.response
+  if (gate.ok === false) return gate.response
   if (request.method !== 'GET') return methodNotAllowed(['GET'], requestId)
 
   const csrf = getOrCreateCsrfToken(request)

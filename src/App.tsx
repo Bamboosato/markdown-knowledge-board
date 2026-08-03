@@ -11,6 +11,9 @@ import {
   Archive,
   Bold,
   Braces,
+  ChevronLeft,
+  ChevronRight,
+  Cloud,
   Code,
   Code2,
   Download,
@@ -19,6 +22,7 @@ import {
   Heading2,
   Heading3,
   Highlighter,
+  HardDrive,
   Italic,
   Link,
   List,
@@ -102,6 +106,7 @@ type MobileView = "notes" | "editor";
 type ActiveTab = "edit" | "preview" | "slides";
 type UnsavedChoice = "save" | "discard" | "cancel";
 type CloudDialogKind = "sign-in" | "backup" | "restore" | "disconnect";
+type AppMenuView = "root" | "local" | "github";
 type CloudBackupDialogKind =
   | "passphrase"
   | "empty-warning"
@@ -545,11 +550,18 @@ function App() {
   );
   const [operationDialog, setOperationDialog] =
     useState<OperationDialogState | null>(null);
+  const operationDialogRef = useRef<HTMLDivElement | null>(null);
+  const operationDialogCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const operationDialogReturnFocusRef = useRef<HTMLElement | null>(null);
   const [isBackupBusy, setIsBackupBusy] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isAppMenuOpen, setIsAppMenuOpen] = useState(false);
+  const [appMenuView, setAppMenuView] = useState<AppMenuView>("root");
   const appMenuRef = useRef<HTMLDivElement | null>(null);
   const appMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const appMenuBackButtonRef = useRef<HTMLButtonElement | null>(null);
+  const localDataMenuItemRef = useRef<HTMLButtonElement | null>(null);
+  const githubMenuItemRef = useRef<HTMLButtonElement | null>(null);
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
   const [isMetadataDialogOpen, setIsMetadataDialogOpen] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
@@ -570,6 +582,7 @@ function App() {
   const marpSettingsRef = useRef<HTMLDivElement | null>(null);
   const marpSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const markdownImportInputRef = useRef<HTMLInputElement | null>(null);
+  const markdownImportButtonRef = useRef<HTMLButtonElement | null>(null);
   const backupImportInputRef = useRef<HTMLInputElement | null>(null);
   const importDragDepthRef = useRef(0);
   const [isImportDragActive, setIsImportDragActive] = useState(false);
@@ -607,6 +620,57 @@ function App() {
   );
   const isTocRendered = tocVisibility !== "closed";
   const isTocOpen = tocVisibility === "opening" || tocVisibility === "open";
+
+  useEffect(() => {
+    if (!operationDialog) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() =>
+      operationDialogCloseButtonRef.current?.focus()
+    );
+    return () => window.cancelAnimationFrame(frame);
+  }, [operationDialog]);
+
+  const closeOperationDialog = useCallback(() => {
+    const returnTarget = operationDialogReturnFocusRef.current;
+    operationDialogReturnFocusRef.current = null;
+    setOperationDialog(null);
+    window.requestAnimationFrame(() => returnTarget?.focus());
+  }, []);
+
+  const handleOperationDialogKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeOperationDialog();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+      const focusable = Array.from(
+        operationDialogRef.current?.querySelectorAll<HTMLElement>(
+          "button:not(:disabled), summary"
+        ) ?? []
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) {
+        return;
+      }
+      if (first === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    [closeOperationDialog]
+  );
 
   useEffect(() => {
     const closeTimer = window.setTimeout(() => {
@@ -806,11 +870,21 @@ function App() {
       }
     };
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setIsAppMenuOpen(false);
-        appMenuButtonRef.current?.focus();
+      if (event.key !== "Escape") {
+        return;
       }
+
+      event.preventDefault();
+      if (appMenuView !== "root") {
+        const returnFocusRef =
+          appMenuView === "local" ? localDataMenuItemRef : githubMenuItemRef;
+        setAppMenuView("root");
+        window.requestAnimationFrame(() => returnFocusRef.current?.focus());
+        return;
+      }
+
+      setIsAppMenuOpen(false);
+      appMenuButtonRef.current?.focus();
     };
 
     window.addEventListener("pointerdown", handlePointerDown);
@@ -819,7 +893,7 @@ function App() {
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isAppMenuOpen]);
+  }, [appMenuView, isAppMenuOpen]);
 
   useEffect(() => {
     if (!isActionsMenuOpen) {
@@ -1592,6 +1666,10 @@ function App() {
         failed: failures.length,
         failures,
       });
+      operationDialogReturnFocusRef.current =
+        importKind === "backup"
+          ? appMenuButtonRef.current
+          : markdownImportButtonRef.current;
 
       setDbError(dbInitError);
     } finally {
@@ -2130,16 +2208,12 @@ function App() {
 
   async function beginCloudBackup() {
     if (githubSession.session.status !== "signed-in") return;
-    let resolution = cloudBackup.discovery;
-    if (resolution.status === "idle" || resolution.status === "unavailable") {
-      const refreshed = await cloudBackup.discover(
-        cloudBackup.storedMetadata?.gistId
-      );
-      if (!refreshed) {
-        setIsAppMenuOpen(true);
-        return;
-      }
-      resolution = refreshed;
+    const resolution = await cloudBackup.discover(
+      cloudBackup.storedMetadata?.gistId
+    );
+    if (!resolution) {
+      setIsAppMenuOpen(true);
+      return;
     }
     if (resolution.status === "selection-required") {
       setCloudBackupDialogError(null);
@@ -2244,16 +2318,12 @@ function App() {
 
   async function beginCloudRestore() {
     if (githubSession.session.status !== "signed-in") return;
-    let resolution = cloudBackup.discovery;
-    if (resolution.status === "idle" || resolution.status === "unavailable") {
-      const refreshed = await cloudBackup.discover(
-        cloudBackup.storedMetadata?.gistId
-      );
-      if (!refreshed) {
-        setIsAppMenuOpen(true);
-        return;
-      }
-      resolution = refreshed;
+    const resolution = await cloudBackup.discover(
+      cloudBackup.storedMetadata?.gistId
+    );
+    if (!resolution) {
+      setIsAppMenuOpen(true);
+      return;
     }
     if (resolution.status === "selection-required") {
       setCloudRestoreDialogError(null);
@@ -2950,6 +3020,7 @@ function App() {
       }
       localStorage.setItem("lastBackupAt", nowIso);
       setLastBackupAt(nowIso);
+      operationDialogReturnFocusRef.current = appMenuButtonRef.current;
       setOperationDialog({
         kind: "backup",
         status,
@@ -2982,7 +3053,14 @@ function App() {
               aria-haspopup="menu"
               aria-expanded={isAppMenuOpen}
               aria-controls="application-menu"
-              onClick={() => setIsAppMenuOpen((open) => !open)}
+              onClick={() => {
+                if (isAppMenuOpen) {
+                  setIsAppMenuOpen(false);
+                  return;
+                }
+                setAppMenuView("root");
+                setIsAppMenuOpen(true);
+              }}
             >
               <Menu aria-hidden="true" />
             </button>
@@ -2993,73 +3071,165 @@ function App() {
                 role="menu"
                 aria-label="Application menu"
               >
-                <div className="app-menu-section-label" role="presentation">
-                  Local data
-                </div>
-                <button
-                  className="app-menu-item"
-                  type="button"
-                  role="menuitem"
-                  disabled={isBackupBusy}
-                  onClick={() => {
-                    setIsAppMenuOpen(false);
-                    void handleBackupAll();
-                  }}
-                >
-                  <Archive aria-hidden="true" />
-                  <span className="app-menu-item-content">
-                    <span>{isBackupBusy ? "Creating Backup" : "Backup All Notes"}</span>
-                    <span className="backup-last-label">Last local backup</span>
-                    <span className="backup-last-value">
-                      {lastBackupAt
-                        ? formatBackupTimestamp(lastBackupAt)
-                        : "No backups yet"}
-                    </span>
-                  </span>
-                </button>
-                <button
-                  className="app-menu-item"
-                  type="button"
-                  role="menuitem"
-                  disabled={isImporting}
-                  onClick={() => {
-                    setIsAppMenuOpen(false);
-                    backupImportInputRef.current?.click();
-                  }}
-                >
-                  <Upload aria-hidden="true" />
-                  {isImporting ? "Importing" : "Import Backup"}
-                </button>
-                {cloudCapability.status === "enabled" ? (
-                  <GitHubSection
-                    session={githubSession.session}
-                    isOnline={githubSession.isOnline}
-                    isSecondaryOrigin={cloudCapability.isSecondaryOrigin}
-                    notice={githubSession.notice}
-                    busyAction={githubSession.busyAction}
-                    cloudBackup={{
-                      discovery: cloudBackup.discovery,
-                      storedMetadata: cloudBackup.storedMetadata,
-                      notice: cloudBackup.notice,
-                      uploading: cloudBackup.uploading,
-                      restoring:
-                        cloudRestore.downloading ||
-                        cloudRestore.preparing ||
-                        cloudRestore.applying,
-                    }}
-                    onSignIn={handleGitHubSignIn}
-                    onRetry={() => void githubSession.retry()}
-                    onSignOut={() => void handleGitHubSignOut()}
-                    onDisconnect={handleGitHubDisconnect}
-                    onCloudBackup={handleCloudBackupStart}
-                    onCloudRestore={handleCloudRestoreStart}
-                    onCloudRetry={() =>
-                      void cloudBackup.discover(
-                        cloudBackup.storedMetadata?.gistId
-                      )
-                    }
-                  />
-                ) : null}
+                {appMenuView === "root" ? (
+                  <>
+                    <button
+                      ref={localDataMenuItemRef}
+                      className="app-menu-item app-menu-category"
+                      type="button"
+                      role="menuitem"
+                      aria-label="Local Data"
+                      aria-haspopup="menu"
+                      onClick={() => {
+                        setAppMenuView("local");
+                        window.requestAnimationFrame(() =>
+                          appMenuBackButtonRef.current?.focus()
+                        );
+                      }}
+                    >
+                      <HardDrive aria-hidden="true" />
+                      <span className="app-menu-category-content">
+                        <span>Local Data</span>
+                        <span>Backup and import</span>
+                      </span>
+                      <ChevronRight
+                        className="app-menu-category-chevron"
+                        aria-hidden="true"
+                      />
+                    </button>
+                    {cloudCapability.status === "enabled" ? (
+                      <button
+                        ref={githubMenuItemRef}
+                        className="app-menu-item app-menu-category"
+                        type="button"
+                        role="menuitem"
+                        aria-label="GitHub"
+                        aria-haspopup="menu"
+                        onClick={() => {
+                          setAppMenuView("github");
+                          window.requestAnimationFrame(() =>
+                            appMenuBackButtonRef.current?.focus()
+                          );
+                        }}
+                      >
+                        <Cloud aria-hidden="true" />
+                        <span className="app-menu-category-content">
+                          <span>GitHub</span>
+                          <span>Cloud backup and account</span>
+                        </span>
+                        <ChevronRight
+                          className="app-menu-category-chevron"
+                          aria-hidden="true"
+                        />
+                      </button>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <button
+                      ref={appMenuBackButtonRef}
+                      className="app-menu-item app-menu-back"
+                      type="button"
+                      role="menuitem"
+                      aria-label="Back to application menu"
+                      onClick={() => {
+                        const returnFocusRef =
+                          appMenuView === "local"
+                            ? localDataMenuItemRef
+                            : githubMenuItemRef;
+                        setAppMenuView("root");
+                        window.requestAnimationFrame(() =>
+                          returnFocusRef.current?.focus()
+                        );
+                      }}
+                    >
+                      <ChevronLeft aria-hidden="true" />
+                      Application menu
+                    </button>
+                    <div
+                      className="app-menu-section-label app-menu-submenu-title"
+                      role="presentation"
+                    >
+                      {appMenuView === "local" ? "Local Data" : "GitHub"}
+                    </div>
+                    {appMenuView === "local" ? (
+                      <>
+                        <button
+                          className="app-menu-item"
+                          type="button"
+                          role="menuitem"
+                          disabled={isBackupBusy}
+                          onClick={() => {
+                            setIsAppMenuOpen(false);
+                            void handleBackupAll();
+                          }}
+                        >
+                          <Archive aria-hidden="true" />
+                          <span className="app-menu-item-content">
+                            <span>
+                              {isBackupBusy
+                                ? "Creating Backup"
+                                : "Backup All Notes"}
+                            </span>
+                            <span className="backup-last-label">
+                              Last local backup
+                            </span>
+                            <span className="backup-last-value">
+                              {lastBackupAt
+                                ? formatBackupTimestamp(lastBackupAt)
+                                : "No backups yet"}
+                            </span>
+                          </span>
+                        </button>
+                        <button
+                          className="app-menu-item"
+                          type="button"
+                          role="menuitem"
+                          disabled={isImporting}
+                          onClick={() => {
+                            setIsAppMenuOpen(false);
+                            backupImportInputRef.current?.click();
+                          }}
+                        >
+                          <Upload aria-hidden="true" />
+                          {isImporting ? "Importing" : "Import Backup"}
+                        </button>
+                      </>
+                    ) : (
+                      <GitHubSection
+                        session={githubSession.session}
+                        isOnline={githubSession.isOnline}
+                        isSecondaryOrigin={
+                          cloudCapability.status === "enabled" &&
+                          cloudCapability.isSecondaryOrigin
+                        }
+                        notice={githubSession.notice}
+                        busyAction={githubSession.busyAction}
+                        cloudBackup={{
+                          discovery: cloudBackup.discovery,
+                          storedMetadata: cloudBackup.storedMetadata,
+                          notice: cloudBackup.notice,
+                          uploading: cloudBackup.uploading,
+                          restoring:
+                            cloudRestore.downloading ||
+                            cloudRestore.preparing ||
+                            cloudRestore.applying,
+                        }}
+                        onSignIn={handleGitHubSignIn}
+                        onRetry={() => void githubSession.retry()}
+                        onSignOut={() => void handleGitHubSignOut()}
+                        onDisconnect={handleGitHubDisconnect}
+                        onCloudBackup={handleCloudBackupStart}
+                        onCloudRestore={handleCloudRestoreStart}
+                        onCloudRetry={() =>
+                          void cloudBackup.discover(
+                            cloudBackup.storedMetadata?.gistId
+                          )
+                        }
+                      />
+                    )}
+                  </>
+                )}
               </div>
             ) : null}
             <input
@@ -3196,6 +3366,7 @@ function App() {
             + New Note
           </button>
           <button
+            ref={markdownImportButtonRef}
             className="markdown-import-button quiet-icon-button tooltip-button"
             type="button"
             aria-label="Import Markdown"
@@ -4224,10 +4395,12 @@ function App() {
       {operationDialog ? (
         <div className="modal-backdrop">
           <div
+            ref={operationDialogRef}
             className="result-dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="operation-result-title"
+            onKeyDown={handleOperationDialogKeyDown}
           >
             {operationDialog.kind === "backup" ? (
               <>
@@ -4298,9 +4471,10 @@ function App() {
             )}
             <div className="dialog-actions">
               <button
+                ref={operationDialogCloseButtonRef}
                 className="primary-button"
                 type="button"
-                onClick={() => setOperationDialog(null)}
+                onClick={closeOperationDialog}
               >
                 Close
               </button>

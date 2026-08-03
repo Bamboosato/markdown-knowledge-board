@@ -93,6 +93,10 @@ async function expectResultValue(dialog: Locator, label: string, value: string) 
 
 async function clickAppMenuItem(page: Page, name: string) {
   await page.getByRole("button", { name: "Open application menu" }).click();
+  await page
+    .getByRole("menu", { name: "Application menu" })
+    .getByRole("menuitem", { name: "Local Data", exact: true })
+    .click();
   await page.getByRole("menuitem", { name }).click();
 }
 
@@ -205,6 +209,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     expect(backup.notes[0].markdown).not.toContain("pinnedAt:");
     await page.getByRole("button", { name: "Close" }).click();
     await page.getByRole("button", { name: "Open application menu" }).click();
+    await page.getByRole("menuitem", { name: "Local Data", exact: true }).click();
     await expect(
       page.getByRole("menu", { name: "Application menu" }).locator(".backup-last-value")
     ).toHaveText(/^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}$/);
@@ -350,7 +355,8 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(editorStatus).not.toContainText("Backup");
     await page.getByRole("button", { name: "Open application menu" }).click();
     const menu = page.getByRole("menu", { name: "Application menu" });
-    await expect(menu.getByText("Local data")).toBeVisible();
+    await menu.getByRole("menuitem", { name: "Local Data", exact: true }).click();
+    await expect(menu.getByText("Local Data", { exact: true })).toBeVisible();
     await expect(menu.getByText("Last local backup")).toBeVisible();
     await expect(menu.getByText("No backups yet")).toBeVisible();
     await expect(menu).toHaveCSS("width", "280px");
@@ -365,6 +371,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     expect(backupIconBox).not.toBeNull();
     expect(backupTitleBox).not.toBeNull();
     expect(Math.abs(backupIconBox!.y - backupTitleBox!.y)).toBeLessThanOrEqual(3);
+    await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
 
     await page.getByRole("button", { name: /new note/i }).click();
@@ -417,6 +424,15 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     const menu = page.getByRole("menu", { name: "Application menu" });
     await expect(menu).toBeVisible();
     await expect(
+      menu.getByRole("menuitem", { name: "Local Data", exact: true })
+    ).toBeVisible();
+    await expect(
+      menu.getByRole("menuitem", { name: "Backup All Notes" })
+    ).toHaveCount(0);
+    await menu
+      .getByRole("menuitem", { name: "Local Data", exact: true })
+      .click();
+    await expect(
       menu.getByRole("menuitem", { name: "Backup All Notes" })
     ).toBeVisible();
     await expect(
@@ -424,6 +440,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     ).toBeVisible();
     await expect(menu.getByText("Import Markdown")).toHaveCount(0);
 
+    await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
     await expect(menu).toHaveCount(0);
     await expect(menuButton).toBeFocused();

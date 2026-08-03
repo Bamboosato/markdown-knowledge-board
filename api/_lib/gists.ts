@@ -88,14 +88,21 @@ function parsePositiveInteger(value: unknown): number | null {
     : null
 }
 
-function parseGist(value: unknown): ParsedGist {
+function revisionFromEtag(value: string | null): string | undefined {
+  if (!value) return undefined
+  const match = value.match(/^(?:W\/)?"([A-Fa-f0-9]{40,64})"$/)
+  return match?.[1]
+}
+
+function parseGist(value: unknown, responseRevision?: string): ParsedGist {
   if (!isRecord(value)) throw new GistApiError('invalid-response')
+  const description = value.description
   const owner = value.owner
   const files = value.files
   if (
     typeof value.id !== 'string' ||
     !isGistId(value.id) ||
-    (typeof value.description !== 'string' && value.description !== null) ||
+    (typeof description !== 'string' && description !== null) ||
     !isRecord(owner) ||
     !Number.isSafeInteger(owner.id) ||
     (owner.id as number) <= 0 ||
@@ -119,8 +126,8 @@ function parseGist(value: unknown): ParsedGist {
     throw new GistApiError('invalid-response')
   }
 
-  let revision: string | undefined
-  if (Array.isArray(value.history) && value.history.length > 0) {
+  let revision = responseRevision
+  if (!revision && Array.isArray(value.history) && value.history.length > 0) {
     const latest = value.history[0]
     if (
       !isRecord(latest) ||
@@ -166,7 +173,7 @@ function parseGist(value: unknown): ParsedGist {
 
   return {
     id: value.id,
-    description: value.description ?? '',
+    description: typeof description === 'string' ? description : '',
     ownerId: owner.id as number,
     updatedAt: new Date(value.updated_at).toISOString(),
     htmlUrl: htmlUrl.toString(),
@@ -280,7 +287,10 @@ export async function getGist(
     accessToken,
     options,
   )
-  return parseGist(await responseJson(response))
+  return parseGist(
+    await responseJson(response),
+    revisionFromEtag(response.headers.get('ETag')),
+  )
 }
 
 function nextPageFromLink(link: string | null, currentPage: number): number | null {

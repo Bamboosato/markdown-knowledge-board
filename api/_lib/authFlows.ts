@@ -128,7 +128,7 @@ function clearedAuthCookies(): string[] {
 
 function csrfFailure(request: Request, requestId: string): Response | null {
   const validation = validateStateChangingRequest(request)
-  if (validation.ok) return null
+  if (validation.ok === true) return null
   return apiError(
     403,
     validation.code,
@@ -145,7 +145,7 @@ export async function handleAuthStartRequest(
   const requestId = (dependencies.createRequestId ?? createRequestId)()
   const env = dependencies.env ?? process.env
   const gate = requireProductionCloudEnvironment(request, requestId, env)
-  if (!gate.ok) return gate.response
+  if (gate.ok === false) return gate.response
   if (request.method !== 'GET') return methodNotAllowed(['GET'], requestId)
 
   const url = new URL(request.url)
@@ -215,7 +215,7 @@ export async function handleAuthCallbackRequest(
   const requestId = (dependencies.createRequestId ?? createRequestId)()
   const env = dependencies.env ?? process.env
   const gate = requireProductionCloudEnvironment(request, requestId, env)
-  if (!gate.ok) return gate.response
+  if (gate.ok === false) return gate.response
   if (request.method !== 'GET') return methodNotAllowed(['GET'], requestId)
 
   const url = new URL(request.url)
@@ -296,7 +296,7 @@ export function handleSignOutRequest(
   const requestId = (dependencies.createRequestId ?? createRequestId)()
   const env = dependencies.env ?? process.env
   const gate = requireProductionCloudEnvironment(request, requestId, env)
-  if (!gate.ok) return gate.response
+  if (gate.ok === false) return gate.response
   if (request.method !== 'POST') return methodNotAllowed(['POST'], requestId)
   const failure = csrfFailure(request, requestId)
   if (failure) return failure
@@ -313,7 +313,7 @@ export async function handleDisconnectRequest(
   const requestId = (dependencies.createRequestId ?? createRequestId)()
   const env = dependencies.env ?? process.env
   const gate = requireProductionCloudEnvironment(request, requestId, env)
-  if (!gate.ok) return gate.response
+  if (gate.ok === false) return gate.response
   if (request.method !== 'POST') return methodNotAllowed(['POST'], requestId)
   const failure = csrfFailure(request, requestId)
   if (failure) return failure

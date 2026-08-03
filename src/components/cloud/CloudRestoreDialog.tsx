@@ -159,15 +159,18 @@ export function CloudRestoreDialog(props: CloudRestoreDialogProps) {
                   autoComplete="current-password"
                   value={passphrase}
                   disabled={busy}
+                  aria-describedby="cloud-restore-passphrase-help"
                   onChange={(event) => setPassphrase(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' && !busy) submitPassphrase()
                   }}
                 />
                 <button
-                  className="icon-button"
+                  className="icon-button tooltip-button"
                   type="button"
                   aria-label={showPassphrase ? 'Hide passphrase' : 'Show passphrase'}
+                  aria-pressed={showPassphrase}
+                  data-tooltip={showPassphrase ? 'Hide passphrase' : 'Show passphrase'}
                   disabled={busy}
                   onClick={() => setShowPassphrase((value) => !value)}
                 >
@@ -175,8 +178,8 @@ export function CloudRestoreDialog(props: CloudRestoreDialogProps) {
                 </button>
               </span>
             </label>
-            <div className="cloud-backup-help">At least 12 characters. The passphrase is not stored or sent.</div>
-            {capsLock ? <div className="cloud-backup-warning">Caps Lock is on.</div> : null}
+            <div id="cloud-restore-passphrase-help" className="cloud-backup-help">At least 12 characters. The passphrase is not stored or sent.</div>
+            {capsLock ? <div className="cloud-backup-warning" role="status">Caps Lock is on.</div> : null}
             {props.error ? <div className="cloud-backup-error" role="alert">{props.error}</div> : null}
             <div className="dialog-actions">
               <button className="primary-button" type="button" disabled={busy} onClick={submitPassphrase}>{busy ? 'Decrypting' : 'Decrypt Backup'}</button>

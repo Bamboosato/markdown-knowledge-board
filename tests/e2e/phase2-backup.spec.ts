@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { expectNoHorizontalOverflow } from './dialog-layout'
 
 const csrfToken = 'a'.repeat(43)
 const revisionA = 'a'.repeat(40)
@@ -50,9 +51,11 @@ async function stubSignedInSession(page: Page) {
   })
 }
 
-async function openApplicationMenu(page: Page) {
+async function openGitHubMenu(page: Page) {
   await page.getByRole('button', { name: 'Open application menu' }).click()
-  return page.getByRole('menu', { name: 'Application menu' })
+  const menu = page.getByRole('menu', { name: 'Application menu' })
+  await menu.getByRole('menuitem', { name: 'GitHub', exact: true }).click()
+  return menu
 }
 
 async function createDraft(page: Page, title: string, body: string) {
@@ -104,7 +107,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
 
     await page.goto('/?cloudTest=1')
     await createDraft(page, 'Private project note', 'Never send this plaintext')
-    const menu = await openApplicationMenu(page)
+  const menu = await openGitHubMenu(page)
     const backupItem = menu.getByRole('menuitem', { name: 'Cloud Backup' })
     await expect(backupItem).toBeEnabled()
     await backupItem.click()
@@ -115,11 +118,13 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await expect(saveDialog).toContainText(
       'Cloud backup uses the saved notes in this browser.',
     )
+    await expectNoHorizontalOverflow(saveDialog, 'backup save confirmation')
     await saveDialog.getByRole('button', { name: 'Save and Continue' }).click()
 
     const passphraseDialog = page.getByRole('dialog', {
       name: 'Encrypt Cloud Backup',
     })
+    await expectNoHorizontalOverflow(passphraseDialog, 'backup passphrase')
     await passphraseDialog.getByLabel('Passphrase', { exact: true }).fill('12345678901')
     await passphraseDialog.getByLabel('Confirm passphrase').fill('12345678901')
     await passphraseDialog.getByRole('button', { name: 'Encrypt and Back Up' }).click()
@@ -163,6 +168,146 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     expect(metadata).not.toContain('ghu_')
   })
 
+  test('refreshes stale none discovery and updates a backup created from another Origin', async ({
+    page,
+  }) => {
+    await stubSignedInSession(page)
+    let remoteExists = false
+    let discoveryCalls = 0
+    let createCalls = 0
+    let updateCalls = 0
+    let updateHeaders: Record<string, string> = {}
+    await page.route(/\/api\/cloud-backups(?:\/update)?(?:\?.*)?$/, async (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        discoveryCalls += 1
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: success(
+            remoteExists
+              ? { status: 'selected', backup: backupMetadata('a1', revisionB) }
+              : { status: 'none' },
+          ),
+        })
+        return
+      }
+      if (method === 'PUT') {
+        updateCalls += 1
+        updateHeaders = route.request().headers()
+        const encryptedSize = new TextEncoder().encode(
+          route.request().postData() ?? '',
+        ).byteLength
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: success({
+            ...backupMetadata('a1', revisionA),
+            encryptedSize,
+            sha256: 's'.repeat(43),
+          }),
+        })
+        return
+      }
+      createCalls += 1
+      await route.fulfill(
+        failure(
+          'GIST_SELECTION_REQUIRED',
+          'An existing cloud backup must be selected before uploading.',
+        ),
+      )
+    })
+
+    await page.goto('/?cloudTest=1')
+    await expect.poll(() => discoveryCalls).toBeGreaterThan(0)
+    const callsBeforeRemoteChange = discoveryCalls
+    remoteExists = true
+    await createDraft(page, 'URL1 note', 'Back up this Origin')
+    await page.getByRole('button', { name: /^Save$/ }).click()
+
+    const menu = await openGitHubMenu(page)
+    await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
+    await expect.poll(() => discoveryCalls).toBeGreaterThan(callsBeforeRemoteChange)
+    await submitPassphrase(page)
+
+    await expect(page.getByText('Encrypted cloud backup completed (1 notes).')).toBeVisible()
+    expect(createCalls).toBe(0)
+    expect(updateCalls).toBe(1)
+    expect(updateHeaders['x-mkb-expected-revision']).toBe(revisionB)
+  })
+
+  test('recovers without reloading when another Origin creates a backup during passphrase entry', async ({
+    page,
+  }) => {
+    await stubSignedInSession(page)
+    let remoteExists = false
+    let blockedCreateCalls = 0
+    let updateCalls = 0
+    await page.route(/\/api\/cloud-backups(?:\/update)?(?:\?.*)?$/, async (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: success(
+            remoteExists
+              ? { status: 'selected', backup: backupMetadata('a1', revisionB) }
+              : { status: 'none' },
+          ),
+        })
+        return
+      }
+      if (method === 'POST') {
+        blockedCreateCalls += 1
+        await route.fulfill(
+          failure(
+            'GIST_SELECTION_REQUIRED',
+            'An existing cloud backup must be selected before uploading.',
+          ),
+        )
+        return
+      }
+      updateCalls += 1
+      const encryptedSize = new TextEncoder().encode(
+        route.request().postData() ?? '',
+      ).byteLength
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: success({
+          ...backupMetadata('a1', revisionA),
+          encryptedSize,
+          sha256: 's'.repeat(43),
+        }),
+      })
+    })
+
+    await page.goto('/?cloudTest=1')
+    await createDraft(page, 'Concurrent URL1 note', 'Keep this local content')
+    await page.getByRole('button', { name: /^Save$/ }).click()
+    let menu = await openGitHubMenu(page)
+    await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
+    await expect(
+      page.getByRole('dialog', { name: 'Encrypt Cloud Backup' }),
+    ).toBeVisible()
+
+    remoteExists = true
+    await submitPassphrase(page)
+    const blockedDialog = page.getByRole('dialog', { name: 'Encrypt Cloud Backup' })
+    await expect(blockedDialog).toContainText(
+      'An existing cloud backup must be selected before uploading.',
+    )
+    await blockedDialog.getByRole('button', { name: 'Cancel' }).click()
+
+    menu = await openGitHubMenu(page)
+    await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
+    await submitPassphrase(page)
+
+    await expect(page.getByText('Encrypted cloud backup completed (1 notes).')).toBeVisible()
+    expect(blockedCreateCalls).toBe(1)
+    expect(updateCalls).toBe(1)
+  })
+
   test('requires a strong warning before replacing an existing backup with zero local notes', async ({
     page,
   }) => {
@@ -181,7 +326,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
       }
     })
     await page.goto('/?cloudTest=1')
-    const menu = await openApplicationMenu(page)
+    const menu = await openGitHubMenu(page)
     const backupItem = menu.getByRole('menuitem', { name: 'Cloud Backup' })
     await expect(backupItem).toBeEnabled()
     await backupItem.click()
@@ -192,6 +337,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await expect(warning).toContainText(
       'The existing cloud backup contains data. This action cannot be undone from this app.',
     )
+    await expectNoHorizontalOverflow(warning, 'empty backup warning')
     await warning.getByRole('button', { name: 'Cancel' }).click()
     expect(updateCalls).toBe(0)
   })
@@ -226,10 +372,11 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await page.goto('/?cloudTest=1')
     await createDraft(page, 'Saved candidate note', 'Candidate body')
     await page.getByRole('button', { name: /^Save$/ }).click()
-    const menu = await openApplicationMenu(page)
+    const menu = await openGitHubMenu(page)
     await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
 
     const selection = page.getByRole('dialog', { name: 'Select Cloud Backup' })
+    await expectNoHorizontalOverflow(selection, 'backup selection')
     const candidates = selection.locator('.cloud-backup-candidate')
     await expect(candidates).toHaveCount(2)
     expect(selectedGistId).toBeNull()
@@ -266,12 +413,13 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await page.goto('/?cloudTest=1')
     await createDraft(page, 'Conflict note', 'Keep local content')
     await page.getByRole('button', { name: /^Save$/ }).click()
-    const menu = await openApplicationMenu(page)
+    const menu = await openGitHubMenu(page)
     await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
     await submitPassphrase(page)
 
     const conflict = page.getByRole('dialog', { name: 'Cloud Backup Changed' })
     await expect(conflict).toContainText('It was not overwritten.')
+    await expectNoHorizontalOverflow(conflict, 'backup revision conflict')
     expect(updateCalls).toBe(1)
     await conflict.getByRole('button', { name: 'Replace Cloud Backup' }).click()
     await expect(page.getByRole('dialog', { name: 'Encrypt Cloud Backup' })).toBeVisible()

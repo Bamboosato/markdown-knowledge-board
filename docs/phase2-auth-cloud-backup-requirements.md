@@ -1,7 +1,7 @@
 # Markdown Knowledge Board フェーズ2 認証・クラウドバックアップ要件定義
 
 作成日: 2026-07-29
-状態: 合意済み方針を反映した初版
+状態: Production有効化・実OAuth／初回作成／更新／restore確認済み（最終修正反映中）
 
 ## 1. 文書の目的
 
@@ -11,7 +11,7 @@
 
 本書における「フェーズ2」は、認証・クラウドバックアップ導入計画上のフェーズ名である。既存文書に記載された UI/UX 改善の Phase 番号とは別の区分として扱う。
 
-> 実装状況（2026年8月3日時点）: PR1～PR7でローカル共通基盤、ブラウザ暗号化、Production API境界、任意GitHub認証、手動の暗号化Gistバックアップ、復号・差分preview・safe merge復元を実装した。Production有効化は未実施で、cloud feature flagは既定offを維持する。IndexedDBを正本とするローカル機能は引き続き利用できる。
+> 実装状況（2026年8月3日時点）: ローカル共通基盤、ブラウザ暗号化、Production API境界、任意GitHub認証、手動の暗号化Gistバックアップ、復号・差分preview・safe merge復元、offlineローカル継続、390×844、keyboard/focus、Chromium・Firefox・WebKit回帰、依存脆弱性解消を実装した。GitHub AppとProduction変数を設定してcloud feature flagをProductionだけで有効化し、両本番Originの実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認済みである。別OriginでGist状態が変わっても開始操作ごとに再検出する回帰を追加した。Preview／Developmentは秘密情報を持たないlocal-onlyを維持する。必須の最終残件は最新修正のProduction反映であり、4.5 MB実上限と実mobileは追加品質確認とする。
 
 ## 2. 採用方針サマリー
 
@@ -396,10 +396,12 @@ type EncryptedBackupEnvelope = {
 
 ### 9.1 配置
 
-- 認証とクラウド操作は既存 application menu 内に GitHub セクションとして追加する。
+- 既存 application menu の第1階層には `Local Data` と `GitHub` のカテゴリを表示し、選択したカテゴリの操作だけを同一 popover 内の第2階層へ表示する。
+- `Local Data` と `GitHub` の操作項目を同時に表示しない。
 - ログイン専用ルートや常設ログイン画面を追加しない。
-- 未ログイン時はローカルバックアップ操作と `Sign in with GitHub` を同じメニューから利用可能とする。
-- ログイン済み時は GitHub login とクラウド操作を表示する。
+- 未ログイン時も `Local Data` 階層からローカルバックアップ操作を、`GitHub` 階層から `Sign in with GitHub` を利用可能とする。
+- ログイン済み時は `GitHub` 階層に GitHub login とクラウド操作を表示する。
+- 第2階層の `Back to application menu` または Escape で第1階層へ戻り、遷移元カテゴリへ focus を戻す。第1階層での Escape はメニューを閉じ、application menu ボタンへ focus を戻す。
 - 処理中表示は既存ボタンまたはメニュー項目のラベルを置き換え、レイアウトシフトを発生させない。
 - mobile 幅でも操作が viewport 外へはみ出さず、メニュー内を必要に応じてスクロール可能にする。
 
@@ -430,7 +432,7 @@ type EncryptedBackupEnvelope = {
 - ローカル JSON バックアップ日時とクラウドバックアップ日時を別の状態として表示する。
 - 既存 `Backup All Notes` の日時はローカル JSON バックアップ日時として扱う。
 - クラウドの成功日時は Gist 更新成功後にだけ表示する。
-- 認証エラーとクラウドエラーは GitHub セクションまたは操作結果ダイアログに表示し、ローカル編集のグローバルエラーとして扱わない。
+- 認証エラーとクラウドエラーは `GitHub` 階層または操作結果ダイアログに表示し、ローカル編集のグローバルエラーとして扱わない。
 - 復元結果は閉じるまで確認可能なダイアログに表示する。
 - `conflicted` が1件以上ある場合は、競合ノートの title、ローカル更新日時、クラウド更新日時を表示する。
 - エラー表示には再試行、再認証、ローカル JSON バックアップなど、状態に対応する次の操作を提示する。
