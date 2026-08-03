@@ -28,6 +28,38 @@ async function createSavedNote(
   await expect(page.getByText("Status: Saved")).toBeVisible();
 }
 
+async function seedSavedNotes(
+  page: Page,
+  notes: Array<{
+    id: string;
+    title: string;
+    body: string;
+    tags: string[];
+    updatedAt: number;
+  }>
+) {
+  await page.goto("/");
+  await page.evaluate(async (items) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("markdown-knowledge-board", 1);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const transaction = db.transaction("notes", "readwrite");
+    const store = transaction.objectStore("notes");
+    for (const item of items) {
+      store.put(item);
+    }
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    db.close();
+  }, notes);
+  await page.reload();
+}
+
 async function dispatchFileDrag(
   page: Page,
   eventType: "dragenter" | "dragover" | "dragleave" | "drop",
@@ -150,6 +182,8 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
 
     await createSavedNote(page, "Phase 2 backup note", "# Phase 2\n\nBackup body");
     await page.getByRole("button", { name: "Notes" }).click();
+    await page.getByRole("button", { name: "Selected note actions" }).click();
+    await page.getByRole("menuitem", { name: "Pin to top" }).click();
 
     await clickAppMenuItem(page, "Backup All Notes");
     await expect(
@@ -167,6 +201,8 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     );
     expect(backup.noteCount).toBe(1);
     expect(backup.notes).toHaveLength(1);
+    expect(backup.notes[0].pinnedAt).toEqual(expect.any(Number));
+    expect(backup.notes[0].markdown).not.toContain("pinnedAt:");
     await page.getByRole("button", { name: "Close" }).click();
     await page.getByRole("button", { name: "Open application menu" }).click();
     await expect(
@@ -186,6 +222,124 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
       page.getByRole("dialog", { name: /Backup/ })
     ).toHaveCount(0);
     expect(await page.evaluate(() => localStorage.getItem("lastBackupAt"))).toBeNull();
+  });
+
+  test("pins notes in a stable group and restores pinned cards after delete Undo", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await seedSavedNotes(page, [
+      {
+        id: "older-note",
+        title: "Older note",
+        body: "# Older note",
+        tags: [],
+        updatedAt: 1000,
+      },
+      {
+        id: "middle-note",
+        title: "Middle note",
+        body: "# Middle note",
+        tags: [],
+        updatedAt: 2000,
+      },
+      {
+        id: "newest-note",
+        title: "Newest note",
+        body: "# Newest note",
+        tags: [],
+        updatedAt: 3000,
+      },
+    ]);
+
+    const cardTitles = page.locator(".note-item:not(.empty) .note-title");
+    await expect(cardTitles).toHaveText([
+      "Newest note",
+      "Middle note",
+      "Older note",
+    ]);
+
+    await page.getByRole("button", { name: "Open note: Older note" }).click();
+    await page.getByRole("button", { name: "Selected note actions" }).click();
+    const olderMenu = page.getByRole("menu", { name: "Actions for Older note" });
+    await expect(olderMenu.getByRole("menuitem")).toHaveText([
+      "Pin to top",
+      "Delete",
+    ]);
+    await olderMenu.getByRole("menuitem", { name: "Pin to top" }).click();
+    await expect(cardTitles).toHaveText([
+      "Older note",
+      "Newest note",
+      "Middle note",
+    ]);
+    await expect(
+      page.getByRole("button", { name: "Pinned note actions: Older note" })
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await page.getByLabel("Body").fill("# Older note\n\nUpdated while pinned");
+    await page.getByRole("button", { name: /^Save$/ }).click();
+    await expect(
+      page.getByRole("button", { name: "Pinned note actions: Older note" })
+    ).toBeVisible();
+    await expect(cardTitles).toHaveText([
+      "Older note",
+      "Newest note",
+      "Middle note",
+    ]);
+
+    await page.getByRole("button", { name: "Open note: Middle note" }).click();
+    await page.getByRole("button", { name: "Selected note actions" }).click();
+    await page.getByRole("menuitem", { name: "Pin to top" }).click();
+    await expect(cardTitles).toHaveText([
+      "Middle note",
+      "Older note",
+      "Newest note",
+    ]);
+
+    await page.getByRole("button", { name: "Open note: Newest note" }).click();
+    await page
+      .getByRole("button", { name: "Pinned note actions: Middle note" })
+      .click();
+    const middleMenu = page.getByRole("menu", { name: "Actions for Middle note" });
+    await expect(middleMenu.getByRole("menuitem")).toHaveText([
+      "Unpin",
+      "Delete",
+    ]);
+    await middleMenu.getByRole("menuitem", { name: "Unpin" }).click();
+    await expect(cardTitles).toHaveText([
+      "Older note",
+      "Newest note",
+      "Middle note",
+    ]);
+    await expect(
+      page.getByRole("button", { name: "Open note: Middle note" })
+    ).toBeFocused();
+
+    await page.reload();
+    await expect(cardTitles).toHaveText([
+      "Older note",
+      "Newest note",
+      "Middle note",
+    ]);
+    const olderPinButton = page.getByRole("button", {
+      name: "Pinned note actions: Older note",
+    });
+    await olderPinButton.click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    const deleteDialog = page.getByRole("dialog", { name: "Delete note?" });
+    await deleteDialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(olderPinButton).toBeFocused();
+
+    await olderPinButton.click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    await deleteDialog.getByRole("button", { name: "Delete Note" }).click();
+    await page.getByRole("button", { name: "Undo" }).click();
+    await expect(cardTitles).toHaveText([
+      "Older note",
+      "Newest note",
+      "Middle note",
+    ]);
+    await expect(olderPinButton).toBeVisible();
   });
 
   test("shows the latest backup information inside the application menu", async ({ page }) => {
@@ -1302,6 +1456,128 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
       "true"
     );
     await expect(page.getByRole("button", { name: "Notes" })).toBeVisible();
+  });
+
+  test("reveals an offscreen linked note card on desktop and after returning to mobile Notes", async ({
+    page,
+  }) => {
+    const fillerNotes = Array.from({ length: 18 }, (_, index) => ({
+      id: `filler-${index}`,
+      title: `Filler note ${index + 1}`,
+      body: `# Filler note ${index + 1}`,
+      tags: [],
+      updatedAt: 100 + index,
+    }));
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await seedSavedNotes(page, [
+      {
+        id: "scroll-target",
+        title: "Scroll target",
+        body: "# Scroll target preview",
+        tags: [],
+        updatedAt: 1,
+      },
+      ...fillerNotes,
+      {
+        id: "scroll-source",
+        title: "Scroll source",
+        body: "[Open target](./Scroll%20target.md)",
+        tags: [],
+        updatedAt: 1000,
+      },
+    ]);
+
+    const noteList = page.locator(".note-list");
+    const targetCard = page.getByRole("button", {
+      name: "Open note: Scroll target",
+    });
+    await page.getByRole("button", { name: "Open note: Scroll source" }).click();
+    await expect(noteList).toHaveJSProperty("scrollTop", 0);
+    await page.getByRole("link", { name: "Open target" }).click();
+    await expect(targetCard).toHaveAttribute("aria-current", "true");
+    await expect
+      .poll(async () =>
+        noteList.evaluate((list, targetId) => {
+          const target = Array.from(
+            list.querySelectorAll<HTMLElement>(".note-card-select")
+          ).find((button) => button.dataset.noteId === targetId);
+          if (!target) {
+            return { visible: false, scrollTop: list.scrollTop };
+          }
+          const listRect = list.getBoundingClientRect();
+          const targetRect = target.closest(".note-item")!.getBoundingClientRect();
+          return {
+            visible:
+              targetRect.top >= listRect.top - 1 &&
+              targetRect.bottom <= listRect.bottom + 1,
+            scrollTop: list.scrollTop,
+          };
+        }, "scroll-target")
+      )
+      .toMatchObject({ visible: true });
+    expect(await noteList.evaluate((list) => list.scrollTop)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await page.getByRole("button", { name: "Open note: Scroll source" }).click();
+    await page.getByRole("link", { name: "Open target" }).click();
+    await expect(page.locator(".sidebar")).toBeHidden();
+    await page.getByRole("button", { name: "Notes" }).click();
+    await expect
+      .poll(async () =>
+        noteList.evaluate((list, targetId) => {
+          const target = Array.from(
+            list.querySelectorAll<HTMLElement>(".note-card-select")
+          ).find((button) => button.dataset.noteId === targetId);
+          if (!target) {
+            return false;
+          }
+          const listRect = list.getBoundingClientRect();
+          const targetRect = target.closest(".note-item")!.getBoundingClientRect();
+          return (
+            targetRect.top >= listRect.top - 1 &&
+            targetRect.bottom <= listRect.bottom + 1
+          );
+        }, "scroll-target")
+      )
+      .toBe(true);
+    expect(await noteList.evaluate((list) => list.scrollTop)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  });
+
+  test("keeps filters when a linked note card is hidden and reveals it after Clear", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await createSavedNote(page, "Filtered target", "# Filtered target preview");
+    await createSavedNote(
+      page,
+      "Filtered source",
+      "[Open filtered target](./Filtered%20target.md)"
+    );
+
+    await page.getByRole("button", { name: "Filter", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Filter notes" });
+    await dialog.getByRole("searchbox", { name: "Search" }).fill("source");
+    await dialog.getByRole("button", { name: "Apply Filters" }).click();
+    await page.getByRole("button", { name: "Preview" }).click();
+    await page.getByRole("link", { name: "Open filtered target" }).click();
+
+    await expect(page.getByRole("status")).toHaveText(
+      "Linked note is hidden by the current filter: Filtered target"
+    );
+    await expect(page.locator(".note-count")).toHaveText("(1 of 2)");
+    await expect(
+      page.getByRole("button", { name: "Open note: Filtered target" })
+    ).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Clear", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Open note: Filtered target" })
+    ).toHaveAttribute("aria-current", "true");
+    await expect(page.getByRole("status")).toHaveCount(0);
   });
 
   test("keeps the current preview when a note link is missing or ambiguous", async ({

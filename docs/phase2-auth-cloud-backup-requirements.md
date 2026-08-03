@@ -313,6 +313,7 @@ type BackupDocument = {
     title: string;
     tags: string[];
     updatedAt: number;
+    pinnedAt?: number;
     markdown: string;
   }>;
 };
@@ -320,6 +321,7 @@ type BackupDocument = {
 
 - `noteCount` は `notes.length` と一致しなければならない。
 - `id` はバックアップ内で一意でなければならない。
+- `pinnedAt` は固定済みノートだけが持つ任意属性とし、指定する場合はfiniteかつ0以上のnumberでなければならない。未指定は未固定として扱う。
 - `markdown` の parse 結果とメタデータが矛盾する場合は、既存 JSON インポート仕様と同じ優先順位を適用する。
 - 将来の拡張に備え、未知の `version` を推測して復元しない。
 

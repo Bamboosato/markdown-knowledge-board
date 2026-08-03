@@ -249,7 +249,7 @@
   text-align: left;
 }
 
-.note-item.active .note-card-select {
+.note-item.has-card-action .note-card-select {
   padding-right: 48px;
 }
 
@@ -287,6 +287,11 @@
   width: 18px;
   height: 18px;
   stroke-width: 2;
+}
+
+.note-card-menu-trigger.is-pinned svg {
+  fill: currentColor;
+  fill-opacity: 0.14;
 }
 
 .inline-action {
@@ -1279,6 +1284,11 @@
 .actions-menu-item:hover,
 .actions-menu-item:focus-visible {
   background: #f1f1f1;
+}
+
+.actions-menu-item:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .actions-menu-separator {

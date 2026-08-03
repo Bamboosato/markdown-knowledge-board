@@ -89,6 +89,7 @@ export type Note = {
   body: string;
   tags: string[];
   updatedAt: number;
+  pinnedAt?: number;
   marp?: MarpSettings;
   customMetadata?: Array<{ key: string; value: FrontmatterValue }>;
 };
@@ -103,6 +104,7 @@ export type Note = {
 | `body` | `string` | Markdown 本文。 |
 | `tags` | `string[]` | ノートに紐づくタグ。重複判定は小文字化した値で行う。 |
 | `updatedAt` | `number` | 更新日時。Unix epoch milliseconds。 |
+| `pinnedAt` | `number`（任意） | 一覧上部へ固定した日時。Unix epoch milliseconds。未指定は未固定。本文の更新日時およびdirty状態とは独立して扱う。 |
 | `marp` | `MarpSettings`（任意） | Slides表示とExportに使用するMarp metadata。 |
 | `customMetadata` | `{ key: string; value: FrontmatterValue }[]`（任意） | 標準属性以外の安全な任意frontmatter属性。Bodyとは分離し、Export順を維持して保持する。 |
 
@@ -167,12 +169,13 @@ sidebar には以下を配置する。
   - ノートカードと縦スクロールバーの間に8pxの余白を設け、スクロールバーの有無でカード幅が変わらないようscrollbar gutterを確保する。スクロールバーとSidebar右外枠またはmobile画面右端の間隔は4pxとし、固定化前と同程度のコンパクトさを維持する。
   - desktopとmobileのNotes画面はいずれもカード一覧を単一の縦スクロール領域とし、documentまたはSidebar全体との二重スクロールを発生させない。
   - FilterのApplyまたは適用済み条件のClearで一覧内容が変わる場合は、カード一覧を先頭へ戻す。
-  - mobileでノートを開いてNotes画面へ戻る場合は、Filter条件とカード一覧のスクロール位置を維持する。
+  - mobileで通常のカード選択からNotes画面へ戻る場合は、Filter条件とカード一覧のスクロール位置を維持する。Preview内のノートリンクで切り替えた場合だけ、Notesへ戻った描画後にリンク先カードが見える位置へ移動する。
   - 各ノートカードはタイトル、タグ、更新日時の順で表示する。タイトルは1行固定とし、カード幅を超える場合は末尾を省略表示する。
-  - 選択中のノートカードだけ、右上に `MoreVertical` の縦3点ボタンを常時表示する。未選択カードには表示せず、desktopのhover有無とtouch端末の差に依存しない導線とする。通常時のボタンは枠線と背景を透明にし、hover、keyboard focus、メニュー展開中だけ枠線と薄い背景色を表示する。
-  - 縦3点ボタンには、選択中カードだけに存在しEditor headerの `More actions` と区別できる `Selected note actions` のaccessible name、`aria-haspopup="menu"`、開閉状態を表す `aria-expanded` を設定する。開いたメニューのaccessible nameには対象タイトルを含める。カード本体と縦3点ボタンは独立したbuttonとし、メニュー操作でカード選択を再実行しない。
-  - 縦3点ボタンから対象カード用メニューを表示し、赤い `Trash2` アイコン付きの `Delete` のみを配置する。メニューは画面内に収まるよう左右位置を補正し、下側の空きが不足する場合はボタンの上側へ表示する。
-  - カード用メニューは項目選択、外側クリック、Escape、カード一覧のスクロール、画面サイズ変更、選択ノートまたはFilter条件の変更で閉じる。Escapeでは縦3点ボタンへフォーカスを戻す。
+  - 未固定カードでは、選択中のカードだけ右上に `MoreVertical` の縦3点ボタンを常時表示する。未選択かつ未固定のカードには表示せず、desktopのhover有無とtouch端末の差に依存しない導線とする。
+  - 固定済みカードでは、選択状態に関係なく縦3点と同じ位置に `Pin` ボタンを常時表示する。固定済みの選択カードも縦3点ではなく `Pin` を表示する。いずれのボタンも通常時は枠線と背景を透明にし、hover、keyboard focus、メニュー展開中だけ枠線と薄い背景色を表示する。
+  - 未固定カードの縦3点ボタンは `Selected note actions`、固定済みカードのピンボタンは対象タイトルを含む `Pinned note actions: {title}` をaccessible nameとする。両方に `aria-haspopup="menu"` と開閉状態を表す `aria-expanded` を設定し、開いたメニューのaccessible nameには対象タイトルを含める。カード本体とメニューボタンは独立したbuttonとし、メニュー操作でカード選択を再実行しない。
+  - 未固定カードのメニューは `Pin to top`、区切り線、赤い `Trash2` アイコン付きの `Delete` の順とする。固定済みカードのメニューは `Unpin`、区切り線、`Delete` の順とする。メニューは画面内に収まるよう左右位置を補正し、下側の空きが不足する場合はボタンの上側へ表示する。
+  - カード用メニューは項目選択、外側クリック、Escape、カード一覧のスクロール、画面サイズ変更、対象カードがFilter結果から外れた場合に閉じる。Escapeでは開いたメニューボタンへフォーカスを戻す。未選択の固定カードをUnpinしてボタン自体が消える場合は、同じカード本体へフォーカスを戻す。
   - タグがある場合は、角丸 `4px` のバッジとして1行固定で表示する。長いタグ名はバッジ内で末尾を省略し、タグ行全体がカード幅を超えた分は表示領域外へはみ出さない。タグがない場合はタグ行を表示しない。
   - 省略前のタイトルとタグは、それぞれ `title` 属性で確認できるようにする。
   - ノート自体が 0 件の場合は `No notes yet.` を表示する。
@@ -304,6 +307,10 @@ editor header には以下を配置する。
   - 相対パスの `.md` / `.markdown` リンクを押すと、リンク先ファイル名から拡張子を除いた文字列とタイトルが完全一致する保存済みノートを検索し、そのノートのPreview先頭へ移動する。URL queryとfragmentはタイトル照合に使用しない。
   - 対象ノートがない場合は `Note not found: {title}`、同名ノートが複数ある場合は `Multiple notes found: {title}` と通知し、画面遷移しない。外部URL、絶対パス、ページ内リンク、対象外拡張子は通常リンクとして扱う。
   - リンク元に未保存変更がある場合は既存の未保存確認を表示し、SaveまたはDiscardの完了後のみ移動する。Cancelではリンク元のPreviewを維持する。現在のFilter条件は変更しない。
+  - リンク切替が成功した場合はリンク先ノートIDを一時保持し、カード描画後にリンク先カードが一覧の表示範囲へ入るよう `.note-list` だけを最小距離でスクロールする。対象カードがすでに完全表示されている場合はスクロール位置を変更しない。document、Sidebar全体、editor、keyboard focusは移動しない。
+  - desktopはリンク切替後に即時実行する。mobileはEditor表示中のSidebarが非表示であるため、リンク先IDを維持し、利用者が `Notes` へ戻った後に実行する。通常のカード選択やNew Noteへ移動した場合は保留中のリンク先IDを破棄する。
+  - 通常はsmooth scrollとし、`prefers-reduced-motion: reduce` では即時移動する。該当なし、同名複数、未保存確認Cancelではリンク先IDを設定せず、一覧をスクロールしない。
+  - リンク先が現在のFilter条件に一致せずカードが描画されていない場合はFilterを自動解除せず、`Linked note is hidden by the current filter: {title}` と通知する。リンク先IDは保持し、Filter解除または条件変更でカードが表示された時点で自動スクロールして保留状態と通知を解除する。
   - editor tab row右端に、H1〜H3を文書順に抽出する `Table of contents` アイコンボタンを表示する。見出しがない場合はdisabledとし、Tooltipを `No headings` とする。EditとSlidesでは表示しない。
   - Table of contentsボタンは通常時およびdisabled時の枠線と背景を透明にし、hover、keyboard focus、目次展開中だけ枠線と薄い背景色を表示する。
   - TOCは本文領域を狭めないカード型ポップオーバーとし、見出しlevelに応じてH1、H2、H3をインデントする。最大高は320pxとし、超過分はポップオーバー内でスクロールする。
@@ -343,7 +350,7 @@ Previewはモノクロ基調を維持し、リンクとkeyboard focusだけに�
 ### 7.1 初期表示
 
 1. IndexedDB から全ノートを取得する。
-2. `updatedAt` の降順で `notes` に保持する。
+2. 固定済みノートを `pinnedAt` 降順、その後に未固定ノートを `updatedAt` 降順で `notes` に保持する。同値の場合は `updatedAt` 降順、`id` 昇順を使用して決定的に並べる。
 3. IndexedDB 初期化エラーがあれば `dbError` に反映する。
 4. `localStorage.lastBackupAt` を確認し、アプリメニューの `Backup All Notes` の下に `Last backup` と分単位の日時を2段で表示する。未実施時は `No backups yet` と表示する。
 5. Backup項目のアイコンは複数行全体の中央ではなくタイトル行の上端へ揃え、メニュー項目間はコンパクトな余白を維持する。
@@ -368,6 +375,18 @@ Previewはモノクロ基調を維持し、リンクとkeyboard focusだけに�
 2. OK の場合は現在の draft を保存する。
 3. Cancel の場合は選択処理を中断する。
 4. 対象ノートを選択し、draft state を対象ノートの内容でリセットする。
+
+### 7.3.1 ノート固定
+
+カードメニューの `Pin to top` / `Unpin` は、ノート本文の編集とは独立した一覧整理操作とする。
+
+1. `Pin to top` では対象ノートの `pinnedAt` に現在時刻を設定し、IndexedDBへ保存する。
+2. 保存成功後、対象を固定グループの先頭へ移動する。複数の固定カードは `pinnedAt` の降順とし、固定後に本文を保存しても固定グループ内の位置を変更しない。
+3. `Unpin` では `pinnedAt` を削除してIndexedDBへ保存し、未固定グループの `updatedAt` に基づく位置へ戻す。
+4. Pin／Unpinだけでは `updatedAt`、editor draft、`isDirty`、選択状態、Filter条件を変更しない。
+5. Filter中は条件に一致する固定カードだけを結果の上部へ表示する。固定カードをFilter条件に関係なく強制表示しない。
+6. Pin／UnpinのDB保存中は同じカードメニューの操作を無効化する。失敗した場合は一覧と固定状態を変更せず、IndexedDBエラーを表示して再試行可能にする。
+7. 一覧上部への固定は並び順の固定であり、カード一覧をスクロールした際にviewport上端へ追従するsticky表示にはしない。
 
 ### 7.4 編集
 
@@ -399,7 +418,7 @@ Title、Tags、Body、Markdown toolbar の操作により draft state を更新�
 3. title が空の場合は `Untitled` とする。
 4. `selectedId` があれば同じ ID で保存し、なければ新しい ID を作成する。
 5. `saveNote(note)` で IndexedDB に保存する。
-6. `notes` を対象ノートで更新し、`updatedAt` 降順に並べる。
+6. 既存ノートの `pinnedAt` を維持して `notes` を対象ノートで更新し、固定グループと未固定グループの共通順序で並べる。
 7. `selectedId` を保存したノート ID にする。
 8. `isDirty = false` にする。
 9. `draftTags` を保存後タグに更新し、`tagInput` を空にする。
@@ -438,19 +457,19 @@ Title、Tags、Body、Markdown toolbar の操作により draft state を更新�
 
 ### 7.8 削除
 
-Editor headerまたは選択中カードの `Delete` を押すと以下を行う。
+Editor header、選択中カードの縦3点メニュー、または固定済みカードのピンメニューから `Delete` を押すと以下を行う。
 
 - ブラウザ標準の確認ダイアログは使用せず、対象ノート名、`Cancel`、`Delete Note` を含むアプリ内 modal dialog を表示する。
 - 削除要求では表示中の選択状態から対象を再推測せず、要求時点の対象ノートIDとdraft snapshotを保持する。これにより別ノートの誤削除を防ぐ。
 - 選択中ノートに未保存変更または未確定タグ入力がある場合は、現在のdraft snapshotを確認表示とUndo復元対象に使用する。
-- `Cancel`、背景クリック、Escでは削除せずに閉じる。Editor headerから開いた場合はheaderのMore actions、カードから開いた場合はカードの縦3点ボタンへフォーカスを戻す。
+- `Cancel`、背景クリック、Escでは削除せずに閉じる。Editor headerから開いた場合はheaderのMore actions、カードから開いた場合は対象カードの縦3点またはピンボタンへフォーカスを戻す。
 - `Delete Note` で削除を確定し、既存のUndo可能時間を開始する。
 
 1. 選択中ノートまたは未保存draftがなければ何もしない。
 2. 対象ノート名を含む確認modalを表示する。
 3. `Delete Note` の場合は `notes` から対象IDだけを取り除き、対象が選択中なら選択状態とdraft stateをリセットする。
 4. `Note deleted` 通知と `Undo` 操作を8秒間表示する。
-5. Undoした場合は対象ノートを元の一覧位置へ復元し、削除時に選択中だった場合だけエディタへ再表示する。別ノートの編集中に影響を与えない。
+5. Undoした場合は対象ノートを `pinnedAt` を含むsnapshotと元の一覧位置へ復元し、削除時に選択中だった場合だけエディタへ再表示する。別ノートの編集中に影響を与えない。
 6. Undo期限を過ぎた場合はIndexedDBから対象IDの削除を確定する。
 7. Undo待機中に別の削除を確定する場合は、先の削除をIndexedDBへ確定してから次のUndo期間を開始する。
 
@@ -468,12 +487,13 @@ Sidebar の `Import Markdown` から複数の `.md`、`.markdown`、`.txt` フ�
 6. body は frontmatter 除去後の本文を使う。frontmatter がなければファイル全文を使う。
 7. tags は frontmatter の `tags` が文字列配列の場合のみ復元する。
 8. updatedAt は frontmatter の `updatedAt` を number または parse 可能な date string として復元する。なければ現在時刻。
-9. 対応済みの標準属性とMarp属性を除いた未知属性は、安全な値型であればCustom metadataとして復元する。
+9. JSONバックアップの `pinnedAt` はfiniteかつ0以上のnumberの場合だけ復元する。Markdown／text importで既存ノートを更新する場合は既存の固定状態を維持し、新規Markdown／text importは未固定とする。
+10. 対応済みの標準属性とMarp属性を除いた未知属性は、安全な値型であればCustom metadataとして復元する。
    - frontmatter内の出現順を維持し、string、number、boolean、null、sequence、mappingの型を保持する。
-10. 重複判定は `id` を優先し、次に現行データモデルで扱える `title + updatedAt` の一致を見る。
-11. 同一内容なら skipped、差分があれば updated、重複がなければ added として IndexedDB に保存する。
-12. import 結果ダイアログで added / updated / skipped / failed を表示する。
-13. 失敗したファイルはファイル名と理由を表示し、成功分は保存する。
+11. 重複判定は `id` を優先し、次に現行データモデルで扱える `title + updatedAt` の一致を見る。
+12. 同一内容と固定状態なら skipped、差分があれば updated、重複がなければ added として IndexedDB に保存する。
+13. import 結果ダイアログで added / updated / skipped / failed を表示する。
+14. 失敗したファイルはファイル名と理由を表示し、成功分は保存する。
 
 ### 7.10 エクスポート
 
@@ -510,6 +530,7 @@ frontmatterはMetadata dialogと共通のcanonical order（`id`、`title`、`tag
   - `title`
   - `tags`
   - `updatedAt`
+  - `pinnedAt`: 固定済みの場合のみUnix epoch millisecondsを出力する。Markdown frontmatterには含めない。
   - `customMetadata`
   - `markdown`: Markdown export と同じ frontmatter 付き本文
 
@@ -755,8 +776,10 @@ Metadata dialogとExportは、標準属性、Marp属性、Custom metadataをcano
 | `operationDialog` | Backup / Import 結果ダイアログ。Backup は `complete` / `ready` を持つ |
 | `isBackupBusy` | Backup 処理中 |
 | `isImporting` | Import 処理中 |
-| `openNoteCardMenuId` | 選択中カードのDeleteメニューを開いているノートID。閉じている場合は `null`。 |
+| `openNoteCardMenuId` | 選択中カードまたは固定済みカードのPin／Unpin／Deleteメニューを開いているノートID。閉じている場合は `null`。 |
 | `noteCardMenuPosition` | viewport内へ補正したカード用メニューの `top` / `left`。 |
+| `noteCardActionBusyId` | Pin／UnpinをIndexedDBへ保存中のノートID。処理中でない場合は `null`。 |
+| `pendingNoteListRevealId` | Preview内リンクによる切替後、一覧内で表示待ちのリンク先ノートID。表示完了、通常カード選択、New Note、対象削除で `null` に戻す。 |
 | `deleteConfirmation` | 削除確認対象のsnapshotと、Cancel／Escape時のフォーカス復帰先。 |
 | `revertConfirmation` | Revert確認対象。保存済みノートまたは新規draftの初期状態を識別し、modal表示中に対象を固定する。 |
 | `pendingDelete` | 対象snapshot、元の一覧位置、選択／draft状態を含むUndo可能な削除対象。 |
@@ -791,6 +814,10 @@ YAML parse エラー、空ファイル、非対応拡張子、バックアップ
 
 Backup は単一 JSON を作成する。File System Access API で保存完了を検知できる場合は `Backup Complete`、ユーザーキャンセルは通知なし、検知できない download fallback は `Backup Ready` を表示する。
 `Backup Ready` は保存完了を保証せず、ブラウザの保存プロンプト確認が必要であることを示す。
+
+### 10.5 Pin／Unpin保存失敗
+
+Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、選択状態、draftを変更しない。対象メニューの処理中状態を解除し、既存のIndexedDBエラー表示へ理由を表示する。同じ操作を再実行できる状態を維持する。
 
 ## 11. レスポンシブ仕様
 
@@ -827,7 +854,8 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 ### 13.1 機能観点
 
 - ノート作成、保存、選択、削除ができること。
-- 選択中カードだけに縦3点ボタンが表示され、Delete、確認、Cancel、Undoが一連で動作すること。
+- 未固定の選択中カードだけに縦3点、固定済みカードには選択状態を問わずピンボタンが表示され、Pin to top、Unpin、Delete、確認、Cancel、Undoが一連で動作すること。
+- 複数カードの固定順、固定後の本文保存、Filter適用、再読み込みで固定グループと固定状態が維持されること。
 - カード用メニュー表示中にEscape、外側クリック、一覧スクロール、画面サイズ変更、選択／Filter変更を行うと安全に閉じること。
 - `Ctrl+S` / `Command+S` で保存でき、`Alt+N` で新規ノートを作成できること。
 - Save / New Note の Tooltip に実行環境に応じたショートカット表記が表示されること。
@@ -836,6 +864,8 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 - FilterのApply／Clear後にカード一覧が先頭へ戻り、ノートを開いてNotesへ戻った場合は以前のスクロール位置が復元されること。
 - Markdown import/export が frontmatter を含めて動作すること。
 - EditのBodyまたはPreviewへMarkdown／textファイルをドロップすると、いずれもImport Markdownと同じ結果になり、未保存確認をCancelした場合は取込と編集中データの変更が発生しないこと。
+- Preview内リンクで一覧外のノートへ切り替えた場合、desktopでは切替後、mobileではNotesへ戻った後に対象カードが一覧の表示範囲へ入ること。すでに見えている場合、リンク不成立、未保存確認Cancelでは一覧位置が変わらないこと。
+- Preview内リンク先がFilter対象外の場合はFilterと保留IDを維持して通知し、Filter解除後に対象カードへ移動すること。
 - More actionsからMetadata dialogを開き、Exportと同じ順序でread-only属性とCustom metadataを参照できること。
 - Custom fieldの追加・変更・削除、Apply／Cancel、メインSave／Revert、Import／Export／Backup roundtripが動作すること。
 - Preview で Markdown と GFM task list が表示されること。
@@ -853,16 +883,20 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 - 長文やMermaidを含む保存済みノートをPreviewで開いても、タブ切替と基本操作が継続できること。
 - 多数または長いCustom metadataでもdialog内部スクロール、validation、Apply／Cancel操作を継続できること。
 - カード用メニューを短時間に繰り返し開閉しても複数表示や対象IDの競合が起きないこと。
+- Pin／Unpin保存中の連打やDeleteとの競合を抑止し、IndexedDB失敗時に見た目だけ固定／解除された状態を残さないこと。
+- 大量ノートでPreviewリンクを連続操作してもdocumentやeditorを誤ってスクロールせず、最後に成功したリンク先だけをreveal対象にすること。smooth scroll中もカード選択やNotesへの切替を阻害しないこと。
 
 ### 13.3 データ観点
 
-- `Note` の `id`, `title`, `body`, `tags`, `updatedAt`, Custom metadata が欠けないこと。
+- `Note` の `id`, `title`, `body`, `tags`, `updatedAt`, `pinnedAt`, Custom metadata が欠けないこと。
+- 既存の `pinnedAt` がないノートは未固定として読み込め、JSON Backup／ImportとDelete／Undoでは固定状態をroundtripでき、Markdown Import／Exportでは固定状態をfrontmatterへ混入させないこと。
 - frontmatter の invalid data を誤って採用しないこと。
 - 予約属性と危険なkeyをCustom metadataとして採用せず、未知の安全な属性はroundtripで保持すること。
 - 同名タグ、大小文字違いタグの重複扱いが一貫すること。
 - import/export 後に Markdown 本文が意図せず変形しないこと。
 - Previewへのファイルドロップは表示中ノートの本文を挿入・置換せず、対応ファイルから追加または更新されたノートだけを保存すること。
 - Preview優先表示およびタブ切替だけでは本文、metadata、dirty状態、保存データが変化しないこと。
+- Previewリンクによる一覧スクロールと保留IDは表示状態だけに作用し、ノート順、Filter条件、本文、metadata、dirty状態、IndexedDBを変更しないこと。
 - カードからの削除で対象ID以外のノート、未保存編集、Filter条件を変更せず、Undo時は元の一覧位置へ復元すること。
 - Revert確認のCancel経路ではtitle、body、tags、Custom metadata、Marp設定、未確定タグ入力が失われず、確定時だけ保存済みまたは初期draftの値へ戻ること。
 
@@ -871,11 +905,13 @@ Backup は単一 JSON を作成する。File System Access API で保存完了�
 - desktop と mobile で主要操作に到達できること。
 - Application menu、Import Markdown、Revert changes、More actions、Table of contentsは通常時／disabled時に枠線と背景が透明で、hover、keyboard focus、展開中は枠線と薄い背景を表示し、クリック領域とTooltipを維持すること。
 - desktop、390px、320pxで選択中カードの縦3点ボタンがタイトルと重ならず、先頭／末尾カードのメニューがviewport外またはスクロール領域の背後へ切れないこと。
+- desktop、390px、320pxで固定済みカードのピンボタンが常時表示され、未選択の固定カードからもUnpin／Deleteへ到達できること。Unpinでボタンが消える場合は同じカード本体へフォーカスが移ること。
 - desktop、390px、320pxでSidebar固定領域が消えず、カード一覧とdocumentの二重スクロールおよび横あふれが発生しないこと。
 - desktop、390px、320pxでノート見出しが `NOTES (n)` または `NOTES (filtered of total)` の1行表示を維持し、Filter／Clearと重ならないこと。
 - desktopとmobileでノートカードとスクロールバーの間隔が8px、スクロールバーと右外枠の間隔が4px確保されること。Sidebar、Editor、固定ヘッダーの左右外周余白がdesktopでは16px、mobileでは12pxとなり、Preview／Edit／SlidesおよびEdit拡大時に一貫すること。
 - desktop と mobile の両方でタブがPreview、Edit、Slidesの順に表示され、選択状態とキーボードのフォーカス移動順が一致すること。
 - PCのEdit／Previewでファイルをドラッグ中は同じImport案内を表示し、dragleave、drop、Import処理終了後に強調表示が残らないこと。
+- desktopではPreviewリンク先カードがSidebarのスクロール領域内へ最小距離で現れ、mobileではEditor表示中にdocumentを動かさず、Notesへ戻った時だけ同じカードが見えること。reduced motion時はsmooth animationを使用しないこと。
 - Metadata追加前後で既存Edit画面のTitle、Tags、Body配置が変わらないこと。
 - PCとmobileでMetadata dialogのread-only属性、Custom row、内部scroll、footer、focus管理へ到達できること。
 - Dialogの項目順が実際のExport frontmatterと一致すること。

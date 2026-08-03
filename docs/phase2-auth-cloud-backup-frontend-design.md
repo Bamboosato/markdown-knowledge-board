@@ -202,7 +202,7 @@ type CloudBackupState =
 1. signed-in、online、operation idle を確認する。
 2. 未保存なら `Save and Continue` / `Cancel` を表示する。
 3. `getAllNotes()` で IndexedDB から最新 snapshot を再取得する。
-4. title/id の順ではなく `updatedAt desc, id asc` で決定的に並べる。
+4. 固定済みは `pinnedAt desc, updatedAt desc, id asc`、未固定は `updatedAt desc, id asc` で決定的に並べる。
 5. `createBackupDocument(notes, nowIso)` と strict validation を実行する。
 6. passphrase と確認入力を受け付ける。
 7. browser 内で envelope を生成し UTF-8 bytes 化する。
@@ -292,10 +292,11 @@ download responseは最大4,500,000 bytesとし、client側でも読み込み後
 - object、`app === "markdown-knowledge-board"`、`version === 1`
 - `createdAt` が有効な ISO 8601 UTC
 - `noteCount` が non-negative integer で `notes.length` と一致
-- `notes` の各 item が `id`、`title`、`tags`、`updatedAt`、`markdown` を持つ
+- `notes` の各 item が `id`、`title`、`tags`、`updatedAt`、`markdown` を持ち、任意の `pinnedAt` 以外は許可済みschemaに従う
 - `id` が空でなく重複しない
 - `title` と `markdown` が string、`tags` が string array
 - `updatedAt` が finite non-negative integer
+- `pinnedAt` が存在する場合は finite non-negative integer
 - Markdown/frontmatter parse 後の ID が wrapper ID と矛盾しない
 - JSON 全体が暗号化後サイズ上限から合理的に導ける範囲
 
@@ -311,12 +312,14 @@ type ComparableNote = {
   title: string;
   body: string;
   tags: string[];
+  pinnedAt?: number;
   marp: MarpSettings;
 };
 ```
 
 - tag の順序と文字大小は現行データとして保持し、完全一致で比較する。
 - `marp` 未指定は `DEFAULT_MARP_SETTINGS` に展開して比較する。
+- `pinnedAt` 未指定は未固定として比較し、クラウド復元で固定状態だけが異なる場合も無確認で上書きしない。
 - object key 順を固定した canonical JSON の SHA-256 を fingerprint とする。
 - fingerprint は比較用であり認証・暗号鍵に使用しない。
 
