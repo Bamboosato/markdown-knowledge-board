@@ -1,13 +1,13 @@
 # Markdown Knowledge Board フェーズ2 API・認証詳細設計
 
 作成日: 2026-07-30
-文書状態: 実装前の詳細設計
+文書状態: PR4 API基盤を実装中
 
 ## 1. 目的
 
 本書は、[基本設計](./phase2-auth-cloud-backup-architecture.md)に基づき、Vercel Functions、GitHub App、Gist API の契約を定義する。ブラウザ内の暗号化・復元ロジックは[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)を参照する。
 
-> 実装状況（2026年8月3日時点）: Vercel Functions、GitHub OAuth callback、session、Gist中継endpointは未実装であり、本書は実装目標のAPI契約である。現行アプリは外部APIを呼ばず、ローカル機能だけで動作する。
+> 実装状況（2026年8月3日時点）: PR4でProduction環境ゲート、exact Origin、session sealing／refresh、CSRF、共通HTTP応答、raw body上限、`GET /api/auth/session`を実装した。OAuth start／callback、Sign out、Disconnect、Gist中継endpointとフロントエンド接続は未実装であり、現行UIは引き続きローカル機能だけで動作する。
 
 ## 2. テスト設計観点
 
@@ -36,7 +36,7 @@ API ケースの詳細化前に、次の観点を必ず確認する。
 - Functions は Web Standard `Request` / `Response` を使用する TypeScript 実装とする。
 - API path は `/api` 配下に置き、SPA の route と分離する。
 - 認証・クラウド応答に `Cache-Control: no-store` を付ける。
-- GitHub API には `Accept: application/vnd.github+json` と固定した `X-GitHub-Api-Version` を付ける。
+- GitHub REST API には `Accept: application/vnd.github+json` と、2026年8月3日時点で公式サポート対象の固定値 `X-GitHub-Api-Version: 2026-03-10` を付ける。値は `api/_lib/github.ts` で一元管理する。
 - JSON の request body は `Content-Type: application/json` を必須とする。
 - encrypted backup body は `application/vnd.mkb.encrypted-backup+json` の raw UTF-8 bytes とし、圧縮を受け付けない。
 - request body は読み込み前と読み込み後の両方で上限を検査する。
@@ -91,7 +91,7 @@ state-changing endpoint は次の全条件を満たした場合だけ処理す�
 3. `__Host-mkb_csrf` Cookie と `X-CSRF-Token` header が定数時間比較で一致する。
 4. session が必要な endpoint は有効な session Cookie を持つ。
 
-CSRF token は256 bit乱数の base64url とする。`GET /api/auth/session` が Cookie と response data に同じ値を返し、client はメモリにだけ保持する。CSRF token を localStorage へ保存しない。
+CSRF token は256 bit乱数の base64url とする。`GET /api/auth/session` が Cookie と response data に同じ値を返し、client はメモリにだけ保持する。CSRF token を localStorage へ保存しない。Cookieは `__Host-mkb_csrf`、`HttpOnly; Secure; SameSite=Strict; Path=/` とし、`Domain`を付けない。
 
 ### 3.6 timeout と AbortSignal
 
@@ -106,6 +106,8 @@ CSRF token は256 bit乱数の base64url とする。`GET /api/auth/session` が
 3. state-changing requestは3.5のOrigin/CSRF条件も満たす。
 
 Vercel Previewとlocalhostは実GitHub接続の対象外とし、`404 CLOUD_NOT_AVAILABLE`を返す。Preview URLをsuffixやbranch名で許可しない。本番GitHub secretとsession鍵はVercel Production scopeだけへ設定し、Preview Functionsへ配布しない。unit/E2EではGitHub adapterをstubし、この環境ゲートをtest dependency injectionで検証するが、localhostから実GitHub APIへ接続しない。
+
+PR4では`api/_lib/environment.ts`がこの判定を担い、`api/auth/session.ts`は判定通過後だけCookieやsecretを扱う。`VERCEL_ENV`未設定、`preview`、`development`、localhost、Preview URL、allowlistのsuffix類似URLはすべて同じ404応答とする。
 
 ## 4. OAuth・認証 endpoint
 
@@ -199,6 +201,7 @@ type SessionResponse =
 - access token の残存時間が5分以下なら server 内で refresh する。
 - refresh 成功時は access/refresh token の両方を新しい session Cookie へ置換する。
 - refresh 失敗または取消済みなら Cookie を削除し `reauthorization-required` を返す。
+- GitHub refreshのtimeout、通信失敗、429、5xx、応答形式不正は一時障害としてCookieを保持し、retryableな`503 SESSION_CHECK_UNAVAILABLE`または`504 SESSION_CHECK_TIMEOUT`を返す。ログアウト済みとは断定しない。
 - GitHub user API の毎回呼び出しは行わず、sealed session 内の最小 profile を使用する。
 - client timeout/offline は HTTP response ではなく client の `unknown/unavailable` 状態として扱う。
 
@@ -251,6 +254,15 @@ type SessionPayloadV1 = {
 - Cookie 名と version/key ID を AAD に含める。
 - Cookie 復号時は key ID で選択し、active key 以外で成功した場合は次回 response で再封印する。
 - serialized Cookie 値が3,800 bytesを超える場合は session を発行せず、機密情報をログに出さず `SESSION_TOO_LARGE` とする。
+
+`SESSION_KEYS`はVercel Production scopeのsecretへ次のJSON形式で設定する。`key`は32 bytesをpaddingなしbase64urlで表した43文字とし、`id`は1〜32文字の英数字、`_`、`-`だけを許可する。ローテーション完了後は`previous`を省略できる。
+
+```json
+{
+  "active": { "id": "2026-08", "key": "<32-byte-base64url>" },
+  "previous": { "id": "2026-07", "key": "<32-byte-base64url>" }
+}
+```
 
 ### 5.3 属性
 
@@ -563,6 +575,9 @@ GitHub 403 は permission と rate limit を response headerで切り分ける�
 - [フェーズ2要件定義](./phase2-auth-cloud-backup-requirements.md)
 - [基本設計](./phase2-auth-cloud-backup-architecture.md)
 - [GitHub Docs: REST API endpoints for gists](https://docs.github.com/en/rest/gists/gists)
+- [GitHub Docs: API Versions](https://docs.github.com/en/rest/about-the-rest-api/api-versions)
 - [GitHub Docs: Refreshing user access tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens)
 - [GitHub Docs: REST API endpoints for OAuth authorizations](https://docs.github.com/en/rest/apps/oauth-applications)
+- [Vercel: System environment variables](https://vercel.com/docs/environment-variables/system-environment-variables)
+- [Vercel: Using the Node.js Runtime with Vercel Functions](https://vercel.com/docs/functions/runtimes/node-js)
 - [Vercel Functions Limits](https://vercel.com/docs/functions/limitations)
