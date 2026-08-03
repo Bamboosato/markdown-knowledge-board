@@ -135,7 +135,7 @@ PR5の追加unitは22/22（OAuth／Sign out／Disconnect 16件、cloud capabilit
 
 PR6の追加unitは27/27（Gist adapter 10件、backup endpoint 13件、metadata cache 4件）、全unitは156/156、`npm run lint`、`npm run build`、追加stub E2Eは4/4、全Playwrightは71/71を1 workerで成功した。4,500,000／4,500,001 bytes、最大10 page、nullable description、権限／rate limit、raw host制限、Bearer非送信、dirty save、空backup警告、複数候補、revision競合を個別に固定した。Production secret、実GitHub、GitHub App権限、実OAuth、実GistはPR8まで実施しない。
 
-2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22、PR5はPR #23としてsquash merge済みである。PR6は実装・ローカル検証済みである。GitHub App作成、Production環境変数、実OAuth、実Gist、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
+2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22、PR5はPR #23、PR6はPR #24としてsquash merge済みである。GitHub App作成、Production環境変数、実OAuth、実Gist、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
 
 ## 6. 失敗時の証跡
 
