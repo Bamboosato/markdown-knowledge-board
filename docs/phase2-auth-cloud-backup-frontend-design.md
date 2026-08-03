@@ -7,7 +7,7 @@
 
 本書は、[フェーズ2基本設計](./phase2-auth-cloud-backup-architecture.md)と[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)に基づき、React UI、状態管理、ローカルデータ、暗号化、バックアップ、復元の実装契約を定義する。
 
-> 実装状況（2026年8月3日時点）: PR1でローカルJSON version 1を`backup.ts`へ共通化し、PR2で`cloudRestore.ts`のstrict validation・fingerprint・merge planと`db.ts`の単一transaction applyを実装済みである。GitHub session hook、cloud UI、Web Crypto、Gist API client、および復元UIへの接続は未実装である。
+> 実装状況（2026年8月3日時点）: PR1でローカルJSON version 1を`backup.ts`へ共通化し、PR2で`cloudRestore.ts`のstrict validation・fingerprint・merge planと`db.ts`の単一transaction apply、PR3で`cloudCrypto.ts`のAES-256-GCM・PBKDF2・暗号化エンベロープを実装済みである。GitHub session hook、cloud UI、Gist API client、および各基盤のUI接続は未実装である。
 
 ## 2. テスト設計観点
 
@@ -59,7 +59,7 @@ src/
     types.ts                      cloud domain type を追加
 ```
 
-PR1で`App.tsx`から`BackupDocument`、`createBackupDocument`、`parseBackupNotes`を`src/lib/backup.ts`へ、Note生成と共通値の正規化を`src/lib/note.ts`へ移した。PR2で`cloudRestore.ts`と`db.ts`の復元基盤を追加するが、cloud feature flagはoffのままUIへ接続しない。ローカル JSON import/export の動作を変えず、後続のクラウド暗号化も同じ BackupDocument を使用する。
+PR1で`App.tsx`から`BackupDocument`、`createBackupDocument`、`parseBackupNotes`を`src/lib/backup.ts`へ、Note生成と共通値の正規化を`src/lib/note.ts`へ移した。PR2で`cloudRestore.ts`と`db.ts`の復元基盤、PR3で`canonicalJson.ts`と`cloudCrypto.ts`の暗号基盤を追加するが、cloud featureはUI未接続のままとする。ローカル JSON import/export の動作を変えず、クラウド暗号化も同じ BackupDocument を使用する。
 
 ### 3.2 依存方向
 

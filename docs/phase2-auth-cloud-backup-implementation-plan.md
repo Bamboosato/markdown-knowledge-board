@@ -83,7 +83,20 @@ PR1からPR7まではcloud feature flagを既定offとする。各PRで未ログ
 
 PR2のローカル検証は、unit 36/36（strict validation 20件、safe diff 3件、既存backup 10件、fake IndexedDB transaction 3件）、`npm run lint`、`npm run build`、全Playwright 58/58を1 workerで成功した。E2Eにretry／flakyはなく、既存の未ログインローカル操作に回帰がないことを確認した。
 
-2026年8月3日時点でPR1はPR #19としてsquash merge済みで、`main`は`a4e3eb6`である。PR2はlocal-only復元基盤として実装し、GitHub App作成、Production環境変数、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
+### 5.2 PR3テスト観点
+
+| 分類 | 正常系・異常系・境界値・状態遷移 | 検証意図 |
+| --- | --- | --- |
+| 機能 | AES-256-GCM暗号化・復号、PBKDF2、strict envelope、canonical JSON | `CRYPTO-001..011`のbrowser内暗号契約をUI接続前に固定する |
+| 非機能 | 600,000 iterations再計測、非extractable key、async Web Crypto | 秘密情報を永続化せず、候補値の性能証跡を残す |
+| データ | 16-byte salt、12-byte IV、128-bit tag、AAD、base64url no padding | header改ざん、形式揺れ、平文保存を防ぐ |
+| UI | このPRではUI非接続、passphrase stateなし | 未完成のupload／restoreと秘密入力を公開しない |
+| 境界値 | 11／12 code points、NFC同値、4,500,000／4,500,001 bytes | Unicodeと転送上限をexactに判定する |
+| 異常・改ざん | 誤passphrase、ciphertext 1 byte変更、salt変更、不正version／iteration | 原因を断定せず、復号・形式検証前後の失敗を分離する |
+
+固定vectorはNodeの`pbkdf2Sync`と`aes-256-gcm`で独立生成し、Web Crypto復号との相互運用性を検証した。PR3のローカル検証はunit 57/57（crypto 21件を含む）、`npm run lint`、`npm run build`、全Playwright 58/58を1 workerで成功した。PBKDF2 600,000回・3 samplesの再計測はdesktop平均73.8 ms（66.9〜80.0 ms）、Pixel 7 emulation平均82.0 ms（76.0〜89.8 ms）だった。emulationは同一PCのCPUを使用するため実mobile証跡にはしない。
+
+2026年8月3日時点でPR1はPR #19、PR2はPR #20としてsquash merge済みで、`main`は`9aa5c5a`である。GitHub App作成、Production環境変数、実mobile計測はプロジェクト所有者の資格情報または実機を必要とする管理者作業として引き続き追跡する。
 
 ## 6. 失敗時の証跡
 

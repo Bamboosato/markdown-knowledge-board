@@ -1,4 +1,5 @@
 import type { BackupDocument, BackupNoteRecord } from "./backup";
+import { canonicalStringify } from "./canonicalJson";
 import {
   cloneCustomMetadata,
   parseMarkdownWithFrontmatter,
@@ -298,20 +299,6 @@ export function createNotesFromBackupDocument(
   );
 }
 
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(canonicalize);
-  }
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-        .map(([key, item]) => [key, canonicalize(item)])
-    );
-  }
-  return value;
-}
-
 function comparableNote(note: Note): Record<string, unknown> {
   return {
     id: note.id,
@@ -325,7 +312,7 @@ function comparableNote(note: Note): Record<string, unknown> {
 }
 
 export async function createNoteFingerprint(note: Note): Promise<string> {
-  const canonicalJson = JSON.stringify(canonicalize(comparableNote(note)));
+  const canonicalJson = canonicalStringify(comparableNote(note));
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(canonicalJson)
