@@ -307,6 +307,8 @@ Preview 内のタスクチェックが視覚的にはクリック可能でも、
 
 ## 8. Search / Tags フィルタの状態把握性向上
 
+実装状態: 実装済み（2026-08-04、NOTES見出し小型ツール再設計を含む）
+
 ### 現状課題
 
 タグフィルタがカンマ区切り入力であるため、利用者は指定中の条件や解除方法を直感的に把握しづらい。検索結果が 0 件の場合も、条件が厳しすぎるのかデータがないのか判断しにくい。
@@ -315,10 +317,21 @@ Preview 内のタスクチェックが視覚的にはクリック可能でも、
 
 Search / Tags をサイドバーへ常時表示せず、`Filter` ボタンから開く modal dialog で条件設定する。Note 一覧の表示領域を確保しつつ、適用中の条件数、検索結果件数、解除導線を確認できるようにする。
 
+### テスト設計観点
+
+| 分類 | 観点 | 検証意図 |
+| --- | --- | --- |
+| 機能 | Filter dialog起動、条件数更新、Clear、一覧先頭復帰 | 見出しツールの再設計後も既存の絞り込み処理を維持する |
+| 非機能 | desktop、390px、320px、連続Apply / Clear、focus復帰、多件数時のscrollbar可視性 | 狭幅や状態切替で折り返し、競合、focus消失を発生させず、OSの自動配色に依存せず一覧をスクロールできるようにする |
+| データ | 全件数、絞り込み件数、Search 1件、Tag件数 | `NOTES`件数と`Filter · n`がそれぞれ正しい意味の数値を表示する |
+| UI | 高さ32px、14px Medium、16px Filterアイコン、アイコンと文字の6px間隔、通常時の透明背景、淡い適用背景、左右端と視覚的な中央揃え | Filterをセクション付随の小型ツールとして識別でき、通常時と適用時で内部基準位置がずれないようにする |
+
+正常系は未適用→Apply→Clear、異常系は結果0件と保存済み条件なし、境界値は0件・複数条件・大きな件数・320px幅、状態遷移は通常button→適用中chip→通常buttonを対象とする。
+
 ### 機能仕様案
 
 - サイドバーの Notes ヘッダーに `Filter` ボタンを表示する。
-- Search または Tag filter が有効な場合、`Filter (n)` として有効条件数を表示する。
+- Search または Tag filter が有効な場合、`Filter · n`として有効条件数を表示する。Searchは入力有無を1件、Tagは選択数を件数へ加算する。
 - Search または Tag filter が有効な場合、Notes ヘッダーに `Clear` ボタンを表示し、modal を開かずに全条件を解除できる。
 - `Filter` ボタン押下で Search / Tags 条件設定 modal を表示する。
 - modal 内で既存ノートのタグ一覧から候補を表示する。
@@ -334,8 +347,16 @@ Search / Tags をサイドバーへ常時表示せず、`Filter` ボタンから
 ### 画面仕様案
 
 - サイドバー上部には Search / Tag filter 入力欄を常時表示しない。
-- Notes ヘッダーに件数と `Filter` ボタンを配置する。
-- 条件適用中は Notes ヘッダーに `Clear` ボタンを追加する。
+- `NOTES`、件数、`Filter`、`Clear`を同じflex行へ配置し、`align-items: center`を基本に文字とアイコンが視覚的に同じ水平線へ見えるよう調整する。左端と右端は直下のノートカードに揃える。
+- 右側の操作群は`margin-left: auto`で右寄せし、`Filter`と`Clear`の間隔を8pxとする。
+- 通常の`Filter`は高さ32px、14px、font-weight 500、枠線なし、透明背景のコンパクトbuttonとする。hover時だけ既存quiet icon buttonと同じ`#f1f1f1`背景、`#c7c7c7`の細い内側縁、8px角丸を表示する。keyboard focus時は背景を透明のまま維持し、focus-visibleのアウトラインで示す。ラベル左側に`lucide-react`の`Filter`アイコンを16px、stroke-width 2、`currentColor`で表示する。
+- Filter内部は`inline-flex`、`align-items: center`、`justify-content: center`、`gap: 6px`とし、アイコンとラベルを一つのグループとして中央へ揃える。
+- 条件適用中の`Filter · n`は同じ32px高のbuttonを枠線なしの淡い青灰色背景とpill形状で表示し、押下すると条件を編集できるdialogを開く。
+- 通常時と適用時でFilterの高さ、padding、アイコンとラベルの相対位置、垂直位置を変えない。Clear表示時は操作群右端を維持するためFilter全体の左移動を許容する。
+- 条件適用中の`Clear`は高さ32px、14px、font-weight 500、枠と通常背景を持たないtext buttonとする。
+- Clear後は非表示になるClearへfocusを残さず、`Filter`buttonへfocusを戻す。
+- desktop、390px、320pxでheaderを折り返さず、`NOTES`件数と各操作を1行に維持する。
+- ノート一覧が縦方向にoverflowする場合は12px幅のscrollbarを表示し、透明track上に通常`#858585`、hover時`#666666`のpill形状thumbを表示する。thumbとtrackの配色はOS既定へ依存させない。
 - modal 内に Search 欄、選択中タグ、タグ入力欄、候補ドロップダウン、件数を配置する。
 - 0 件時は `No notes match your filters` と表示し、条件解除導線を出す。
 - タグ候補はノート件数が多い場合でも折り返しまたはスクロールで破綻しない。
@@ -348,13 +369,24 @@ Search / Tags をサイドバーへ常時表示せず、`Filter` ボタンから
 - 複数タグ指定時の条件が仕様通り AND になる。
 - 検索条件をすべて解除できる。
 - 0 件時に状態と次の操作が分かる。
+- 通常Filterが32px・14px Medium・枠線なし・透明背景で、16pxアイコンとラベルが6px間隔で中央に揃い、適用中は内部配置を維持した淡い背景の`Filter · n`chip、Clearは8px離れた枠なしtext buttonとして同じ行に揃う。
+- 見出し行と直下のノートカードの左右端差が1px以内であり、320px幅でも折り返しや横overflowが発生しない。
+- headerまたは0件表示のClear後にFilterへfocusが戻る。
 
 ### 検証観点
 
 - 正常系: 単一タグ、複数タグ、検索語との組み合わせを確認する。
 - 境界値: タグ 0 件、長いタグ名、大量タグを確認する。
-- UI 観点: チップ折り返し、解除ボタン、件数表示の見やすさを確認する。
+- UI 観点: 32px高、14px Medium、16pxアイコン、6pxの内部gap、8pxの操作間gap、通常時とkeyboard focus時の透明背景、quiet iconと同じhover背景・内側縁・8px角丸、focus outline、chip背景、枠なしClear、1行表示、見出しとカードの左右端、視覚的な中央揃え、overflow時のscrollbar thumbを確認する。
 - データ観点: 大文字小文字、前後空白、重複タグの扱いを確認する。
+
+### 実装・検証結果
+
+- 通常Filterを枠線なし・透明背景とし、hover時だけquiet iconと同じ薄いグレー背景・内側縁・8px角丸を表示した。keyboard focus時は背景を変えずアウトラインだけを表示し、`Filter · n`は枠線なしの淡い背景chipとして状態を区別した。
+- `Filter`アイコンを16px、ラベルとの間隔を6px、Clearとの間隔を8pxへ統一し、desktopと320pxで中央揃え、カードとの左右端差1px以内、横overflowなしを確認した。
+- ノート一覧のscrollbar thumbを明示的に配色し、20件・高さ500pxの実ブラウザで可視性、縦overflow、スクロール可能性、見出しとカードの右端整列を確認した。
+- Clear後はFilterへfocusを戻し、結果0件の`Clear Filters`からも同じfocus契約を適用した。
+- lint、unit 184件、production build、Playwright E2E全体回帰（単一worker）143件成功・2件skipを確認した。skipはFirefox / WebKitで対象外のChromium専用IME testである。
 
 ## 9. Markdown ツールバーの無選択時挙動明確化
 

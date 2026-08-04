@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { expectNoHorizontalOverflow } from './dialog-layout'
+import { expectBodyEditorValue } from './body-editor'
 
 const csrfToken = 'a'.repeat(43)
 const revisionA = 'a'.repeat(40)
@@ -157,7 +158,7 @@ test.describe('Phase 2 encrypted Gist backup', () => {
       crypto: { algorithm: 'AES-GCM', kdf: 'PBKDF2-SHA-256' },
     })
     await expect(page.getByLabel('Title')).toHaveValue('Private project note')
-    await expect(page.getByLabel('Body')).toHaveValue('Never send this plaintext')
+    await expectBodyEditorValue(page.getByLabel('Body'), 'Never send this plaintext')
 
     const metadata = await page.evaluate(() =>
       localStorage.getItem('mkb.cloud-backup.v1'),
@@ -424,6 +425,6 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await conflict.getByRole('button', { name: 'Replace Cloud Backup' }).click()
     await expect(page.getByRole('dialog', { name: 'Encrypt Cloud Backup' })).toBeVisible()
     expect(updateCalls).toBe(1)
-    await expect(page.getByLabel('Body')).toHaveValue('Keep local content')
+    await expectBodyEditorValue(page.getByLabel('Body'), 'Keep local content')
   })
 })

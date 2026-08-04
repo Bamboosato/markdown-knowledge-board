@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
+import {
+  expectBodyEditorValue,
+  readBodyEditorValue,
+} from "./body-editor";
 
 declare global {
   interface Window {
@@ -713,12 +717,15 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     );
 
     const body = page.getByLabel("Body");
-    await body.fill(`Unsaved body\n${await body.inputValue()}`);
+    await body.fill(`Unsaved body\n${await readBodyEditorValue(body)}`);
     await body.evaluate((element) => {
-      if (!(element instanceof HTMLTextAreaElement)) {
-        throw new Error("Body textarea not found");
+      const editor = element as HTMLElement & {
+        setSelectionRange?: (start: number, end: number) => void;
+      };
+      if (!editor.setSelectionRange) {
+        throw new Error("Body editor selection bridge not found");
       }
-      element.setSelectionRange(3, 8);
+      editor.setSelectionRange(3, 8);
       element.scrollTop = 120;
     });
 
@@ -766,7 +773,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(page.locator(".app")).not.toHaveClass(/editor-expanded/);
     await expect(page.locator(".sidebar")).toHaveCSS("visibility", "visible");
     await expect(page.getByRole("button", { name: "Expand editor" })).toBeVisible();
-    await expect(body).toHaveValue(/^Unsaved body/);
+    await expectBodyEditorValue(body, /^Unsaved body/);
     await expect.poll(() => page.evaluate(() => window.__viewTransitionCalls)).toBe(2);
   });
 
@@ -882,6 +889,9 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
       return element.scrollTop;
     });
     expect(editPosition).toBeGreaterThan(0);
+    const editLineHeight = await edit.evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).lineHeight)
+    );
 
     await page.getByRole("button", { name: "Preview", exact: true }).click();
     const preview = page.locator(".mdPreview-scroll");
@@ -904,9 +914,13 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     });
 
     await page.getByRole("button", { name: "Edit", exact: true }).click();
-    await expect.poll(() => edit.evaluate((element) => element.scrollTop)).toBe(
-      editPosition
-    );
+    await expect
+      .poll(async () =>
+        Math.abs(
+          (await edit.evaluate((element) => element.scrollTop)) - editPosition
+        )
+      )
+      .toBeLessThan(editLineHeight);
 
     await page.getByRole("button", { name: "Preview", exact: true }).click();
     await expect
@@ -1036,7 +1050,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(bold.locator("svg")).toHaveCSS("width", "15px");
   });
 
-  test("keeps the note count inline and uses compact responsive gutters", async ({
+  test("aligns the compact Filter tool with the note count and responsive card gutters", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -1048,14 +1062,88 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     const noteCount = notesHeading.locator(".note-count");
     await expect(noteCount).toHaveText("(1)");
     await expect(noteCount).toHaveAttribute("aria-label", "1 note");
-    const headingAlignment = await notesHeading.evaluate((element) => {
-      const title = element.querySelector<HTMLElement>(".section-title")!;
-      const count = element.querySelector<HTMLElement>(".note-count")!;
-      return Math.abs(
-        title.getBoundingClientRect().top - count.getBoundingClientRect().top
-      );
+    const filterButton = page.getByRole("button", {
+      name: "Filter",
+      exact: true,
     });
-    expect(headingAlignment).toBeLessThan(4);
+    await expect(filterButton).toHaveCSS("height", "32px");
+    await expect(filterButton).toHaveCSS("font-size", "14px");
+    await expect(filterButton).toHaveCSS("font-weight", "500");
+    await expect(filterButton).toHaveCSS("border-top-width", "0px");
+    await expect(filterButton).toHaveCSS(
+      "background-color",
+      "rgba(0, 0, 0, 0)"
+    );
+    await filterButton.hover();
+    await expect(filterButton).toHaveCSS(
+      "background-color",
+      "rgb(241, 241, 241)"
+    );
+    await expect(filterButton).toHaveCSS("border-radius", "8px");
+    await expect(filterButton).toHaveCSS(
+      "box-shadow",
+      "rgb(199, 199, 199) 0px 0px 0px 1px inset"
+    );
+    await page.mouse.move(1000, 700);
+    await page.getByRole("button", { name: "Import Markdown" }).focus();
+    await page.keyboard.press("Tab");
+    await expect(filterButton).toBeFocused();
+    await expect(filterButton).toHaveCSS(
+      "background-color",
+      "rgba(0, 0, 0, 0)"
+    );
+    await expect(filterButton).toHaveCSS("box-shadow", "none");
+    await expect(filterButton).toHaveCSS("outline-width", "3px");
+    const filterIcon = filterButton.locator(".filter-button-icon");
+    await expect(filterIcon).toHaveCSS("width", "16px");
+    await expect(filterIcon).toHaveCSS("height", "16px");
+    await expect(filterIcon).toHaveAttribute("aria-hidden", "true");
+    await expect(filterIcon).toHaveAttribute("stroke-width", "2");
+    const filterInternalGeometry = await filterButton.evaluate((element) => {
+      const icon = element.querySelector<SVGElement>(".filter-button-icon")!;
+      const label = element.querySelector<HTMLElement>(".filter-button-label")!;
+      const iconBox = icon.getBoundingClientRect();
+      const labelBox = label.getBoundingClientRect();
+      return {
+        gap: labelBox.left - iconBox.right,
+        centerDifference: Math.abs(
+          iconBox.top + iconBox.height / 2 -
+            (labelBox.top + labelBox.height / 2)
+        ),
+        iconColor: getComputedStyle(icon).color,
+        labelColor: getComputedStyle(label).color,
+      };
+    });
+    expect(filterInternalGeometry.gap).toBeCloseTo(6, 0);
+    expect(filterInternalGeometry.centerDifference).toBeLessThan(1);
+    expect(filterInternalGeometry.iconColor).toBe(filterInternalGeometry.labelColor);
+
+    const desktopHeaderGeometry = await page
+      .locator(".sidebar")
+      .evaluate((sidebar) => {
+        const header = sidebar.querySelector<HTMLElement>(".notes-header")!;
+        const card = sidebar.querySelector<HTMLElement>(
+          ".note-item:not(.empty)"
+        )!;
+        const centers = [
+          header.querySelector<HTMLElement>(".section-title")!,
+          header.querySelector<HTMLElement>(".note-count")!,
+          header.querySelector<HTMLElement>(".filter-button")!,
+        ].map((item) => {
+          const box = item.getBoundingClientRect();
+          return box.top + box.height / 2;
+        });
+        const headerBox = header.getBoundingClientRect();
+        const cardBox = card.getBoundingClientRect();
+        return {
+          centerDifference: Math.max(...centers) - Math.min(...centers),
+          leftEdgeDifference: Math.abs(headerBox.left - cardBox.left),
+          rightEdgeDifference: Math.abs(headerBox.right - cardBox.right),
+        };
+      });
+    expect(desktopHeaderGeometry.centerDifference).toBeLessThan(1);
+    expect(desktopHeaderGeometry.leftEdgeDifference).toBeLessThanOrEqual(1);
+    expect(desktopHeaderGeometry.rightEdgeDifference).toBeLessThanOrEqual(1);
 
     for (const selector of [".sidebar", ".editor", ".editor-header"]) {
       await expect(page.locator(selector)).toHaveCSS("padding-left", "16px");
@@ -1072,7 +1160,16 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     }
     const mobileGeometry = await page.locator(".sidebar").evaluate((sidebar) => {
       const noteList = sidebar.querySelector<HTMLElement>(".note-list")!;
+      const notesHeader = sidebar.querySelector<HTMLElement>(".notes-header")!;
+      const card = sidebar.querySelector<HTMLElement>(
+        ".note-item:not(.empty)"
+      )!;
+      const headerBox = notesHeader.getBoundingClientRect();
+      const cardBox = card.getBoundingClientRect();
       return {
+        headerOverflow: notesHeader.scrollWidth > notesHeader.clientWidth,
+        leftEdgeDifference: Math.abs(headerBox.left - cardBox.left),
+        rightEdgeDifference: Math.abs(headerBox.right - cardBox.right),
         scrollbarToEdge:
           sidebar.getBoundingClientRect().right -
           noteList.getBoundingClientRect().right,
@@ -1081,8 +1178,52 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
           document.documentElement.clientWidth,
       };
     });
+    expect(mobileGeometry.headerOverflow).toBe(false);
+    expect(mobileGeometry.leftEdgeDifference).toBeLessThanOrEqual(1);
+    expect(mobileGeometry.rightEdgeDifference).toBeLessThanOrEqual(1);
     expect(mobileGeometry.scrollbarToEdge).toBeCloseTo(4, 0);
     expect(mobileGeometry.horizontalOverflow).toBe(false);
+  });
+
+  test("keeps an overflowing note list scrollbar visible and scrollable", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 500 });
+    await seedSavedNotes(
+      page,
+      Array.from({ length: 20 }, (_, index) => ({
+        id: `scrollbar-note-${index}`,
+        title: `Scrollbar note ${index + 1}`,
+        body: `# Scrollbar note ${index + 1}`,
+        tags: [],
+        updatedAt: index + 1,
+      }))
+    );
+
+    const noteList = page.locator(".note-list");
+    const scrollbarState = await noteList.evaluate((list) => {
+      const thumbStyle = getComputedStyle(list, "::-webkit-scrollbar-thumb");
+      const trackStyle = getComputedStyle(list, "::-webkit-scrollbar-track");
+      const hasVerticalOverflow = list.scrollHeight > list.clientHeight;
+      list.scrollTop = list.scrollHeight;
+      return {
+        hasVerticalOverflow,
+        scrollTop: list.scrollTop,
+        thumbBackground: thumbStyle.backgroundColor,
+        thumbBorderWidth: thumbStyle.borderTopWidth,
+        thumbRadius: thumbStyle.borderRadius,
+        trackBackground: trackStyle.backgroundColor,
+      };
+    });
+    expect(scrollbarState).toEqual({
+      hasVerticalOverflow: true,
+      scrollTop: expect.any(Number),
+      thumbBackground: "rgb(133, 133, 133)",
+      thumbBorderWidth: "2px",
+      thumbRadius: "999px",
+      trackBackground: "rgba(0, 0, 0, 0)",
+    });
+    expect(scrollbarState.scrollTop).toBeGreaterThan(0);
   });
 
   test("summarizes duplicate and failed import results", async ({ page }) => {
@@ -1230,7 +1371,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Edit", exact: true }).click();
-    await expect(page.getByLabel("Body")).toHaveValue("Original preview body");
+    await expectBodyEditorValue(page.getByLabel("Body"), "Original preview body");
   });
 
   test("keeps an unsaved draft when a Body file drop is canceled", async ({
@@ -1253,7 +1394,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await unsavedDialog.getByRole("button", { name: "Cancel" }).click();
 
     await expect(page.getByLabel("Title")).toHaveValue("Unsaved drop source");
-    await expect(page.getByLabel("Body")).toHaveValue("Keep this draft");
+    await expectBodyEditorValue(page.getByLabel("Body"), "Keep this draft");
     await expect(page.getByRole("dialog", { name: "Import Complete" })).toHaveCount(0);
   });
 
@@ -1286,7 +1427,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
 
     await page.getByRole("button", { name: "Edit" }).click();
     await expect(page.getByLabel("Title")).toHaveValue("Phase 2 task note");
-    await expect(page.getByLabel("Body")).toHaveValue(
+    await expectBodyEditorValue(page.getByLabel("Body"),
       "# Phase 2 task note\n\n- [x] Verify preview task"
     );
   });
@@ -1656,7 +1797,9 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await page.getByRole("link", { name: "Target" }).click();
     await expect(page.getByRole("dialog", { name: "Unsaved Changes" })).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
-    await expect(page.getByText("Unsaved text", { exact: true })).toBeVisible();
+    await expect(
+      page.locator(".mdPreview").getByText("Unsaved text", { exact: true })
+    ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Confirmed destination" })).toHaveCount(0);
 
     await page.getByRole("link", { name: "Target" }).click();
@@ -1778,7 +1921,31 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
       page.getByRole("listbox", { name: "Filter tag suggestions" })
     ).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Filter", exact: true }).click();
+    const inactiveFilterButton = page.getByRole("button", {
+      name: "Filter",
+      exact: true,
+    });
+    const inactiveFilterGeometry = await inactiveFilterButton.evaluate(
+      (element) => {
+        const buttonBox = element.getBoundingClientRect();
+        const iconBox = element
+          .querySelector<SVGElement>(".filter-button-icon")!
+          .getBoundingClientRect();
+        const labelBox = element
+          .querySelector<HTMLElement>(".filter-button-label")!
+          .getBoundingClientRect();
+        return {
+          iconLeftOffset: iconBox.left - buttonBox.left,
+          iconCenterOffset:
+            iconBox.top + iconBox.height / 2 -
+            (buttonBox.top + buttonBox.height / 2),
+          labelCenterOffset:
+            labelBox.top + labelBox.height / 2 -
+            (buttonBox.top + buttonBox.height / 2),
+        };
+      }
+    );
+    await inactiveFilterButton.click();
     const dialog = page.getByRole("dialog", { name: "Filter notes" });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText("2 notes", { exact: true })).toBeVisible();
@@ -1833,7 +2000,79 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(dialog.locator(".tag-chip", { hasText: "Phase1" })).toBeVisible();
     await dialog.getByRole("button", { name: "Apply Filters" }).click();
 
-    await expect(page.getByRole("button", { name: "Filter (3)" })).toBeVisible();
+    const activeFilterButton = page.getByRole("button", {
+      name: "Filter · 3",
+    });
+    const clearFilterButton = page.getByRole("button", {
+      name: "Clear",
+      exact: true,
+    });
+    await expect(activeFilterButton).toBeVisible();
+    await expect(activeFilterButton).toHaveCSS("height", "32px");
+    await expect(activeFilterButton).toHaveCSS("font-size", "14px");
+    await expect(activeFilterButton).toHaveCSS("font-weight", "500");
+    await expect(activeFilterButton).toHaveCSS("border-top-width", "0px");
+    await expect(activeFilterButton).toHaveCSS("border-radius", "999px");
+    await expect(activeFilterButton).toHaveCSS(
+      "background-color",
+      "rgb(238, 243, 248)",
+    );
+    const activeFilterGeometry = await activeFilterButton.evaluate((element) => {
+      const buttonBox = element.getBoundingClientRect();
+      const iconBox = element
+        .querySelector<SVGElement>(".filter-button-icon")!
+        .getBoundingClientRect();
+      const labelBox = element
+        .querySelector<HTMLElement>(".filter-button-label")!
+        .getBoundingClientRect();
+      const clearBox = element.parentElement!
+        .querySelector<HTMLElement>(".filter-clear-button")!
+        .getBoundingClientRect();
+      return {
+        iconLeftOffset: iconBox.left - buttonBox.left,
+        iconCenterOffset:
+          iconBox.top + iconBox.height / 2 -
+          (buttonBox.top + buttonBox.height / 2),
+        labelCenterOffset:
+          labelBox.top + labelBox.height / 2 -
+          (buttonBox.top + buttonBox.height / 2),
+        labelGap: labelBox.left - iconBox.right,
+        clearGap: clearBox.left - buttonBox.right,
+      };
+    });
+    expect(activeFilterGeometry.iconLeftOffset).toBeCloseTo(
+      inactiveFilterGeometry.iconLeftOffset,
+      0
+    );
+    expect(activeFilterGeometry.iconCenterOffset).toBeCloseTo(
+      inactiveFilterGeometry.iconCenterOffset,
+      0
+    );
+    expect(activeFilterGeometry.labelCenterOffset).toBeCloseTo(
+      inactiveFilterGeometry.labelCenterOffset,
+      0
+    );
+    expect(activeFilterGeometry.labelGap).toBeCloseTo(6, 0);
+    expect(activeFilterGeometry.clearGap).toBeCloseTo(8, 0);
+    await expect(clearFilterButton).toHaveCSS("height", "32px");
+    await expect(clearFilterButton).toHaveCSS("font-size", "14px");
+    await expect(clearFilterButton).toHaveCSS("font-weight", "500");
+    await expect(clearFilterButton).toHaveCSS("border-top-width", "0px");
+    const appliedHeaderCenterAlignment = await page
+      .locator(".notes-header")
+      .evaluate((element) => {
+        const centers = [
+          element.querySelector<HTMLElement>(".section-title")!,
+          element.querySelector<HTMLElement>(".note-count")!,
+          element.querySelector<HTMLElement>(".filter-button")!,
+          element.querySelector<HTMLElement>(".filter-clear-button")!,
+        ].map((item) => {
+          const box = item.getBoundingClientRect();
+          return box.top + box.height / 2;
+        });
+        return Math.max(...centers) - Math.min(...centers);
+      });
+    expect(appliedHeaderCenterAlignment).toBeLessThan(1);
     await expect(page.locator(".note-count")).toHaveText("(1 of 2)");
     await expect(page.locator(".note-count")).toHaveAttribute(
       "aria-label",
@@ -1847,9 +2086,12 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     ).toHaveCount(0);
 
     await page.getByRole("button", { name: "Clear", exact: true }).click();
-    await expect(
-      page.getByRole("button", { name: "Filter", exact: true })
-    ).toBeVisible();
+    const restoredFilterButton = page.getByRole("button", {
+      name: "Filter",
+      exact: true,
+    });
+    await expect(restoredFilterButton).toBeVisible();
+    await expect(restoredFilterButton).toBeFocused();
     await expect(page.locator(".note-count")).toHaveText("(2)");
     await expect(
       page.getByRole("button", { name: /Phase 2 filter other/ })
@@ -1864,13 +2106,13 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await page.keyboard.press("Escape");
     await dialog.getByRole("button", { name: "Apply Filters" }).click();
 
-    await page.getByRole("button", { name: "Filter (3)" }).click();
+    await page.getByRole("button", { name: "Filter · 3" }).click();
     await dialog.getByRole("button", { name: "Clear Filters" }).click();
     await expect(dialog.getByText("2 notes", { exact: true })).toBeVisible();
     await dialog.getByRole("button", { name: "Cancel" }).click();
-    await expect(page.getByRole("button", { name: "Filter (3)" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Filter · 3" })).toBeVisible();
 
-    await page.getByRole("button", { name: "Filter (3)" }).click();
+    await page.getByRole("button", { name: "Filter · 3" }).click();
     await searchInput.fill("missing");
     await dialog.getByRole("button", { name: "Apply Filters" }).click();
     await expect(
@@ -1882,9 +2124,8 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
       "0 of 2 notes"
     );
     await page.getByRole("button", { name: "Clear Filters" }).click();
-    await expect(
-      page.getByRole("button", { name: "Filter", exact: true })
-    ).toBeVisible();
+    await expect(restoredFilterButton).toBeVisible();
+    await expect(restoredFilterButton).toBeFocused();
     await expect(page.locator(".note-count")).toHaveText("(2)");
     await expect(
       page.getByRole("button", { name: /Phase 2 filter other/ })
@@ -2085,7 +2326,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(cancel).toBeFocused();
     await cancel.click();
     await expect(page.getByLabel("Title")).toHaveValue("Changed title");
-    await expect(page.getByLabel("Body")).toHaveValue(
+    await expectBodyEditorValue(page.getByLabel("Body"),
       "# Changed title\n\nChanged body"
     );
     await expect(revertButton).toBeFocused();
@@ -2094,7 +2335,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await revertDialog.getByRole("button", { name: "Revert Changes" }).click();
 
     await expect(page.getByLabel("Title")).toHaveValue("Phase 2 revert note");
-    await expect(page.getByLabel("Body")).toHaveValue(
+    await expectBodyEditorValue(page.getByLabel("Body"),
       "# Phase 2 revert note\n\nOriginal body"
     );
     await expect(page.getByText("Status: Saved")).toBeVisible();
@@ -2120,7 +2361,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await deleteDialog.getByRole("button", { name: "Cancel" }).click();
     await expect(deleteDialog).toHaveCount(0);
     await expect(page.getByRole("button", { name: "More actions" })).toBeFocused();
-    await expect(page.getByLabel("Body")).toHaveValue(
+    await expectBodyEditorValue(page.getByLabel("Body"),
       "# Phase 2 undo note\n\nUndo body"
     );
 
@@ -2134,7 +2375,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
 
     await expect(page.getByText("Note deleted")).toBeVisible();
     await page.getByRole("button", { name: "Undo" }).click();
-    await expect(page.getByLabel("Body")).toHaveValue(
+    await expectBodyEditorValue(page.getByLabel("Body"),
       "# Phase 2 undo note\n\nUndo body"
     );
     await expect(page.getByText("Status: Saved")).toBeVisible();

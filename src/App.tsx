@@ -3,7 +3,13 @@ import ReactMarkdown from "react-markdown";
 import { useCallback } from "react";
 import { useLayoutEffect } from "react";
 import { isValidElement } from "react";
-import type { DragEvent, FocusEvent, KeyboardEvent, MouseEvent } from "react";
+import type {
+  CSSProperties,
+  DragEvent,
+  FocusEvent,
+  KeyboardEvent,
+  MouseEvent,
+} from "react";
 import { createPortal, flushSync } from "react-dom";
 import remarkGfm from "remark-gfm";
 import { remarkMark } from "remark-mark-highlight";
@@ -18,6 +24,7 @@ import {
   Code2,
   Download,
   FileDown,
+  Filter as FilterIcon,
   Heading1,
   Heading2,
   Heading3,
@@ -52,6 +59,11 @@ import {
 import { MarpSlides } from "./components/MarpSlides";
 import { MetadataDialog } from "./components/MetadataDialog";
 import { MermaidBlock } from "./components/MermaidBlock";
+import {
+  MarkdownBodyEditor,
+  type EditorSelectionSnapshot,
+  type MarkdownBodyEditorHandle,
+} from "./components/MarkdownBodyEditor";
 import { CloudActionDialog } from "./components/cloud/CloudActionDialog";
 import { CloudBackupDialog } from "./components/cloud/CloudBackupDialog";
 import { CloudRestoreDialog } from "./components/cloud/CloudRestoreDialog";
@@ -63,6 +75,12 @@ import {
 } from "./hooks/useCloudRestore";
 import { useGitHubSession } from "./hooks/useGitHubSession";
 import { CloudApiError } from "./lib/cloudApi";
+import {
+  CONTENT_FONT_SCALE_DEFAULT,
+  CONTENT_FONT_SCALE_STORAGE_KEY,
+  getNextContentFontScale,
+  readContentFontScale,
+} from "./lib/contentFontScale";
 import {
   DEFAULT_MARP_SETTINGS,
   MARP_HEADING_DIVIDERS,
@@ -138,15 +156,6 @@ type MarkdownCommandId =
   | "table"
   | "code-block";
 
-type EditorSelectionSnapshot = {
-  noteId: string | null;
-  bodyValue: string;
-  start: number;
-  end: number;
-  scrollTop: number;
-  scrollLeft: number;
-};
-
 type TocItem = {
   key: string;
   index: number;
@@ -212,6 +221,9 @@ type MarkdownCodeElementProps = {
 };
 
 const TAG_SUGGESTION_LIMIT = 8;
+const CONTENT_FONT_WHEEL_THRESHOLD_PX = 60;
+const CONTENT_FONT_SCALE_NOTICE_MS = 1200;
+const CONTENT_FONT_SCALE_PC_QUERY = "(min-width: 901px) and (pointer: fine)";
 
 type FilePickerWritable = {
   write(data: Blob): Promise<void>;
@@ -231,6 +243,18 @@ type ShowSaveFilePicker = (options?: {
 }) => Promise<SaveFilePickerHandle>;
 
 const UNDO_DELETE_TIMEOUT_MS = 8000;
+
+function getInitialContentFontScale(): number {
+  if (typeof window === "undefined") {
+    return CONTENT_FONT_SCALE_DEFAULT;
+  }
+
+  try {
+    return readContentFontScale(window.localStorage);
+  } catch {
+    return CONTENT_FONT_SCALE_DEFAULT;
+  }
+}
 
 function getPreviewNoteLinkTitle(href: string): string | null {
   if (
@@ -470,6 +494,7 @@ function App() {
   const [draftTags, setDraftTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [draftBody, setDraftBody] = useState("");
+  const [bodyEditorResetKey, setBodyEditorResetKey] = useState(0);
   const [draftMarpEnabled, setDraftMarpEnabled] = useState(
     DEFAULT_MARP_SETTINGS.enabled
   );
@@ -513,7 +538,7 @@ function App() {
   const unsavedChoiceResolverRef = useRef<((choice: UnsavedChoice) => void) | null>(
     null
   );
-  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const bodyRef = useRef<MarkdownBodyEditorHandle | null>(null);
   const noteListRef = useRef<HTMLUListElement | null>(null);
   const [pendingNoteListRevealId, setPendingNoteListRevealId] = useState<
     string | null
@@ -524,6 +549,16 @@ function App() {
   const [openMarkdownMenu, setOpenMarkdownMenu] =
     useState<MarkdownMenuId | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
+  const [contentFontScale, setContentFontScale] = useState(
+    getInitialContentFontScale,
+  );
+  const [contentFontScaleNotice, setContentFontScaleNotice] = useState<
+    number | null
+  >(null);
+  const contentFontScaleRef = useRef(contentFontScale);
+  const contentFontScaleNoticeTimerRef = useRef<number | null>(null);
+  const contentFontWheelAccumulatorRef = useRef(0);
+  const contentFontWheelDirectionRef = useRef<-1 | 0 | 1>(0);
   const editScrollTopRef = useRef(0);
   const previewScrollTopRef = useRef(0);
   const previewAnchorRef = useRef<{
@@ -542,6 +577,7 @@ function App() {
   const [isTagFilterSuggestOpen, setIsTagFilterSuggestOpen] = useState(false);
   const [activeTagFilterSuggestionIndex, setActiveTagFilterSuggestionIndex] =
     useState(0);
+  const filterButtonRef = useRef<HTMLButtonElement | null>(null);
   const filterSearchInputRef = useRef<HTMLInputElement | null>(null);
   const tagFilterInputRef = useRef<HTMLInputElement | null>(null);
   const tagFilterSuggestRef = useRef<HTMLDivElement | null>(null);
@@ -620,6 +656,116 @@ function App() {
   );
   const isTocRendered = tocVisibility !== "closed";
   const isTocOpen = tocVisibility === "opening" || tocVisibility === "open";
+  const hasPreviewContent = draftBody.trim().length > 0;
+
+  const showContentFontScaleNotice = useCallback((scale: number) => {
+    if (contentFontScaleNoticeTimerRef.current !== null) {
+      window.clearTimeout(contentFontScaleNoticeTimerRef.current);
+    }
+
+    setContentFontScaleNotice(scale);
+    contentFontScaleNoticeTimerRef.current = window.setTimeout(() => {
+      contentFontScaleNoticeTimerRef.current = null;
+      setContentFontScaleNotice(null);
+    }, CONTENT_FONT_SCALE_NOTICE_MS);
+  }, []);
+
+  useEffect(() => {
+    contentFontScaleRef.current = contentFontScale;
+
+    try {
+      window.localStorage.setItem(
+        CONTENT_FONT_SCALE_STORAGE_KEY,
+        String(contentFontScale),
+      );
+    } catch {
+      // A blocked storage API must not prevent local editing in this session.
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      bodyRef.current?.requestMeasure();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [contentFontScale]);
+
+  useEffect(() => {
+    const roots = [bodyRef.current?.getRootElement(), previewRef.current].filter(
+      (root): root is HTMLDivElement => root !== null && root !== undefined,
+    );
+    const uniqueRoots = [...new Set(roots)];
+    if (uniqueRoots.length === 0) {
+      return;
+    }
+
+    const pcMedia = window.matchMedia(CONTENT_FONT_SCALE_PC_QUERY);
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey || event.metaKey || !pcMedia.matches) {
+        return;
+      }
+
+      event.preventDefault();
+
+      const pixelDelta =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? event.deltaY * 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? event.deltaY * window.innerHeight
+            : event.deltaY;
+      if (!Number.isFinite(pixelDelta) || pixelDelta === 0) {
+        return;
+      }
+
+      const direction = Math.sign(pixelDelta) as -1 | 1;
+      if (contentFontWheelDirectionRef.current !== direction) {
+        contentFontWheelAccumulatorRef.current = 0;
+        contentFontWheelDirectionRef.current = direction;
+      }
+
+      const accumulated =
+        contentFontWheelAccumulatorRef.current + Math.abs(pixelDelta);
+      if (accumulated < CONTENT_FONT_WHEEL_THRESHOLD_PX) {
+        contentFontWheelAccumulatorRef.current = accumulated;
+        return;
+      }
+
+      contentFontWheelAccumulatorRef.current =
+        accumulated % CONTENT_FONT_WHEEL_THRESHOLD_PX;
+      const nextScale = getNextContentFontScale(
+        contentFontScaleRef.current,
+        direction,
+      );
+      contentFontScaleRef.current = nextScale;
+      setContentFontScale(nextScale);
+      showContentFontScaleNotice(nextScale);
+    };
+
+    uniqueRoots.forEach((root) => {
+      root.addEventListener("wheel", handleWheel, { passive: false });
+    });
+
+    return () => {
+      uniqueRoots.forEach((root) => {
+        root.removeEventListener("wheel", handleWheel);
+      });
+      contentFontWheelAccumulatorRef.current = 0;
+      contentFontWheelDirectionRef.current = 0;
+    };
+  }, [
+    activeTab,
+    hasPreviewContent,
+    previewMountedForNoteId,
+    selectedId,
+    showContentFontScaleNotice,
+  ]);
+
+  useEffect(
+    () => () => {
+      if (contentFontScaleNoticeTimerRef.current !== null) {
+        window.clearTimeout(contentFontScaleNoticeTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!operationDialog) {
@@ -762,7 +908,7 @@ function App() {
     }
 
     if (activeTab === "edit" && bodyRef.current) {
-      bodyRef.current.scrollTop = editScrollTopRef.current;
+      bodyRef.current.setScrollPosition({ top: editScrollTopRef.current });
     } else if (activeTab === "preview" && previewRef.current) {
       const preview = previewRef.current;
       const restorePreviewPosition = () => {
@@ -1168,6 +1314,7 @@ function App() {
 
   const resetDraft = (note?: Note) => {
     closeTagSuggestions();
+    setBodyEditorResetKey((current) => current + 1);
     if (!note) {
       setDraftTitle("");
       setDraftTags([]);
@@ -1221,21 +1368,12 @@ function App() {
   };
 
   const captureEditorSelection = (): EditorSelectionSnapshot | null => {
-    const textarea = bodyRef.current;
-    if (!textarea) {
+    const snapshot = bodyRef.current?.getSelectionSnapshot() ?? null;
+    if (!snapshot) {
       editorSelectionRef.current = null;
       setEditorSelection(null);
       return null;
     }
-
-    const snapshot: EditorSelectionSnapshot = {
-      noteId: selectedId,
-      bodyValue: draftBody,
-      start: textarea.selectionStart ?? 0,
-      end: textarea.selectionEnd ?? 0,
-      scrollTop: textarea.scrollTop,
-      scrollLeft: textarea.scrollLeft,
-    };
     editorSelectionRef.current = snapshot;
     setEditorSelection(snapshot);
     return snapshot;
@@ -1247,21 +1385,22 @@ function App() {
     selectionEnd: number,
     scrollPosition?: Pick<EditorSelectionSnapshot, "scrollTop" | "scrollLeft">
   ) => {
-    const prevScrollTop =
-      scrollPosition?.scrollTop ?? bodyRef.current?.scrollTop ?? 0;
-    const prevScrollLeft =
-      scrollPosition?.scrollLeft ?? bodyRef.current?.scrollLeft ?? 0;
-    setDraftBody(nextValue);
-    markDirty();
-    requestAnimationFrame(() => {
-      const textarea = bodyRef.current;
-      if (!textarea) {
-        return;
-      }
-      textarea.focus();
-      textarea.setSelectionRange(selectionStart, selectionEnd);
-      textarea.scrollTop = prevScrollTop;
-      textarea.scrollLeft = prevScrollLeft;
+    const editor = bodyRef.current;
+    if (!editor) {
+      setDraftBody(nextValue);
+      markDirty();
+      return;
+    }
+
+    const currentSelection = editor.getSelectionSnapshot();
+    editor.applyEdit({
+      value: nextValue,
+      selectionStart,
+      selectionEnd,
+      scrollTop:
+        scrollPosition?.scrollTop ?? currentSelection?.scrollTop ?? 0,
+      scrollLeft:
+        scrollPosition?.scrollLeft ?? currentSelection?.scrollLeft ?? 0,
     });
   };
 
@@ -1365,6 +1504,7 @@ function App() {
       setTagInput("");
       closeTagSuggestions();
       setDraftBody(pending.note.body);
+      setBodyEditorResetKey((current) => current + 1);
       const marp = getNoteMarpSettings(pending.note);
       setDraftMarpEnabled(marp.enabled);
       setDraftMarpSize(marp.size);
@@ -1755,6 +1895,7 @@ function App() {
     setTagInput("");
     closeTagSuggestions();
     setDraftBody(note.body);
+    setBodyEditorResetKey((current) => current + 1);
     setDraftMarpEnabled(DEFAULT_MARP_SETTINGS.enabled);
     setDraftMarpSize(DEFAULT_MARP_SETTINGS.size);
     setDraftMarpTheme(DEFAULT_MARP_SETTINGS.theme);
@@ -2554,7 +2695,8 @@ function App() {
 
   const handleChangeTab = (nextTab: ActiveTab) => {
     if (activeTab === "edit" && bodyRef.current) {
-      editScrollTopRef.current = bodyRef.current.scrollTop;
+      editScrollTopRef.current =
+        bodyRef.current.getSelectionSnapshot()?.scrollTop ?? 0;
     } else if (activeTab === "preview" && previewRef.current) {
       const preview = previewRef.current;
       previewScrollTopRef.current = preview.scrollTop;
@@ -2665,6 +2807,7 @@ function App() {
       setTagInput("");
       closeTagSuggestions();
       setDraftBody(initialDraft.body);
+      setBodyEditorResetKey((current) => current + 1);
       const marp = getNoteMarpSettings(initialDraft);
       setDraftMarpEnabled(marp.enabled);
       setDraftMarpSize(marp.size);
@@ -2830,6 +2973,7 @@ function App() {
       clearFilterDraft();
     }
     resetNoteListScroll();
+    window.requestAnimationFrame(() => filterButtonRef.current?.focus());
   };
 
   const handleFilterBackdropMouseDown = (
@@ -3040,6 +3184,11 @@ function App() {
       className={`app mobile-${mobileView}${
         isEditorExpanded ? " editor-expanded" : ""
       }`}
+      style={
+        {
+          "--content-font-scale": contentFontScale / 100,
+        } as CSSProperties
+      }
     >
       <header className="editor-header">
         <div className="editor-title-row">
@@ -3403,12 +3552,22 @@ function App() {
             <div className="notes-filter-actions">
               <button
                 className={`filter-button${hasActiveFilters ? " active" : ""}`}
+                ref={filterButtonRef}
                 type="button"
                 aria-haspopup="dialog"
                 aria-expanded={isFilterDialogOpen}
                 onClick={openFilterDialog}
               >
-                {hasActiveFilters ? `Filter (${activeFilterCount})` : "Filter"}
+                <FilterIcon
+                  className="filter-button-icon"
+                  aria-hidden="true"
+                  strokeWidth={2}
+                />
+                <span className="filter-button-label">
+                  {hasActiveFilters
+                    ? `Filter · ${activeFilterCount}`
+                    : "Filter"}
+                </span>
               </button>
               {hasActiveFilters ? (
                 <button
@@ -3945,19 +4104,21 @@ function App() {
                 )}
               </button>
             </div>
-            <textarea
-              id="body"
-              className="textarea textarea-fill"
-              placeholder="Write markdown here..."
-              rows={16}
-              ref={bodyRef}
-              aria-labelledby="body-label"
-              value={draftBody}
-              onChange={(event) => {
-                setDraftBody(event.target.value);
+            <MarkdownBodyEditor
+              labelledBy="body-label"
+              noteId={selectedId}
+              onChange={(nextBody) => {
+                setDraftBody(nextBody);
                 markDirty();
               }}
-              onSelect={captureEditorSelection}
+              onSelectionChange={(snapshot) => {
+                editorSelectionRef.current = snapshot;
+                setEditorSelection(snapshot);
+              }}
+              placeholder="Write markdown here..."
+              ref={bodyRef}
+              resetKey={bodyEditorResetKey}
+              value={draftBody}
             />
           </div>
         {activeTab === "preview" ||
@@ -4058,10 +4219,20 @@ function App() {
                               if (!Number.isFinite(lineIndex)) {
                                 return;
                               }
-                              setDraftBody((prev) =>
-                                toggleTaskAtLine(prev, lineIndex)
+                              const currentBody =
+                                bodyRef.current?.getValue() ?? draftBody;
+                              const nextBody = toggleTaskAtLine(
+                                currentBody,
+                                lineIndex
                               );
-                              markDirty();
+                              if (bodyRef.current) {
+                                bodyRef.current.replaceValue(nextBody, {
+                                  addToHistory: true,
+                                });
+                              } else {
+                                setDraftBody(nextBody);
+                                markDirty();
+                              }
                             }}
                           >
                             {checked ? "☑" : "☐"}
@@ -4646,6 +4817,16 @@ function App() {
       {previewLinkNotice ? (
         <div className="preview-link-toast" role="status" aria-live="polite">
           {previewLinkNotice}
+        </div>
+      ) : null}
+      {contentFontScaleNotice !== null ? (
+        <div
+          className="content-font-scale-indicator"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          Text size: {contentFontScaleNotice}%
         </div>
       ) : null}
     </div>

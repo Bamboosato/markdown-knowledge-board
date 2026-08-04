@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { expectBodyEditorValue } from "./body-editor";
 
 test.describe("Phase 1 mobile workflow", () => {
   test("keeps draft, save, preview, and unsaved transitions reachable", async ({
@@ -10,7 +11,12 @@ test.describe("Phase 1 mobile workflow", () => {
     const noteCountBox = await page.locator(".note-count").boundingBox();
     expect(notesLabelBox).not.toBeNull();
     expect(noteCountBox).not.toBeNull();
-    expect(Math.abs(noteCountBox!.y - notesLabelBox!.y)).toBeLessThan(4);
+    expect(
+      Math.abs(
+        noteCountBox!.y + noteCountBox!.height / 2 -
+          (notesLabelBox!.y + notesLabelBox!.height / 2)
+      )
+    ).toBeLessThan(1);
     await expect(page.locator(".note-count")).toHaveText("(0)");
     await expect(page.locator(".note-count")).toHaveAttribute(
       "aria-label",
@@ -105,7 +111,7 @@ test.describe("Phase 1 mobile workflow", () => {
     await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
 
     await page.getByRole("button", { name: "Cancel" }).click();
-    await expect(page.getByLabel("Body")).toHaveValue(
+    await expectBodyEditorValue(page.getByLabel("Body"),
       "# Phase 1\n\nChanged but not saved"
     );
 
@@ -116,7 +122,7 @@ test.describe("Phase 1 mobile workflow", () => {
     ).toBeVisible();
 
     await page.getByRole("button", { name: /Phase 1 mobile note/ }).click();
-    await expect(page.getByLabel("Body")).toHaveValue(
+    await expectBodyEditorValue(page.getByLabel("Body"),
       "# Phase 1\n\n- [ ] Verify mobile editor"
     );
   });
