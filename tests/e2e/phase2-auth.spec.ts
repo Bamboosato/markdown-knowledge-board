@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page, Route } from '@playwright/test'
 import { expectNoHorizontalOverflow } from './dialog-layout'
+import { expectBodyEditorValue } from './body-editor'
 
 const csrfToken = 'a'.repeat(43)
 
@@ -164,7 +165,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
 
     await dialog.getByRole('button', { name: 'Cancel' }).click()
     await expect(dialog).toHaveCount(0)
-    await expect(page.getByLabel('Body')).toHaveValue('Keep this body')
+    await expectBodyEditorValue(page.getByLabel('Body'), 'Keep this body')
     await expect(page.getByText('Status: Draft')).toBeVisible()
   })
 
@@ -269,7 +270,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
       .click()
 
     await expect(page.getByRole('dialog', { name: 'Save changes before signing in?' })).toHaveCount(0)
-    await expect(page.getByLabel('Body')).toHaveValue('Must remain editable')
+    await expectBodyEditorValue(page.getByLabel('Body'), 'Must remain editable')
     await expect(page.getByText('Status: Save failed')).toBeVisible()
     expect(startCalls).toBe(0)
   })
@@ -294,7 +295,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     await menu.getByRole('menuitem', { name: 'Sign out' }).click()
     await expect(menu.getByText('Signed out. Local notes were not changed.')).toBeVisible()
     await expect(page.getByLabel('Title')).toHaveValue('Local note')
-    await expect(page.getByLabel('Body')).toHaveValue('Retained after sign out')
+    await expectBodyEditorValue(page.getByLabel('Body'), 'Retained after sign out')
     await expect
       .poll(() =>
         page.evaluate(() => localStorage.getItem('mkb.cloud-backup.v1')),
@@ -340,7 +341,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
       'href',
       'https://github.com/settings/applications',
     )
-    await expect(page.getByLabel('Body')).toHaveValue('Local body stays')
+    await expectBodyEditorValue(page.getByLabel('Body'), 'Local body stays')
     const cached = await page.evaluate(() =>
       localStorage.getItem('mkb.cloud-backup.v1'),
     )

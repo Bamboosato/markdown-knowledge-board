@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 const port = process.env.PLAYWRIGHT_PORT ?? "5174";
 const baseURL = `http://127.0.0.1:${port}`;
 const phase2CrossBrowserTests = [
+  "**/markdown-edit-assist.spec.ts",
   "**/phase2-auth.spec.ts",
   "**/phase2-backup.spec.ts",
   "**/phase2-restore.spec.ts",

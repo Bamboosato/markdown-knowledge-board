@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { readBodyEditorValue } from "./body-editor";
 
 async function createSavedNote(page: Page, title: string, body: string) {
   await page.getByRole("button", { name: /new note/i }).click();
@@ -37,7 +38,7 @@ test.describe("A2 Marp slides", () => {
     );
 
     await expect(page.getByLabel("Slides settings")).toHaveCount(0);
-    const bodyValue = await page.getByLabel("Body").inputValue();
+    const bodyValue = await readBodyEditorValue(page.getByLabel("Body"));
     expect(bodyValue).not.toContain("marp: true");
     expect(bodyValue).not.toContain("theme: gaia");
 

@@ -2,7 +2,7 @@
 
 作成日: 2026-07-09
 
-最終更新日: 2026-07-30
+最終更新日: 2026-08-04
 
 ## 1. 概要
 
@@ -169,14 +169,19 @@ sidebar には以下を配置する。
   - アイコンは `lucide-react` の `FileDown` を使用する。
   - Import Markdownボタンは通常時の枠線と背景を透明にし、hoverまたはkeyboard focus時だけ枠線と薄い背景色を表示する。disabled時も透明な外観を維持する。
 - Notes
-  - `NOTES` ラベルとノート件数は1行で表示し、条件なしでは `NOTES (n)`、条件ありでは `NOTES (filtered of total)` とする。ラベルと件数の間隔は `4px` とし、括弧は半角を使用する。
-  - `Filter` ボタンを表示する。
-  - Search または Tag filter が有効な場合、`Filter (n)` として有効条件数を表示する。
-  - Search または Tag filter が有効な場合、`Clear` ボタンを表示し、modal を開かずに全条件を解除できる。
+  - `NOTES`ラベル、ノート件数、`Filter`、条件適用時の`Clear`を同じ1行へ表示し、各要素の縦方向中央を揃える。headerはdesktop、390px、320pxで折り返さない。
+  - 見出し行は`display: flex`と`align-items: center`を基本とし、左側の`NOTES` / 件数と、`margin-left: auto`で右寄せする操作群を視覚的に同じ水平線へ揃える。見出し行の左右端は直下のノートカードの左右端と揃える。
+  - 条件なしでは `NOTES (n)`、条件ありでは `NOTES (filtered of total)` とする。ラベルと件数の間隔は `4px` とし、括弧は半角を使用する。
+  - 通常の`Filter`はセクション付随の小型ツールとして、高さ32px、14px、font-weight 500、枠線なし、透明背景で表示する。hover時だけ他のquiet icon buttonと同じ薄いグレー背景（`#f1f1f1`）、細いグレーの内側縁（`#c7c7c7`）、8px角丸を表示する。keyboard focus時は背景を変えず、focus-visibleのアウトラインで状態を示す。`lucide-react`の`Filter`アイコンをラベル左側へ16px、stroke-width 2で配置し、`currentColor`でラベルと同程度の視覚強度にする。
+  - Filter内部は`inline-flex`、`align-items: center`、`justify-content: center`、`gap: 6px`とし、アイコンとラベルを一体のグループとして水平・垂直方向とも中央へ揃える。
+  - Search または Tag filter が有効な場合、`Filter · n`として有効条件数を表示する。Searchは入力有無を1件、Tagは選択数を加算する。適用中buttonは高さ、padding、アイコンとラベルの内部基準位置を維持し、枠線なしの淡い青灰色背景とpill形状のchipとして表示する。
+  - 条件適用中は高さ32px、14px、font-weight 500の`Clear`を表示し、枠と通常背景を持たないtext buttonからmodalを開かず全条件を解除できる。解除後は`Filter`へfocusを戻す。
+  - `Filter`と`Clear`の間隔は8pxとする。操作群の右端を固定するため、Clear表示時にFilter全体が左へ移動することは許容するが、アイコンとラベルの相対位置、垂直位置、操作群の高さは変化させない。
   - 件数のaccessible labelは条件なしでは `n notes`、条件ありでは `filtered of total notes` とし、表示件数の更新をpoliteに通知する。
   - フィルタ後のノート一覧を表示する。
   - `+ New Note` / `Import Markdown`、`NOTES` / 件数、`Filter` / `Clear` はSidebar上部の固定領域として扱い、ノートカード一覧だけを縦スクロールさせる。
   - ノートカードと縦スクロールバーの間に8pxの余白を設け、スクロールバーの有無でカード幅が変わらないようscrollbar gutterを確保する。スクロールバーとSidebar右外枠またはmobile画面右端の間隔は4pxとし、固定化前と同程度のコンパクトさを維持する。
+  - ノート一覧の縦スクロールバーは12px幅とし、OSやブラウザの自動配色に依存せず、overflow時に識別できるグレーのthumbを明示する。thumbは通常`#858585`、hover時`#666666`、透明track、2pxの透明余白、pill形状とし、Firefoxでは`scrollbar-color`で同等の可視性を確保する。
   - desktopとmobileのNotes画面はいずれもカード一覧を単一の縦スクロール領域とし、documentまたはSidebar全体との二重スクロールを発生させない。
   - FilterのApplyまたは適用済み条件のClearで一覧内容が変わる場合は、カード一覧を先頭へ戻す。
   - mobileで通常のカード選択からNotes画面へ戻る場合は、Filter条件とカード一覧のスクロール位置を維持する。Preview内のノートリンクで切り替えた場合だけ、Notesへ戻った描画後にリンク先カードが見える位置へ移動する。
@@ -305,11 +310,17 @@ editor header には以下を配置する。
 - Save、Revert、Preview内のタスクチェック操作では現在の表示modeを維持し、自動的に別のタブへ切り替えない。
 - 未保存変更がある状態で別の保存済みノートを選択した場合は、既存の未保存確認を完了してから対象ノートの `Preview` を表示する。Cancelでは選択ノートと表示modeを変更しない。
 - 表示modeの変更だけでは本文、metadata、dirty状態、保存データを変更しない。
+- 901px以上かつfine pointerのPCでは、EditまたはPreview本文上の`Ctrl`+mouse wheelで両画面に共通する本文倍率を80%〜180%の範囲で10%ずつ変更する。倍率は再読込後も復元し、変更時は`Text size: {倍率}%`を一時表示する。専用reset buttonは設けず、100%へは同じwheel操作で戻す。
+- PCの対象本文上だけbrowserの`Ctrl`+wheel zoomを抑止する。本文外、`Ctrl`なし、keyboard zoom、mobileではbrowser既定操作と現行文字サイズを維持する。倍率は表示設定であり、本文、dirty状態、Note、IndexedDB、Import / Export / Backupへ含めない。
 
 - `Edit`
   - Title / Tags を表示する。
   - Metadata機能の追加によってTitle、Tags、Bodyの配置を変更せず、常設のfrontmatter入力欄を追加しない。
-  - Markdown toolbar と textarea を表示する。
+  - Markdown toolbar と CodeMirror 6のBody editorを表示する。従来の`textarea`の入力値、selection、scroll、focusを互換性の基準とする。
+  - Markdown記号アシストでは、Previewで構文として成立するMarkdown markerだけを青系で表示する。通常本文、link label、URL、code info、code本文は着色しない。
+  - markerと通常本文のfont size、font weight、font style、line-heightを同一にし、色以外でPreview風の見た目へ変化させない。line number、autocomplete、lint、live previewは追加しない。
+  - CodeMirror移行後も`draftBody`を保存対象のMarkdown文字列として維持し、Decoration、syntax tree、DOM classをdirty state、IndexedDB、Import / Export / Backupへ含めない。
+  - Save、Revert、Undo / Redo、Markdown toolbar、Edit / Preview / Slides切替、Preview task更新、selection、scroll、Expand / Collapse、日本語IMEを維持する。詳細は [Edit Markdown記号アシスト要件定義](./edit-markdown-assist-requirements.md) と [Edit Markdown記号アシスト詳細設計](./edit-markdown-assist-design.md) に従う。
 - `Preview`
   - Preview 表示領域を広げるため、Title / Tags は表示しない。
   - 選択中のタブで表示モードを判別できるため、表示領域内に重複する `Preview` 見出しは表示しない。
@@ -400,13 +411,15 @@ Previewはモノクロ基調を維持し、リンクとkeyboard focusだけに�
 
 ### 7.4 編集
 
-Title、Tags、Body、Markdown toolbar の操作により draft state を更新する。
+Title、Tags、Body editor、Markdown toolbar の操作により draft state を更新する。
 
 編集が発生すると以下を行う。
 
 - `isDirty = true`
 - `draftUpdatedAt = 現在時刻`
 - `isDirtyRef.current = true`
+
+Body editorのmarker Decoration、syntax tree更新、selection、scroll、再計測だけではdraft stateとdirty stateを変更しない。CodeMirrorからの1回のuser document transactionに対して本文更新とdirty化を1回だけ実行し、Reactから返された同一値をeditorへ再dispatchしない。
 
 ### 7.5 タグ
 
@@ -623,7 +636,7 @@ Slides は Marp 対応 Markdown をプレゼンテーションとして閲覧す
 表示モード:
 
 - エディタの表示 mode は `Edit` / `Preview` / `Slides` の 3 種類とする。
-- `Edit` は Title / Tags / Markdown toolbar / textarea を表示する。
+- `Edit` は Title / Tags / Markdown toolbar / Body editor を表示する。Body editorはCodeMirror 6を使用する。
 - `Preview` は通常 Markdown Preview を表示する。
 - `Slides` は Marp slide deck を 1 枚ずつ表示する。
 - 表示 mode の変更だけでは dirty 状態を変更しない。
@@ -872,6 +885,7 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 - title/body/tags の編集内容が保存後に復元できること。
 - search と tag filter が組み合わせて動作すること。
 - FilterのApply／Clear後にカード一覧が先頭へ戻り、ノートを開いてNotesへ戻った場合は以前のスクロール位置が復元されること。
+- NOTES見出しツールが未適用→`Filter · n`→Clearの状態遷移を行い、表示件数、active条件数、Filter dialogの内容が一致すること。Clear後はFilterへfocusが戻ること。
 - Markdown import/export が frontmatter を含めて動作すること。
 - EditのBodyまたはPreviewへMarkdown／textファイルをドロップすると、いずれもImport Markdownと同じ結果になり、未保存確認をCancelした場合は取込と編集中データの変更が発生しないこと。
 - Preview内リンクで一覧外のノートへ切り替えた場合、desktopでは切替後、mobileではNotesへ戻った後に対象カードが一覧の表示範囲へ入ること。すでに見えている場合、リンク不成立、未保存確認Cancelでは一覧位置が変わらないこと。
@@ -883,6 +897,7 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 - アプリ起動時と保存済みノート選択時はPreview、新規draft作成時と未保存draftのUndo時はEditが選択されること。
 - 未保存確認のSave／Discard完了後は対象ノートのPreviewへ移動し、Cancelでは元のノートと表示modeを維持すること。
 - 保存済みノートと新規draftのRevert確認で、`Revert Changes` は対応する復元元へ戻し、`Cancel`、背景クリック、Escapeは編集中の値と保存状態を変更しないこと。
+- PCのEdit / Preview本文上で`Ctrl`+wheelにより共通倍率が10%ずつ変わり、mode切替と再読込後も維持され、本文外・mobile・通常wheelではアプリ倍率を変更しないこと。
 
 ### 13.2 非機能観点
 
@@ -895,6 +910,8 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 - カード用メニューを短時間に繰り返し開閉しても複数表示や対象IDの競合が起きないこと。
 - Pin／Unpin保存中の連打やDeleteとの競合を抑止し、IndexedDB失敗時に見た目だけ固定／解除された状態を残さないこと。
 - 大量ノートでPreviewリンクを連続操作してもdocumentやeditorを誤ってスクロールせず、最後に成功したリンク先だけをreveal対象にすること。smooth scroll中もカード選択やNotesへの切替を阻害しないこと。
+- FilterのApply / Clearを連続してもchip件数とClear表示が競合せず、消えたClearへfocusを残さないこと。
+- 連続または微小deltaのwheelでも倍率が意図せず多段階変化せず、tab切替とunmountでlistener、delta accumulator、status timerが多重化・残存しないこと。
 
 ### 13.3 データ観点
 
@@ -907,8 +924,10 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 - Previewへのファイルドロップは表示中ノートの本文を挿入・置換せず、対応ファイルから追加または更新されたノートだけを保存すること。
 - Preview優先表示およびタブ切替だけでは本文、metadata、dirty状態、保存データが変化しないこと。
 - Previewリンクによる一覧スクロールと保留IDは表示状態だけに作用し、ノート順、Filter条件、本文、metadata、dirty状態、IndexedDBを変更しないこと。
+- `NOTES (filtered of total)`は一覧結果件数、`Filter · n`はSearch 1件とTag選択数を表し、両者を混同しないこと。
 - カードからの削除で対象ID以外のノート、未保存編集、Filter条件を変更せず、Undo時は元の一覧位置へ復元すること。
 - Revert確認のCancel経路ではtitle、body、tags、Custom metadata、Marp設定、未確定タグ入力が失われず、確定時だけ保存済みまたは初期draftの値へ戻ること。
+- 本文倍率の不正なlocalStorage値は100%または80%〜180%の正規化値へfallbackし、Note本文、Markdown、JSON Backupへ混入しないこと。
 
 ### 13.4 UI 観点
 
@@ -918,8 +937,10 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 - desktop、390px、320pxで固定済みカードのピンボタンが常時表示され、未選択の固定カードからもUnpin／Deleteへ到達できること。Unpinでボタンが消える場合は同じカード本体へフォーカスが移ること。
 - desktop、390px、320pxでSidebar固定領域が消えず、カード一覧とdocumentの二重スクロールおよび横あふれが発生しないこと。
 - desktop、390px、320pxでノート見出しが `NOTES (n)` または `NOTES (filtered of total)` の1行表示を維持し、Filter／Clearと重ならないこと。
+- 通常Filterが32px高・14px Medium・薄い境界線、適用中Filterが淡い背景のpill chip、Clearが枠なしtext buttonであり、NOTES件数と同じ行の中央に揃うこと。
 - desktopとmobileでノートカードとスクロールバーの間隔が8px、スクロールバーと右外枠の間隔が4px確保されること。Sidebar、Editor、固定ヘッダーの左右外周余白がdesktopでは16px、mobileでは12pxとなり、Preview／Edit／SlidesおよびEdit拡大時に一貫すること。
 - desktop と mobile の両方でタブがPreview、Edit、Slidesの順に表示され、選択状態とキーボードのフォーカス移動順が一致すること。
+- PCではEditの基準`0.95rem`、Previewの基準`1rem`と見出しの相対比を保って80%〜180%へ拡縮し、mobileは保存済み倍率にかかわらず現行サイズを維持すること。倍率statusがfocusを奪わず読み上げられること。
 - PCのEdit／Previewでファイルをドラッグ中は同じImport案内を表示し、dragleave、drop、Import処理終了後に強調表示が残らないこと。
 - desktopではPreviewリンク先カードがSidebarのスクロール領域内へ最小距離で現れ、mobileではEditor表示中にdocumentを動かさず、Notesへ戻った時だけ同じカードが見えること。reduced motion時はsmooth animationを使用しないこと。
 - Metadata追加前後で既存Edit画面のTitle、Tags、Body配置が変わらないこと。
