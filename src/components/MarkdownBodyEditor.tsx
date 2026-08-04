@@ -9,6 +9,7 @@ import {
 import { GFM } from "@lezer/markdown";
 import {
   forwardRef,
+  useCallback,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
@@ -162,6 +163,18 @@ export const MarkdownBodyEditor = forwardRef<
   onSelectionChangeRef.current = onSelectionChange;
   valueRef.current = value;
 
+  const notifySelectionChange = useCallback((view: EditorView) => {
+    const selection = view.state.selection.main;
+    onSelectionChangeRef.current?.({
+      noteId: noteIdRef.current,
+      bodyValue: view.state.doc.toString(),
+      start: selection.from,
+      end: selection.to,
+      scrollTop: view.scrollDOM.scrollTop,
+      scrollLeft: view.scrollDOM.scrollLeft,
+    });
+  }, []);
+
   buildStateRef.current = (document) =>
     EditorState.create({
       doc: document,
@@ -217,15 +230,7 @@ export const MarkdownBodyEditor = forwardRef<
           }
 
           if (update.docChanged || update.selectionSet) {
-            const selection = update.state.selection.main;
-            onSelectionChangeRef.current?.({
-              noteId: noteIdRef.current,
-              bodyValue: update.state.doc.toString(),
-              start: selection.from,
-              end: selection.to,
-              scrollTop: update.view.scrollDOM.scrollTop,
-              scrollLeft: update.view.scrollDOM.scrollLeft,
-            });
+            notifySelectionChange(update.view);
           }
         }),
       ],
@@ -342,12 +347,13 @@ export const MarkdownBodyEditor = forwardRef<
     });
     viewRef.current = view;
     installAutomationCompatibility(view);
+    notifySelectionChange(view);
 
     return () => {
       view.destroy();
       viewRef.current = null;
     };
-  }, []);
+  }, [notifySelectionChange]);
 
   useLayoutEffect(() => {
     const view = viewRef.current;
@@ -358,6 +364,7 @@ export const MarkdownBodyEditor = forwardRef<
       pendingExternalValueRef.current = null;
       view.setState(buildStateRef.current(value));
       installAutomationCompatibility(view);
+      notifySelectionChange(view);
       return;
     }
 
@@ -376,7 +383,7 @@ export const MarkdownBodyEditor = forwardRef<
         });
       }
     }
-  }, [resetKey, value]);
+  }, [notifySelectionChange, resetKey, value]);
 
   return (
     <div

@@ -367,12 +367,13 @@ type EditorSelectionSnapshot = {
 ### 9.2 toolbar実行
 
 1. menuを開く前にhandleからsnapshotを取得する。
-2. note ID、body value、range上限でstale判定する。
-3. 既存`markdownEdit.ts`の純粋関数へvalue、start、endを渡す。
-4. `EditResult`の旧valueとnext valueから共通prefix / suffixを求め、単一の最小changeへ変換する。
-5. UTF-16 surrogate pair境界を分断しないことをunit testする。
-6. change、next selection、scroll snapshotを1 dispatchへまとめる。
-7. dispatch後にeditorへfocusを戻す。
+2. menu自体の開閉状態はsnapshotの有無や同期タイミングから独立させる。初期化・note切替直後にsnapshotが未同期でもmenuを表示し、selection依存項目だけをdisabledにする。
+3. note ID、body value、range上限でstale判定する。
+4. 既存`markdownEdit.ts`の純粋関数へvalue、start、endを渡す。
+5. `EditResult`の旧valueとnext valueから共通prefix / suffixを求め、単一の最小changeへ変換する。
+6. UTF-16 surrogate pair境界を分断しないことをunit testする。
+7. change、next selection、scroll snapshotを1 dispatchへまとめる。
+8. dispatch後にeditorへfocusを戻す。
 
 全文replaceは長文parseとUndo payloadを増やすため通常toolbar経路では使用しない。将来`EditResult`へ明示changeを追加した場合も、既存の`value`、`selectionStart`、`selectionEnd`契約を同時に維持する。
 

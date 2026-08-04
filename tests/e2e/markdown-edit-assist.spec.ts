@@ -126,6 +126,25 @@ test.describe("Markdown edit assist", () => {
       .toEqual({ start: 2, end: 4 });
   });
 
+  test("state transition: opens toolbar menus before the Body receives focus", async ({
+    page,
+  }) => {
+    const body = getBodyEditor(page);
+    await expect(body).not.toBeFocused();
+
+    for (const name of ["Format", "Paragraph", "Insert"]) {
+      const trigger = page.getByRole("button", { name, exact: true });
+      await trigger.click();
+      await expect(trigger).toHaveAttribute("aria-expanded", "true");
+      await expect(page.getByRole("menu", { name })).toBeVisible();
+      if (name === "Format") {
+        await expect(trigger).toBeFocused();
+      }
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("menu", { name })).toHaveCount(0);
+    }
+  });
+
   test("data and timing: commits a Chromium IME composition once", async ({
     browserName,
     page,

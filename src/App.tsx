@@ -4053,9 +4053,7 @@ function App() {
                 <MarkdownToolbarMenu
                   menuId="format"
                   label="Format"
-                  isOpen={
-                    isMarkdownMenuContextCurrent && openMarkdownMenu === "format"
-                  }
+                  isOpen={openMarkdownMenu === "format"}
                   items={formatMenuItems}
                   onBeforeOpen={captureEditorSelection}
                   onOpenChange={handleMarkdownMenuOpenChange}
@@ -4064,10 +4062,7 @@ function App() {
                 <MarkdownToolbarMenu
                   menuId="paragraph"
                   label="Paragraph"
-                  isOpen={
-                    isMarkdownMenuContextCurrent &&
-                    openMarkdownMenu === "paragraph"
-                  }
+                  isOpen={openMarkdownMenu === "paragraph"}
                   items={paragraphMenuItems}
                   onBeforeOpen={captureEditorSelection}
                   onOpenChange={handleMarkdownMenuOpenChange}
@@ -4076,9 +4071,7 @@ function App() {
                 <MarkdownToolbarMenu
                   menuId="insert"
                   label="Insert"
-                  isOpen={
-                    isMarkdownMenuContextCurrent && openMarkdownMenu === "insert"
-                  }
+                  isOpen={openMarkdownMenu === "insert"}
                   items={insertMenuItems}
                   onBeforeOpen={captureEditorSelection}
                   onOpenChange={handleMarkdownMenuOpenChange}
