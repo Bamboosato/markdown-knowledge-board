@@ -112,7 +112,7 @@ export function CloudRestoreDialog(props: CloudRestoreDialogProps) {
     props.kind === 'downloading'
       ? 'Download Cloud Backup'
       : props.kind === 'passphrase'
-        ? 'Decrypt Cloud Backup'
+        ? 'Restore from Cloud'
         : props.kind === 'selection'
           ? 'Select Cloud Backup'
           : props.kind === 'none'
@@ -149,7 +149,10 @@ export function CloudRestoreDialog(props: CloudRestoreDialogProps) {
 
         {props.kind === 'passphrase' ? (
           <>
-            <p>Enter the passphrase used when this backup was created.</p>
+            <p>
+              Enter the passphrase used to encrypt this cloud backup. You can
+              review the changes before applying them.
+            </p>
             <label className="cloud-backup-field">
               Passphrase
               <span className="cloud-backup-password-control">
@@ -182,7 +185,7 @@ export function CloudRestoreDialog(props: CloudRestoreDialogProps) {
             {capsLock ? <div className="cloud-backup-warning" role="status">Caps Lock is on.</div> : null}
             {props.error ? <div className="cloud-backup-error" role="alert">{props.error}</div> : null}
             <div className="dialog-actions">
-              <button className="primary-button" type="button" disabled={busy} onClick={submitPassphrase}>{busy ? 'Decrypting' : 'Decrypt Backup'}</button>
+              <button className="primary-button" type="button" disabled={busy} onClick={submitPassphrase}>{busy ? 'Preparing Restore' : 'Review Restore'}</button>
               <button className="secondary-button" type="button" disabled={busy} onClick={props.onCancel}>Cancel</button>
             </div>
           </>

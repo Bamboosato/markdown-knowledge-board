@@ -613,7 +613,7 @@ Vercel Previewとlocalhostでは第1階層に GitHub カテゴリを表示しな
 ### 11.2 passphrase dialog
 
 - backup: `Passphrase`、`Confirm passphrase`、表示切替、説明、`Encrypt and Upload`、`Cancel`
-- restore: `Passphrase`、表示切替、`Decrypt Backup`、`Cancel`
+- restore: titleは`Restore from Cloud`とし、`Passphrase`、表示切替、適用前に変更内容を確認できる旨の説明、`Review Restore`、`Cancel`を表示する。復号は内部処理として扱い、作成系のBackup操作と誤認する`Decrypt Cloud Backup`／`Decrypt Backup`は可視ラベルに使用しない。
 - `autocomplete="new-password"` を作成、`autocomplete="current-password"` を復元で使用する。
 - 初期focusは先頭passphrase input。
 - Caps Lock 検出は補助表示に留める。
