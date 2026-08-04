@@ -38,17 +38,21 @@ export function MarkdownToolbarMenu({
   const focusEnabledItem = useCallback(
     (preferredIndex: number, direction: 1 | -1) => {
       if (items.length === 0) {
-        return;
+        return false;
       }
 
       for (let offset = 0; offset < items.length; offset += 1) {
         const index =
           (preferredIndex + direction * offset + items.length) % items.length;
         if (!items[index].disabled) {
-          itemRefs.current[index]?.focus();
-          return;
+          const item = itemRefs.current[index];
+          if (item) {
+            item.focus();
+            return true;
+          }
         }
       }
+      return false;
     },
     [items]
   );
@@ -60,7 +64,13 @@ export function MarkdownToolbarMenu({
 
     const targetIndex =
       initialFocusRef.current === "last" ? items.length - 1 : 0;
-    focusEnabledItem(targetIndex, initialFocusRef.current === "last" ? -1 : 1);
+    const focusedItem = focusEnabledItem(
+      targetIndex,
+      initialFocusRef.current === "last" ? -1 : 1
+    );
+    if (!focusedItem) {
+      triggerRef.current?.focus();
+    }
     initialFocusRef.current = "first";
 
     const handleOutsidePointerDown = (event: PointerEvent) => {

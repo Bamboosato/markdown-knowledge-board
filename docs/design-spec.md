@@ -292,6 +292,7 @@ editor header には以下を配置する。
   - モバイル幅では入力欄列の範囲内に収まるよう、trigger幅と間隔を抑える。
   - モバイルなどページスクロールが発生する環境では Body 見出し行ごと sticky として追従する。
   - `Format`、`Paragraph`、`Insert`の3つの文字ラベル付きtriggerを表示し、同時に開くmenuは1つだけとする。
+  - menuの表示可否はBodyのselection同期状態から独立させる。初期表示、ノート切替、Editor再初期化の直後でもtrigger操作でmenuを表示し、selectionが必要な項目だけをdisabledで表す。
   - PC幅ではFormat／Insertを80px、Paragraphを104px、間隔を8pxとする。モバイル幅では66px／86px／66px、間隔を4pxとして入力欄列へ収める。
   - `Format`: Bold、Italic、Strikethrough、Inline code、Highlight。選択範囲がない場合はdisabledとし、Highlightは1行選択だけを対象とする。
   - `Paragraph`: Heading 1、Heading 2、Heading 3、Bulleted list、Task list、Quote。Bulleted listとTask listは、複数行選択時に選択が触れる非空行を一括変換し、全行設定済みなら一括解除、混在時は未設定行だけへ付与する。
