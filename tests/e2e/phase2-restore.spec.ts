@@ -98,15 +98,23 @@ async function beginRestore(page: Page) {
   const restore = menu.getByRole('menuitem', { name: 'Restore from Cloud' })
   await expect(restore).toBeEnabled()
   await restore.click()
-  const dialog = page.getByRole('dialog', { name: 'Decrypt Cloud Backup' })
+  const dialog = page.getByRole('dialog', { name: 'Restore from Cloud' })
   await expectNoHorizontalOverflow(dialog, 'restore passphrase')
+  await expect(
+    dialog.getByText(
+      'Enter the passphrase used to encrypt this cloud backup. You can review the changes before applying them.',
+    ),
+  ).toBeVisible()
+  await expect(
+    dialog.getByRole('button', { name: 'Review Restore' }),
+  ).toBeVisible()
   return dialog
 }
 
 async function submitRestorePassphrase(page: Page, value: string) {
-  const dialog = page.getByRole('dialog', { name: 'Decrypt Cloud Backup' })
+  const dialog = page.getByRole('dialog', { name: 'Restore from Cloud' })
   await dialog.getByLabel('Passphrase', { exact: true }).fill(value)
-  await dialog.getByRole('button', { name: 'Decrypt Backup' }).click()
+  await dialog.getByRole('button', { name: 'Review Restore' }).click()
 }
 
 async function expectCount(
@@ -184,7 +192,7 @@ test.describe('Phase 2 safe cloud restore', () => {
 
     await expect.poll(() => discoveryCalls).toBeGreaterThan(callsBeforeRemoteChange)
     await expect(
-      page.getByRole('dialog', { name: 'Decrypt Cloud Backup' }),
+      page.getByRole('dialog', { name: 'Restore from Cloud' }),
     ).toBeVisible()
   })
 
