@@ -2123,12 +2123,23 @@
   background: #ffffff;
   color: var(--icon-button-foreground);
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .editor-expand-button:hover,
 .editor-expand-button[aria-pressed="true"] {
   border-color: #1d1d1d;
   background: #f2f2f2;
+}
+
+.editor-expand-button:active {
+  border-color: #737373;
+  background: #dedede;
+}
+
+.editor-expand-button:focus-visible {
+  outline: 3px solid #7fb3ff;
+  outline-offset: 2px;
 }
 
 .editor-expand-button svg {

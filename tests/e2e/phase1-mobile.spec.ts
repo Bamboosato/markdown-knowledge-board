@@ -151,6 +151,57 @@ test.describe("Phase 1 mobile workflow", () => {
     await expect(page.getByRole("button", { name: "Notes" })).toBeHidden();
   });
 
+  test("shows deliberate press and keyboard focus feedback without the Android tap highlight", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /new note/i }).click();
+
+    const body = page.getByLabel("Body");
+    await body.fill("Draft remains unchanged while the editor expands");
+    const expandButton = page.getByRole("button", { name: "Expand editor" });
+
+    await expect
+      .poll(() =>
+        expandButton.evaluate((element) =>
+          getComputedStyle(element).getPropertyValue("-webkit-tap-highlight-color")
+        )
+      )
+      .toBe("rgba(0, 0, 0, 0)");
+
+    await expandButton.focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(expandButton).toBeFocused();
+    await expect(expandButton).toHaveCSS("outline-color", "rgb(127, 179, 255)");
+    await expect(expandButton).toHaveCSS("outline-style", "solid");
+    await expect(expandButton).toHaveCSS("outline-width", "3px");
+
+    const buttonBox = await expandButton.boundingBox();
+    expect(buttonBox).not.toBeNull();
+    await page.mouse.move(
+      buttonBox!.x + buttonBox!.width / 2,
+      buttonBox!.y + buttonBox!.height / 2
+    );
+    await page.mouse.down();
+    await expect(expandButton).toHaveCSS("background-color", "rgb(222, 222, 222)");
+    await expect(expandButton).toHaveCSS("border-color", "rgb(115, 115, 115)");
+    await page.mouse.move(1, 1);
+    await page.mouse.up();
+    await expect(page.locator(".app")).not.toHaveClass(/editor-expanded/);
+
+    await expandButton.click();
+    const restoreButton = page.getByRole("button", { name: "Restore editor" });
+    await expect(page.locator(".app")).toHaveClass(/editor-expanded/);
+    await expect(restoreButton).toHaveAttribute("aria-pressed", "true");
+    await expectBodyEditorValue(body, "Draft remains unchanged while the editor expands");
+
+    await restoreButton.click();
+    await expect(page.locator(".app")).not.toHaveClass(/editor-expanded/);
+    await expect(expandButton).toHaveAttribute("aria-pressed", "false");
+    await expectBodyEditorValue(body, "Draft remains unchanged while the editor expands");
+  });
+
   test("restores the notes list when leaving an expanded mobile editor", async ({
     page,
   }) => {
