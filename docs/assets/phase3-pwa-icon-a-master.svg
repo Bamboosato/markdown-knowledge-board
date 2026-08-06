@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Markdown Knowledge Board PWA icon</title>
+  <desc id="desc">A white Markdown M and blue down arrow inside a white board outline on a dark background.</desc>
+  <rect width="512" height="512" fill="#1d1d1d" />
+  <rect x="101" y="124" width="310" height="264" rx="42" fill="none" stroke="#ffffff" stroke-width="22" />
+  <path d="M151 302V207L206 262L261 207V302" fill="none" stroke="#ffffff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M330 202V299M291 261L330 300L369 261" fill="none" stroke="#75a7ff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" />
+</svg>
