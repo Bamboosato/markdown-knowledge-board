@@ -37,7 +37,7 @@ function consumeAuthCallbackNotice(): AuthNotice | null {
   if (result === 'connected') {
     return {
       tone: 'success',
-      message: 'GitHub connected. No backup or restore was started.',
+      message: 'GitHub connected. Backup and restore run only when you choose them.',
     }
   }
   const messages: Record<string, string> = {
@@ -65,27 +65,35 @@ export function useGitHubSession(capability: CloudCapability) {
   const csrfTokenRef = useRef<string | null>(null)
   const operationRef = useRef(0)
 
-  const checkSession = useCallback(async (preserveNotice = false) => {
-    if (!enabled) return
+  const checkSession = useCallback(async (
+    preserveNotice = false,
+    preserveStatus = false,
+  ): Promise<GitHubSessionState> => {
+    if (!enabled) return { status: 'signed-out' }
     const operation = ++operationRef.current
     if (!preserveNotice) setNotice(null)
     if (!navigator.onLine) {
-      setSession({ status: 'unavailable', reason: 'offline' })
-      return
+      const next: GitHubSessionState = {
+        status: 'unavailable',
+        reason: 'offline',
+      }
+      setSession(next)
+      return next
     }
-    setSession({ status: 'checking' })
+    if (!preserveStatus) setSession({ status: 'checking' })
     try {
       const result = await getGitHubSession()
-      if (operation !== operationRef.current) return
+      if (operation !== operationRef.current) return { status: 'checking' }
       csrfTokenRef.current = result.csrfToken
       setCsrfToken(result.csrfToken)
-      if (result.status === 'signed-in') {
-        setSession({ status: 'signed-in', user: result.user })
-      } else {
-        setSession({ status: result.status })
-      }
+      const next: GitHubSessionState =
+        result.status === 'signed-in'
+          ? { status: 'signed-in', user: result.user }
+          : { status: result.status }
+      setSession(next)
+      return next
     } catch (error) {
-      if (operation !== operationRef.current) return
+      if (operation !== operationRef.current) return { status: 'checking' }
       const reason =
         !navigator.onLine ||
         (error instanceof CloudApiError && error.code === 'OFFLINE')
@@ -95,7 +103,8 @@ export function useGitHubSession(capability: CloudCapability) {
                 error.code === 'SESSION_CHECK_TIMEOUT')
             ? 'timeout'
             : 'server'
-      setSession({ status: 'unavailable', reason })
+      const next: GitHubSessionState = { status: 'unavailable', reason }
+      setSession(next)
       setNotice({
         tone: 'warning',
         message:
@@ -103,6 +112,7 @@ export function useGitHubSession(capability: CloudCapability) {
             ? error.message
             : 'GitHub is temporarily unavailable.',
       })
+      return next
     }
   }, [enabled])
 
@@ -131,6 +141,27 @@ export function useGitHubSession(capability: CloudCapability) {
       window.removeEventListener('online', handleOnline)
     }
   }, [enabled])
+
+  useEffect(() => {
+    if (!enabled) return
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void checkSession(false, true)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [checkSession, enabled])
+
+  const requireReauthorization = useCallback(() => {
+    operationRef.current += 1
+    csrfTokenRef.current = null
+    setCsrfToken(null)
+    setNotice(null)
+    setSession({ status: 'reauthorization-required' })
+  }, [])
 
   const signOut = useCallback(async () => {
     const csrfToken = csrfTokenRef.current
@@ -210,7 +241,10 @@ export function useGitHubSession(capability: CloudCapability) {
     notice,
     busyAction,
     csrfToken,
-    retry: checkSession,
+    retry: () => checkSession(false, false),
+    refresh: () => checkSession(false, true),
+    clearNotice: () => setNotice(null),
+    requireReauthorization,
     signOut,
     disconnect,
   }

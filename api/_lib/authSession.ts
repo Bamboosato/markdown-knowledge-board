@@ -39,10 +39,8 @@ export type SessionResponse =
     }
   | { status: 'reauthorization-required'; csrfToken: string }
 
-type AuthSessionDependencies = {
-  env?: ServerEnvironment
+export type SessionResolutionDependencies = {
   now?: () => number
-  createRequestId?: () => string
   loadSessionKeys?: (env: ServerEnvironment) => SessionKeyRing
   refreshSession?: (
     current: SessionPayloadV1,
@@ -50,11 +48,62 @@ type AuthSessionDependencies = {
   ) => Promise<SessionPayloadV1 | null>
 }
 
+type AuthSessionDependencies = SessionResolutionDependencies & {
+  env?: ServerEnvironment
+  createRequestId?: () => string
+}
+
+export type ResolvedGitHubSession =
+  | { status: 'reauthorization-required' }
+  | {
+      status: 'signed-in'
+      payload: SessionPayloadV1
+      replacementCookie: string | null
+    }
+
 function withCookies(response: Response, cookies: readonly (string | null)[]): Response {
   for (const cookie of cookies) {
     if (cookie) response.headers.append('Set-Cookie', cookie)
   }
   return response
+}
+
+export async function resolveGitHubSession(
+  sessionValue: string,
+  env: ServerEnvironment,
+  dependencies: SessionResolutionDependencies = {},
+): Promise<ResolvedGitHubSession> {
+  const now = (dependencies.now ?? Date.now)()
+  const keyRing = (dependencies.loadSessionKeys ?? loadSessionKeyRing)(env)
+  const unsealed = await unsealSession(sessionValue, keyRing)
+  let payload = unsealed.payload
+
+  if (payload.refreshTokenExpiresAt <= now) {
+    return { status: 'reauthorization-required' }
+  }
+
+  let replaceSession = unsealed.needsRotation
+  if (payload.accessTokenExpiresAt - now <= ACCESS_TOKEN_REFRESH_WINDOW_MS) {
+    const refresh =
+      dependencies.refreshSession ??
+      ((current, context) =>
+        refreshGitHubSession(current, {
+          env: context.env,
+          now: context.now,
+        }))
+    const refreshed = await refresh(payload, { env, now })
+    if (!refreshed) return { status: 'reauthorization-required' }
+    payload = refreshed
+    replaceSession = true
+  }
+
+  let replacementCookie: string | null = null
+  if (replaceSession) {
+    const sealed = await sealSession(payload, keyRing)
+    replacementCookie = sessionCookie(sealed, payload, now)
+  }
+
+  return { status: 'signed-in', payload, replacementCookie }
 }
 
 export async function handleAuthSessionRequest(
@@ -81,13 +130,9 @@ export async function handleAuthSessionRequest(
     )
   }
 
-  const now = (dependencies.now ?? Date.now)()
   try {
-    const keyRing = (dependencies.loadSessionKeys ?? loadSessionKeyRing)(env)
-    const unsealed = await unsealSession(sessionValue, keyRing)
-    let payload = unsealed.payload
-
-    if (payload.refreshTokenExpiresAt <= now) {
+    const resolution = await resolveGitHubSession(sessionValue, env, dependencies)
+    if (resolution.status === 'reauthorization-required') {
       return withCookies(
         apiSuccess<SessionResponse>(
           { status: 'reauthorization-required', csrfToken: csrf.token },
@@ -97,46 +142,19 @@ export async function handleAuthSessionRequest(
       )
     }
 
-    let replaceSession = unsealed.needsRotation
-    if (payload.accessTokenExpiresAt - now <= ACCESS_TOKEN_REFRESH_WINDOW_MS) {
-      const refresh =
-        dependencies.refreshSession ??
-        ((current, context) =>
-          refreshGitHubSession(current, {
-            env: context.env,
-            now: context.now,
-          }))
-      const refreshed = await refresh(payload, { env, now })
-      if (!refreshed) {
-        return withCookies(
-          apiSuccess<SessionResponse>(
-            { status: 'reauthorization-required', csrfToken: csrf.token },
-            requestId,
-          ),
-          [csrf.setCookie, clearSessionCookie()],
-        )
-      }
-      payload = refreshed
-      replaceSession = true
-    }
-
-    let replacementCookie: string | null = null
-    if (replaceSession) {
-      const sealed = await sealSession(payload, keyRing)
-      replacementCookie = sessionCookie(sealed, payload, now)
-    }
-
     return withCookies(
       apiSuccess<SessionResponse>(
         {
           status: 'signed-in',
-          user: payload.user,
-          accessTokenExpiresAt: new Date(payload.accessTokenExpiresAt).toISOString(),
+          user: resolution.payload.user,
+          accessTokenExpiresAt: new Date(
+            resolution.payload.accessTokenExpiresAt,
+          ).toISOString(),
           csrfToken: csrf.token,
         },
         requestId,
       ),
-      [csrf.setCookie, replacementCookie],
+      [csrf.setCookie, resolution.replacementCookie],
     )
   } catch (error) {
     if (error instanceof SessionError && error.code === 'SESSION_INVALID') {

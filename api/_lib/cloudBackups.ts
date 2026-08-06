@@ -1,5 +1,9 @@
 import { Buffer } from 'node:buffer'
 import { timingSafeEqual } from 'node:crypto'
+import {
+  resolveGitHubSession,
+  type SessionResolutionDependencies,
+} from './authSession.js'
 import { BodyReadError, ENCRYPTED_BACKUP_MAX_BYTES, readRawBodyWithLimit } from './body.js'
 import { parseCookies } from './cookies.js'
 import { validateStateChangingRequest } from './csrf.js'
@@ -7,6 +11,10 @@ import {
   requireProductionCloudEnvironment,
   type ServerEnvironment,
 } from './environment.js'
+import {
+  GitHubConfigurationError,
+  GitHubRefreshTransientError,
+} from './github.js'
 import {
   createBackupGist,
   getVerifiedBackupGist,
@@ -21,11 +29,9 @@ import {
 import { apiError, apiSuccess, createRequestId, methodNotAllowed, type ApiStage } from './http.js'
 import {
   clearSessionCookie,
-  loadSessionKeyRing,
+  SessionError,
   SESSION_COOKIE_NAME,
-  type SessionKeyRing,
   type SessionPayloadV1,
-  unsealSession,
 } from './session.js'
 
 const ENCRYPTED_CONTENT_TYPE = 'application/vnd.mkb.encrypted-backup+json'
@@ -35,11 +41,9 @@ const SHA256_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const REVISION_PATTERN = /^[A-Fa-f0-9]{40,64}$/
 const ENVELOPE_KEYS = new Set(['app', 'envelopeVersion', 'crypto', 'ciphertext'])
 
-type BaseDependencies = {
+type BaseDependencies = SessionResolutionDependencies & {
   env?: ServerEnvironment
-  now?: () => number
   createRequestId?: () => string
-  loadSessionKeys?: (env: ServerEnvironment) => SessionKeyRing
   resolveBackup?: (
     accessToken: string,
     userId: number,
@@ -78,12 +82,18 @@ function appendCookie(response: Response, cookie?: string): Response {
   return response
 }
 
-function authError(requestId: string, clear = false): Response {
+function authError(
+  requestId: string,
+  code: 'AUTH_REQUIRED' | 'REAUTH_REQUIRED' = 'AUTH_REQUIRED',
+  clear = false,
+): Response {
   return appendCookie(
     apiError(
       401,
-      'AUTH_REQUIRED',
-      'GitHub sign-in is required.',
+      code,
+      code === 'REAUTH_REQUIRED'
+        ? 'GitHub sign-in has expired. Sign in again.'
+        : 'GitHub sign-in is required.',
       false,
       requestId,
     ),
@@ -96,25 +106,84 @@ async function authenticatedSession(
   requestId: string,
   env: ServerEnvironment,
   dependencies: BaseDependencies,
-): Promise<{ ok: true; payload: SessionPayloadV1 } | { ok: false; response: Response }> {
+): Promise<
+  | { ok: true; payload: SessionPayloadV1; replacementCookie: string | null }
+  | { ok: false; response: Response }
+> {
   const sessionValue = parseCookies(request.headers.get('Cookie')).get(
     SESSION_COOKIE_NAME,
   )
   if (!sessionValue) return { ok: false, response: authError(requestId) }
   try {
-    const keys = (dependencies.loadSessionKeys ?? loadSessionKeyRing)(env)
-    const { payload } = await unsealSession(sessionValue, keys)
-    const now = (dependencies.now ?? Date.now)()
-    if (
-      payload.accessTokenExpiresAt <= now ||
-      payload.refreshTokenExpiresAt <= now
-    ) {
-      return { ok: false, response: authError(requestId, true) }
+    const resolution = await resolveGitHubSession(
+      sessionValue,
+      env,
+      dependencies,
+    )
+    if (resolution.status === 'reauthorization-required') {
+      return {
+        ok: false,
+        response: authError(requestId, 'REAUTH_REQUIRED', true),
+      }
     }
-    return { ok: true, payload }
-  } catch {
-    return { ok: false, response: authError(requestId, true) }
+    return {
+      ok: true,
+      payload: resolution.payload,
+      replacementCookie: resolution.replacementCookie,
+    }
+  } catch (error) {
+    if (error instanceof SessionError && error.code === 'SESSION_INVALID') {
+      return {
+        ok: false,
+        response: authError(requestId, 'REAUTH_REQUIRED', true),
+      }
+    }
+    if (error instanceof GitHubRefreshTransientError) {
+      return {
+        ok: false,
+        response: apiError(
+          error.kind === 'timeout' ? 504 : 503,
+          error.kind === 'timeout'
+            ? 'SESSION_CHECK_TIMEOUT'
+            : 'SESSION_CHECK_UNAVAILABLE',
+          'GitHub session is temporarily unavailable.',
+          true,
+          requestId,
+          { stage: 'auth-check' },
+        ),
+      }
+    }
+    const code =
+      error instanceof SessionError && error.code === 'SESSION_TOO_LARGE'
+        ? 'SESSION_TOO_LARGE'
+        : error instanceof GitHubConfigurationError
+          ? 'SESSION_REFRESH_UNAVAILABLE'
+          : 'SESSION_UNAVAILABLE'
+    return {
+      ok: false,
+      response: apiError(
+        500,
+        code,
+        'GitHub session could not be checked.',
+        true,
+        requestId,
+        { stage: 'auth-check' },
+      ),
+    }
   }
+}
+
+async function withAuthenticatedSession(
+  request: Request,
+  requestId: string,
+  env: ServerEnvironment,
+  dependencies: BaseDependencies,
+  handle: (payload: SessionPayloadV1) => Promise<Response>,
+): Promise<Response> {
+  const session = await authenticatedSession(request, requestId, env, dependencies)
+  if (session.ok === false) return session.response
+  const response = await handle(session.payload)
+  return appendCookie(response, session.replacementCookie ?? undefined)
 }
 
 function csrfError(request: Request, requestId: string): Response | null {
@@ -341,35 +410,35 @@ export async function handleCloudBackupDiscoveryRequest(
   const gate = requireProductionCloudEnvironment(request, requestId, env)
   if (gate.ok === false) return gate.response
   if (request.method !== 'GET') return methodNotAllowed(['GET'], requestId)
-  const session = await authenticatedSession(request, requestId, env, dependencies)
-  if (session.ok === false) return session.response
 
-  const cachedGistId = new URL(request.url).searchParams.get('gistId') ?? undefined
-  if (cachedGistId) {
-    try {
-      validateGistId(cachedGistId)
-    } catch {
-      return apiError(
-        400,
-        'INVALID_GIST_ID',
-        'The cached cloud backup ID is invalid.',
-        false,
-        requestId,
-        { stage: 'backup-discovery' },
-      )
+  return withAuthenticatedSession(request, requestId, env, dependencies, async (payload) => {
+    const cachedGistId = new URL(request.url).searchParams.get('gistId') ?? undefined
+    if (cachedGistId) {
+      try {
+        validateGistId(cachedGistId)
+      } catch {
+        return apiError(
+          400,
+          'INVALID_GIST_ID',
+          'The cached cloud backup ID is invalid.',
+          false,
+          requestId,
+          { stage: 'backup-discovery' },
+        )
+      }
     }
-  }
-  try {
-    const { resolve } = defaultDependencies(dependencies)
-    const result = await resolve(
-      session.payload.accessToken,
-      session.payload.user.id,
-      cachedGistId,
-    )
-    return apiSuccess(result, requestId)
-  } catch (error) {
-    return gistError(error, requestId, 'backup-discovery')
-  }
+    try {
+      const { resolve } = defaultDependencies(dependencies)
+      const result = await resolve(
+        payload.accessToken,
+        payload.user.id,
+        cachedGistId,
+      )
+      return apiSuccess(result, requestId)
+    } catch (error) {
+      return gistError(error, requestId, 'backup-discovery')
+    }
+  })
 }
 
 export async function handleCloudBackupContentRequest(
@@ -387,66 +456,66 @@ export async function handleCloudBackupContentRequest(
     requestId,
   )
   if (originFailure) return originFailure
-  const session = await authenticatedSession(request, requestId, env, dependencies)
-  if (session.ok === false) return session.response
 
-  const gistId = new URL(request.url).searchParams.get('gistId') ?? ''
-  try {
-    validateGistId(gistId)
-  } catch {
-    return apiError(
-      400,
-      'INVALID_GIST_ID',
-      'The cloud backup ID is invalid.',
-      false,
-      requestId,
-      { stage: 'restore-download' },
-    )
-  }
-
-  try {
-    const { getVerified } = defaultDependencies(dependencies)
-    const verified = await getVerified(
-      gistId,
-      session.payload.accessToken,
-      session.payload.user.id,
-    )
-    validateEnvelopeShape(verified.content)
-    const byteLength = Buffer.byteLength(verified.content, 'utf8')
-    if (
-      byteLength < 1 ||
-      byteLength > ENCRYPTED_BACKUP_MAX_BYTES ||
-      byteLength !== verified.metadata.encryptedSize ||
-      !SHA256_PATTERN.test(verified.sha256)
-    ) {
-      throw new GistApiError('invalid-response')
-    }
-    return new Response(verified.content, {
-      status: 200,
-      headers: {
-        'Cache-Control': 'no-store',
-        'Content-Type': ENCRYPTED_CONTENT_TYPE,
-        'Content-Length': String(byteLength),
-        'X-Request-Id': requestId,
-        'X-MKB-Gist-Id': verified.metadata.gistId,
-        'X-MKB-Revision': verified.metadata.revision,
-        'X-MKB-Gist-Updated-At': verified.metadata.updatedAt,
-        'X-MKB-Content-SHA256': verified.sha256,
-      },
-    })
-  } catch (error) {
-    if (error instanceof Error && error.message === 'INVALID_ENCRYPTED_ENVELOPE') {
+  return withAuthenticatedSession(request, requestId, env, dependencies, async (payload) => {
+    const gistId = new URL(request.url).searchParams.get('gistId') ?? ''
+    try {
+      validateGistId(gistId)
+    } catch {
       return apiError(
-        502,
-        'ENCRYPTED_BACKUP_INVALID',
-        'The cloud backup is not a supported encrypted backup.',
+        400,
+        'INVALID_GIST_ID',
+        'The cloud backup ID is invalid.',
         false,
         requestId,
         { stage: 'restore-download' },
       )
     }
-    return gistError(error, requestId, 'restore-download')
-  }
+
+    try {
+      const { getVerified } = defaultDependencies(dependencies)
+      const verified = await getVerified(
+        gistId,
+        payload.accessToken,
+        payload.user.id,
+      )
+      validateEnvelopeShape(verified.content)
+      const byteLength = Buffer.byteLength(verified.content, 'utf8')
+      if (
+        byteLength < 1 ||
+        byteLength > ENCRYPTED_BACKUP_MAX_BYTES ||
+        byteLength !== verified.metadata.encryptedSize ||
+        !SHA256_PATTERN.test(verified.sha256)
+      ) {
+        throw new GistApiError('invalid-response')
+      }
+      return new Response(verified.content, {
+        status: 200,
+        headers: {
+          'Cache-Control': 'no-store',
+          'Content-Type': ENCRYPTED_CONTENT_TYPE,
+          'Content-Length': String(byteLength),
+          'X-Request-Id': requestId,
+          'X-MKB-Gist-Id': verified.metadata.gistId,
+          'X-MKB-Revision': verified.metadata.revision,
+          'X-MKB-Gist-Updated-At': verified.metadata.updatedAt,
+          'X-MKB-Content-SHA256': verified.sha256,
+        },
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'INVALID_ENCRYPTED_ENVELOPE') {
+        return apiError(
+          502,
+          'ENCRYPTED_BACKUP_INVALID',
+          'The cloud backup is not a supported encrypted backup.',
+          false,
+          requestId,
+          { stage: 'restore-download' },
+        )
+      }
+      return gistError(error, requestId, 'restore-download')
+    }
+  })
 }
 
 async function recoverCreatedBackup(
@@ -482,89 +551,98 @@ export async function handleCloudBackupCreateRequest(
   if (request.method !== 'POST') return methodNotAllowed(['POST'], requestId)
   const csrfFailure = csrfError(request, requestId)
   if (csrfFailure) return csrfFailure
-  const session = await authenticatedSession(request, requestId, env, dependencies)
-  if (session.ok === false) return session.response
 
-  let upload: Upload
-  try {
-    upload = await readUpload(request)
-  } catch (error) {
-    return uploadError(error, requestId) ?? gistError(error, requestId, 'backup-upload')
-  }
-  const helpers = defaultDependencies(dependencies)
-  try {
-    const resolution = await helpers.resolve(
-      session.payload.accessToken,
-      session.payload.user.id,
-    )
-    if (resolution.status !== 'none') {
-      if (resolution.status === 'selected') {
-        const existing = await helpers.getVerified(
-          resolution.backup.gistId,
-          session.payload.accessToken,
-          session.payload.user.id,
+  return withAuthenticatedSession(
+    request,
+    requestId,
+    env,
+    dependencies,
+    async (payload) => {
+      let upload: Upload
+      try {
+        upload = await readUpload(request)
+      } catch (error) {
+        return (
+          uploadError(error, requestId) ??
+          gistError(error, requestId, 'backup-upload')
         )
-        if (existing.sha256 === upload.sha256) {
-          return apiSuccess(writeResponse(existing), requestId)
+      }
+      const helpers = defaultDependencies(dependencies)
+      try {
+        const resolution = await helpers.resolve(
+          payload.accessToken,
+          payload.user.id,
+        )
+        if (resolution.status !== 'none') {
+          if (resolution.status === 'selected') {
+            const existing = await helpers.getVerified(
+              resolution.backup.gistId,
+              payload.accessToken,
+              payload.user.id,
+            )
+            if (existing.sha256 === upload.sha256) {
+              return apiSuccess(writeResponse(existing), requestId)
+            }
+          }
+          return apiError(
+            409,
+            'GIST_SELECTION_REQUIRED',
+            'An existing cloud backup must be selected before uploading.',
+            false,
+            requestId,
+            { stage: 'backup-upload' },
+          )
         }
-      }
-      return apiError(
-        409,
-        'GIST_SELECTION_REQUIRED',
-        'An existing cloud backup must be selected before uploading.',
-        false,
-        requestId,
-        { stage: 'backup-upload' },
-      )
-    }
 
-    let gistId: string
-    try {
-      gistId = await helpers.create(upload.content, session.payload.accessToken)
-    } catch (error) {
-      if (
-        error instanceof GistApiError &&
-        ['timeout', 'unavailable', 'invalid-response'].includes(error.kind)
-      ) {
-        const recovered = await recoverCreatedBackup(
-          upload,
-          session.payload,
-          helpers,
+        let gistId: string
+        try {
+          gistId = await helpers.create(upload.content, payload.accessToken)
+        } catch (error) {
+          if (
+            error instanceof GistApiError &&
+            ['timeout', 'unavailable', 'invalid-response'].includes(error.kind)
+          ) {
+            const recovered = await recoverCreatedBackup(
+              upload,
+              payload,
+              helpers,
+            )
+            if (recovered) return apiSuccess(writeResponse(recovered), requestId)
+            return apiError(
+              502,
+              'UPLOAD_STATUS_UNKNOWN',
+              'GitHub may have received the backup. Check again before retrying.',
+              false,
+              requestId,
+              { stage: 'backup-upload' },
+            )
+          }
+          throw error
+        }
+        const verified = await helpers.getVerified(
+          gistId,
+          payload.accessToken,
+          payload.user.id,
         )
-        if (recovered) return apiSuccess(writeResponse(recovered), requestId)
-        return apiError(
-          502,
-          'UPLOAD_STATUS_UNKNOWN',
-          'GitHub may have received the backup. Check again before retrying.',
-          false,
-          requestId,
-          { stage: 'backup-upload' },
-        )
+        if (
+          verified.sha256 !== upload.sha256 ||
+          verified.metadata.encryptedSize !== upload.byteLength
+        ) {
+          return apiError(
+            502,
+            'UPLOAD_STATUS_UNKNOWN',
+            'The encrypted backup could not be verified after upload.',
+            false,
+            requestId,
+            { stage: 'backup-upload' },
+          )
+        }
+        return apiSuccess(writeResponse(verified), requestId, { status: 201 })
+      } catch (error) {
+        return gistError(error, requestId, 'backup-upload')
       }
-      throw error
-    }
-    const verified = await helpers.getVerified(
-      gistId,
-      session.payload.accessToken,
-      session.payload.user.id,
-    )
-    if (
-      verified.sha256 !== upload.sha256 ||
-      verified.metadata.encryptedSize !== upload.byteLength
-    ) {
-      return apiError(
-        502,
-        'UPLOAD_STATUS_UNKNOWN',
-        'The encrypted backup could not be verified after upload.',
-        false,
-        requestId,
-        { stage: 'backup-upload' },
-      )
-    }
-    return apiSuccess(writeResponse(verified), requestId, { status: 201 })
-  } catch (error) {
-    return gistError(error, requestId, 'backup-upload')
-  }
+    },
+  )
 }
 
 export async function handleCloudBackupUpdateRequest(
@@ -578,101 +656,116 @@ export async function handleCloudBackupUpdateRequest(
   if (request.method !== 'PUT') return methodNotAllowed(['PUT'], requestId)
   const csrfFailure = csrfError(request, requestId)
   if (csrfFailure) return csrfFailure
-  const session = await authenticatedSession(request, requestId, env, dependencies)
-  if (session.ok === false) return session.response
 
-  const gistId = new URL(request.url).searchParams.get('gistId') ?? ''
-  const expectedRevision = request.headers.get('X-MKB-Expected-Revision') ?? ''
-  try {
-    validateGistId(gistId)
-  } catch {
-    return apiError(400, 'INVALID_GIST_ID', 'The cloud backup ID is invalid.', false, requestId, {
-      stage: 'backup-upload',
-    })
-  }
-  if (!REVISION_PATTERN.test(expectedRevision)) {
-    return apiError(
-      400,
-      'INVALID_EXPECTED_REVISION',
-      'The expected cloud revision is invalid.',
-      false,
-      requestId,
-      { stage: 'backup-upload' },
-    )
-  }
-
-  let upload: Upload
-  try {
-    upload = await readUpload(request)
-  } catch (error) {
-    return uploadError(error, requestId) ?? gistError(error, requestId, 'backup-upload')
-  }
-  const helpers = defaultDependencies(dependencies)
-  try {
-    const current = await helpers.getVerified(
-      gistId,
-      session.payload.accessToken,
-      session.payload.user.id,
-    )
-    if (current.sha256 === upload.sha256) {
-      return apiSuccess(writeResponse(current), requestId)
-    }
-    if (current.metadata.revision !== expectedRevision) {
-      return apiError(
-        409,
-        'REMOTE_REVISION_CHANGED',
-        'The cloud backup changed on another device.',
-        false,
-        requestId,
-        { stage: 'backup-upload' },
-      )
-    }
-    try {
-      await helpers.update(gistId, upload.content, session.payload.accessToken)
-    } catch (error) {
-      if (
-        error instanceof GistApiError &&
-        ['timeout', 'unavailable', 'invalid-response'].includes(error.kind)
-      ) {
-        const recovered = await helpers.getVerified(
-          gistId,
-          session.payload.accessToken,
-          session.payload.user.id,
-        )
-        if (recovered.sha256 === upload.sha256) {
-          return apiSuccess(writeResponse(recovered), requestId)
-        }
+  return withAuthenticatedSession(
+    request,
+    requestId,
+    env,
+    dependencies,
+    async (payload) => {
+      const gistId = new URL(request.url).searchParams.get('gistId') ?? ''
+      const expectedRevision =
+        request.headers.get('X-MKB-Expected-Revision') ?? ''
+      try {
+        validateGistId(gistId)
+      } catch {
         return apiError(
-          502,
-          'UPLOAD_STATUS_UNKNOWN',
-          'GitHub may have received the backup. Check again before retrying.',
+          400,
+          'INVALID_GIST_ID',
+          'The cloud backup ID is invalid.',
           false,
           requestId,
           { stage: 'backup-upload' },
         )
       }
-      throw error
-    }
-    const verified = await helpers.getVerified(
-      gistId,
-      session.payload.accessToken,
-      session.payload.user.id,
-    )
-    if (
-      verified.sha256 !== upload.sha256 ||
-      verified.metadata.encryptedSize !== upload.byteLength
-    ) {
-      return apiError(
-        502,
-        'UPLOAD_STATUS_UNKNOWN',
-        'The encrypted backup could not be verified after upload.',
-        false,
-        requestId,
-        { stage: 'backup-upload' },
-      )
-    }
-    return apiSuccess(writeResponse(verified), requestId)
-  } catch (error) {
-    return gistError(error, requestId, 'backup-upload')
-  }
+      if (!REVISION_PATTERN.test(expectedRevision)) {
+        return apiError(
+          400,
+          'INVALID_EXPECTED_REVISION',
+          'The expected cloud revision is invalid.',
+          false,
+          requestId,
+          { stage: 'backup-upload' },
+        )
+      }
+
+      let upload: Upload
+      try {
+        upload = await readUpload(request)
+      } catch (error) {
+        return (
+          uploadError(error, requestId) ??
+          gistError(error, requestId, 'backup-upload')
+        )
+      }
+      const helpers = defaultDependencies(dependencies)
+      try {
+        const current = await helpers.getVerified(
+          gistId,
+          payload.accessToken,
+          payload.user.id,
+        )
+        if (current.sha256 === upload.sha256) {
+          return apiSuccess(writeResponse(current), requestId)
+        }
+        if (current.metadata.revision !== expectedRevision) {
+          return apiError(
+            409,
+            'REMOTE_REVISION_CHANGED',
+            'The cloud backup changed on another device.',
+            false,
+            requestId,
+            { stage: 'backup-upload' },
+          )
+        }
+        try {
+          await helpers.update(gistId, upload.content, payload.accessToken)
+        } catch (error) {
+          if (
+            error instanceof GistApiError &&
+            ['timeout', 'unavailable', 'invalid-response'].includes(error.kind)
+          ) {
+            const recovered = await helpers.getVerified(
+              gistId,
+              payload.accessToken,
+              payload.user.id,
+            )
+            if (recovered.sha256 === upload.sha256) {
+              return apiSuccess(writeResponse(recovered), requestId)
+            }
+            return apiError(
+              502,
+              'UPLOAD_STATUS_UNKNOWN',
+              'GitHub may have received the backup. Check again before retrying.',
+              false,
+              requestId,
+              { stage: 'backup-upload' },
+            )
+          }
+          throw error
+        }
+        const verified = await helpers.getVerified(
+          gistId,
+          payload.accessToken,
+          payload.user.id,
+        )
+        if (
+          verified.sha256 !== upload.sha256 ||
+          verified.metadata.encryptedSize !== upload.byteLength
+        ) {
+          return apiError(
+            502,
+            'UPLOAD_STATUS_UNKNOWN',
+            'The encrypted backup could not be verified after upload.',
+            false,
+            requestId,
+            { stage: 'backup-upload' },
+          )
+        }
+        return apiSuccess(writeResponse(verified), requestId)
+      } catch (error) {
+        return gistError(error, requestId, 'backup-upload')
+      }
+    },
+  )
 }

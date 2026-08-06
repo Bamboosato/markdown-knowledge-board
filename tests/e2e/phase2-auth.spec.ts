@@ -370,7 +370,9 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     await page.goto('/?cloudTest=1&auth=connected')
     const menu = await openAppMenuSection(page, 'GitHub')
     await expect(
-      menu.getByText('GitHub connected. No backup or restore was started.'),
+      menu.getByText(
+        'GitHub connected. Backup and restore run only when you choose them.',
+      ),
     ).toBeVisible()
     expect(new URL(page.url()).searchParams.has('auth')).toBe(false)
   })

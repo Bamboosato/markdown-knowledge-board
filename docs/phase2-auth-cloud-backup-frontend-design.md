@@ -180,6 +180,7 @@ Cloud Backup と restore apply は同じ component を使用し、title/body の
 ### 5.3 callback 後
 
 - `auth=connected` は non-blocking status として表示し、URL query を即時除去する。
+- 接続直後の文言は `GitHub connected. Backup and restore run only when you choose them.` とする。実際の cloud operation 開始時に消去し、最新の backup/restore 結果とは同時表示しない。
 - session を再取得するが、backup/restore を呼ばない。
 - `auth=error` は GitHub 階層に表示し、editor/global DB error に送らない。
 - callback から戻った draft は保存済みのため、IndexedDB から通常どおり復元する。
@@ -204,7 +205,7 @@ type CloudBackupState =
 
 ### 6.2 処理手順
 
-1. signed-in、online、operation idle を確認する。
+1. session を再取得し、signed-in、online、operation idle を確認する。access token が期限切れまたは期限間近でも refresh 可能なら継続し、再認証が必要なら operation を開始しない。
 2. 未保存なら `Save and Continue` / `Cancel` を表示する。
 3. `getAllNotes()` で IndexedDB から最新 snapshot を再取得する。
 4. 固定済みは `pinnedAt desc, updatedAt desc, id asc`、未固定は `updatedAt desc, id asc` で決定的に並べる。
@@ -215,6 +216,12 @@ type CloudBackupState =
 9. 初回は `POST /api/cloud-backups`、更新は expected revision付き `PUT /api/cloud-backups/update?gistId=...` へ envelope bytesを直接送る。
 10. 成功 response 後だけ cloud metadata を更新する。
 11. passphrase、入力 field、平文 JSON、derived key 参照を破棄する。
+
+成功時の transient notice は1件だけ表示し、件数に応じて次の文言を使用する。`Last cloud backup` の永続的な日時表示はこれと別に更新する。
+
+- 0件: `Cloud backup completed. The encrypted backup contains no notes.`
+- 1件: `Cloud backup completed. 1 note was encrypted and saved to GitHub.`
+- 2件以上: `Cloud backup completed. {count} notes were encrypted and saved to GitHub.`
 
 network timeout時は同じ `operationId`、SHA-256、envelope bytesで1回だけ状態確認を兼ねた再送を許可する。APIは保存済みcontent hashを照合して重複作成・二重更新を防ぐ。それ以上は利用者の手動再試行とし、再暗号化や自動Gist作成を行わない。
 
