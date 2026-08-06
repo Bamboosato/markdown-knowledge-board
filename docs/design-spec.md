@@ -978,3 +978,38 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 
 実装時は上記文書の要件 ID とテスト観点をトレースし、実装完了後に本書 1～13 の技術構成、データ設計、画面仕様、状態管理、エラー仕様を実装内容へ同期する。
 
+## 15. フェーズ3 PWA拡張設計（実装済み・Production有効化前）
+
+PWAは既存のローカルファースト設計へ、install、offline app shell、安全な明示更新を追加する。IndexedDBをノートの正本として維持し、Service WorkerはHTML、build asset、manifest、iconだけをprecacheする。`/api/**`、認証、session、Cloud Backup／Restore、cross-origin responseをruntime cacheしない。
+
+### 15.1 Build・環境境界
+
+- `vite-plugin-pwa`の`generateSW`とprompt updateを使用する。
+- `VITE_PWA_ENABLED=true`かつ許可済みProduction Origin、または`VITE_PWA_TEST_ENABLED=true`かつloopbackのproduction previewだけで登録する。
+- 通常開発、通常local build、Vercel Previewではmanifest生成とService Worker登録を無効にする。
+- root scopeの`sw.js`は`no-cache`、hash付き`/assets/*`はimmutableとする。
+- A案のMarkdown Board iconを192、512、maskable 512、Apple touch 180へ同一SVG正本から生成する。
+
+### 15.2 Runtime・UI
+
+- module singletonのPWA controllerをReactから`useSyncExternalStore`で購読し、StrictModeや再mountで重複登録しない。
+- Application menu rootへ、native promptが利用可能なときだけ`Install App`、iPhone Safariかつ非standalone時だけ`Install Help`を表示する。
+- offline状態はeditorを覆わない通常flowのstatus regionで通知し、ローカル操作を継続する。
+- waiting workerは`Update available`で通知し、`Later`ではworkerを維持したまま現在sessionのnoticeだけを閉じる。
+- dirty updateは`Save and restart`だけを提供し、保存失敗時はdraft、dialog、waiting workerを維持する。discard更新は提供しない。
+- 更新を選んだtabだけreloadし、他tabのdirty draftを強制reloadしない。
+- install後または明示Save成功後にStorage Persistenceをsession内1回だけbest effortで要求し、拒否や非対応を保存失敗にしない。
+
+### 15.3 自動検証と実機境界
+
+- build検査はmanifest必須field、icon寸法／purpose、全build assetのprecache、4,000,000 bytes単体上限、5 MiB gzip総量、API非cacheを失敗条件にする。
+- production preview E2Eはoffline新規起動、IndexedDB復元、offline初回Mermaid／Slides、install prompt、iPhone Help、API非cache、clean／dirty update、Later、保存失敗、複数tabをserial実行する。
+- Android Chrome／iPhone Safariのlauncher、standalone、OS終了後offline起動はユーザーが実機で手動確認する。同一実機へ並列に操作しない。
+
+### 15.4 設計文書
+
+- [フェーズ3 PWA要件定義](./phase3-pwa-requirements.md)
+- [フェーズ3 PWA基本・詳細設計](./phase3-pwa-design.md)
+- [フェーズ3 PWA実装計画](./phase3-pwa-implementation-plan.md)
+- [フェーズ3 PWA実機手動チェックリスト](./phase3-pwa-device-checklist.md)
+

@@ -45,6 +45,7 @@ import {
   Quote,
   RotateCcw,
   Settings,
+  Smartphone,
   Strikethrough,
   Table2,
   Trash2,
@@ -59,6 +60,9 @@ import {
 import { MarpSlides } from "./components/MarpSlides";
 import { MetadataDialog } from "./components/MetadataDialog";
 import { MermaidBlock } from "./components/MermaidBlock";
+import { PwaInstallHelpDialog } from "./components/PwaInstallHelpDialog";
+import { PwaStatusRegion } from "./components/PwaStatusRegion";
+import { PwaUpdateDialog } from "./components/PwaUpdateDialog";
 import {
   MarkdownBodyEditor,
   type EditorSelectionSnapshot,
@@ -74,6 +78,7 @@ import {
   useCloudRestore,
 } from "./hooks/useCloudRestore";
 import { useGitHubSession } from "./hooks/useGitHubSession";
+import { usePwaLifecycle } from "./hooks/usePwaLifecycle";
 import { CloudApiError } from "./lib/cloudApi";
 import {
   CONTENT_FONT_SCALE_DEFAULT,
@@ -118,6 +123,7 @@ import {
 import { getTaskLineIndexes, toggleTaskAtLine } from "./lib/markdownTasks";
 import { remarkSingleLineHighlight } from "./lib/remarkSingleLineHighlight";
 import { getCloudCapability } from "./lib/cloudCapability";
+import { requestPersistentStorage } from "./lib/storagePersistence";
 
 type SaveStatus = "idle" | "draft" | "unsaved" | "saving" | "saved" | "error";
 type MobileView = "notes" | "editor";
@@ -488,6 +494,7 @@ function App() {
     session: githubSession.session,
     isOnline: githubSession.isOnline,
   });
+  const pwa = usePwaLifecycle();
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
@@ -598,6 +605,10 @@ function App() {
   const appMenuBackButtonRef = useRef<HTMLButtonElement | null>(null);
   const localDataMenuItemRef = useRef<HTMLButtonElement | null>(null);
   const githubMenuItemRef = useRef<HTMLButtonElement | null>(null);
+  const pwaInstallMenuItemRef = useRef<HTMLButtonElement | null>(null);
+  const pwaInstallHelpMenuItemRef = useRef<HTMLButtonElement | null>(null);
+  const [isPwaInstallHelpOpen, setIsPwaInstallHelpOpen] = useState(false);
+  const [isPwaUpdateDialogOpen, setIsPwaUpdateDialogOpen] = useState(false);
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
   const [isMetadataDialogOpen, setIsMetadataDialogOpen] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
@@ -2241,6 +2252,7 @@ function App() {
       setLastSaveError(null);
       isDirtyRef.current = false;
       setInitialDraft(null);
+      void requestPersistentStorage();
       return true;
     } catch (error) {
       const message = getErrorMessage(error, "Failed to save the note.");
@@ -2576,7 +2588,9 @@ function App() {
         operationDialog !== null ||
         deleteConfirmation !== null ||
         revertConfirmation !== null ||
-        isMetadataDialogOpen;
+        isMetadataDialogOpen ||
+        isPwaInstallHelpOpen ||
+        isPwaUpdateDialogOpen;
       if (event.repeat || saveStatus === "saving" || isDialogOpen) {
         return;
       }
@@ -3179,6 +3193,81 @@ function App() {
     }
   };
 
+  const pwaStatusHiddenForDialog =
+    unsavedDialog !== null ||
+    cloudDialog !== null ||
+    cloudBackupDialog !== null ||
+    cloudRestoreDialog !== null ||
+    isFilterDialogOpen ||
+    operationDialog !== null ||
+    deleteConfirmation !== null ||
+    revertConfirmation !== null ||
+    isMetadataDialogOpen ||
+    isPwaInstallHelpOpen ||
+    isPwaUpdateDialogOpen;
+  const pwaUpdateBlocked =
+    saveStatus === "saving" ||
+    githubSession.busyAction !== null ||
+    cloudBackup.uploading ||
+    cloudRestore.downloading ||
+    cloudRestore.preparing ||
+    cloudRestore.applying ||
+    isBackupBusy ||
+    isImporting;
+
+  const restorePwaUpdateFocus = () => {
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLButtonElement>("[data-pwa-update-action]")
+        ?.focus();
+    });
+  };
+
+  const handlePwaInstall = async () => {
+    setIsAppMenuOpen(false);
+    await pwa.promptInstall();
+    window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
+  };
+
+  const openPwaInstallHelp = () => {
+    setIsAppMenuOpen(false);
+    setIsPwaInstallHelpOpen(true);
+  };
+
+  const closePwaInstallHelp = () => {
+    setIsPwaInstallHelpOpen(false);
+    window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
+  };
+
+  const handlePwaRestart = () => {
+    if (pwaUpdateBlocked) {
+      return;
+    }
+    setIsAppMenuOpen(false);
+    if (isDirtyRef.current || tagInput.trim().length > 0) {
+      setIsPwaUpdateDialogOpen(true);
+      return;
+    }
+    void pwa.applyUpdate();
+  };
+
+  const handlePwaSaveAndRestart = async () => {
+    if (saveStatus === "saving") {
+      return;
+    }
+    const saved = await handleSave();
+    if (!saved) {
+      return;
+    }
+    await pwa.applyUpdate();
+    setIsPwaUpdateDialogOpen(false);
+  };
+
+  const cancelPwaUpdate = () => {
+    setIsPwaUpdateDialogOpen(false);
+    restorePwaUpdateFocus();
+  };
+
   return (
     <div
       className={`app mobile-${mobileView}${
@@ -3270,6 +3359,32 @@ function App() {
                           className="app-menu-category-chevron"
                           aria-hidden="true"
                         />
+                      </button>
+                    ) : null}
+                    {pwa.snapshot.registration === "ready" &&
+                    pwa.snapshot.install === "available" ? (
+                      <button
+                        ref={pwaInstallMenuItemRef}
+                        className="app-menu-item"
+                        type="button"
+                        role="menuitem"
+                        onClick={() => void handlePwaInstall()}
+                      >
+                        <Download aria-hidden="true" />
+                        Install App
+                      </button>
+                    ) : null}
+                    {pwa.snapshot.registration === "ready" &&
+                    pwa.snapshot.install === "ios-help" ? (
+                      <button
+                        ref={pwaInstallHelpMenuItemRef}
+                        className="app-menu-item"
+                        type="button"
+                        role="menuitem"
+                        onClick={openPwaInstallHelp}
+                      >
+                        <Smartphone aria-hidden="true" />
+                        Install Help
                       </button>
                     ) : null}
                   </>
@@ -3501,6 +3616,13 @@ function App() {
           </div>
         </div>
       </header>
+      <PwaStatusRegion
+        snapshot={pwa.snapshot}
+        hiddenForDialog={pwaStatusHiddenForDialog}
+        updateBlocked={pwaUpdateBlocked}
+        onRestart={handlePwaRestart}
+        onLater={pwa.deferUpdate}
+      />
       <div className="app-workspace">
       <aside className="sidebar">
         <div className="sidebar-primary-actions">
@@ -4554,6 +4676,17 @@ function App() {
           customMetadata={draftCustomMetadata}
           onApply={applyMetadata}
           onClose={closeMetadataDialog}
+        />
+      ) : null}
+      {isPwaInstallHelpOpen ? (
+        <PwaInstallHelpDialog onClose={closePwaInstallHelp} />
+      ) : null}
+      {isPwaUpdateDialogOpen ? (
+        <PwaUpdateDialog
+          busy={saveStatus === "saving" || pwa.snapshot.update === "applying"}
+          error={lastSaveError}
+          onConfirm={() => void handlePwaSaveAndRestart()}
+          onCancel={cancelPwaUpdate}
         />
       ) : null}
       {operationDialog ? (

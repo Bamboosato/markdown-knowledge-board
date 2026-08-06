@@ -45,6 +45,56 @@
   overflow: hidden;
 }
 
+.pwa-status-region {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 8px max(var(--page-inline-padding), env(safe-area-inset-right)) 8px
+    max(var(--page-inline-padding), env(safe-area-inset-left));
+  border-bottom: 1px solid #d7d7d7;
+  background: #f7f7f7;
+}
+
+.pwa-status-message {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-width: 0;
+  color: #303030;
+  font-size: 0.84rem;
+}
+
+.pwa-offline-status strong {
+  color: #7a4d00;
+}
+
+.pwa-update-notice strong {
+  color: #174ea6;
+}
+
+.pwa-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.pwa-status-actions button {
+  min-height: var(--control-compact-height);
+  padding: 7px 12px;
+}
+
+.pwa-status-help {
+  flex-basis: 100%;
+  color: #666;
+  font-size: 0.78rem;
+}
+
+.pwa-update-error {
+  color: #8a1f1f;
+}
+
 .app button {
   text-align: center;
 }
@@ -2402,6 +2452,8 @@
 .cloud-action-dialog,
 .cloud-backup-dialog,
 .cloud-restore-dialog,
+.pwa-install-help-dialog,
+.pwa-update-dialog,
 .result-dialog,
 .filter-dialog,
 .delete-dialog,
@@ -2418,6 +2470,8 @@
 .cloud-action-dialog h2,
 .cloud-backup-dialog h2,
 .cloud-restore-dialog h2,
+.pwa-install-help-dialog h2,
+.pwa-update-dialog h2,
 .result-dialog h2,
 .filter-dialog h2,
 .delete-dialog h2,
@@ -2430,10 +2484,27 @@
 .cloud-action-dialog p,
 .cloud-backup-dialog p,
 .cloud-restore-dialog p,
+.pwa-install-help-dialog p,
+.pwa-update-dialog p,
 .delete-dialog p,
 .revert-dialog p {
   margin: 0 0 18px;
   color: #444;
+}
+
+.pwa-install-help-dialog ol {
+  margin: 0 0 18px;
+  padding-left: 24px;
+  color: #444;
+}
+
+.pwa-install-help-dialog li + li {
+  margin-top: 8px;
+}
+
+.pwa-update-dialog .dialog-error {
+  margin-top: -8px;
+  color: #8a1f1f;
 }
 
 .cloud-backup-dialog {
@@ -3090,6 +3161,25 @@
     overflow-x: clip;
   }
 
+  .pwa-status-region {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .pwa-status-message {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pwa-status-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .pwa-status-actions button {
+    flex: 1 1 150px;
+  }
+
   .app.editor-expanded .app-workspace {
     display: flex;
     flex: 1;
@@ -3382,6 +3472,8 @@
   .cloud-action-dialog,
   .cloud-backup-dialog,
   .cloud-restore-dialog,
+  .pwa-install-help-dialog,
+  .pwa-update-dialog,
   .result-dialog,
   .filter-dialog,
   .delete-dialog,

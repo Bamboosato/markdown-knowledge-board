@@ -40,6 +40,21 @@ npm run build
 ## データ保存先
 
 - ブラウザの IndexedDB（DB名: `markdown-knowledge-board`）に保存します。
+- PWAをアンインストールした場合やブラウザのsite dataを消去した場合に、ローカルノートが保持されるかはOS／ブラウザに依存します。重要なノートは事前に`Backup All Notes`でJSONへ保存してください。
+
+## PWA・オフライン利用
+
+- ProductionではApplication menuの`Install App`からインストールできます。iPhone Safariでは`Install Help`に従ってホーム画面へ追加します。
+- 初回オンライン起動でoffline準備が完了した後は、ブラウザやインストール済みアプリを閉じてもofflineで再起動できます。
+- offline中もIndexedDBのノート編集、保存、Preview、Mermaid、Slides、ローカルimport／exportを利用できます。GitHub認証とCloud Backup／Restoreには接続が必要です。
+- 新版は自動reloadせず、`Update available`から`Restart to update`を選んだときだけ適用します。未保存変更があれば、保存成功後に更新します。
+- 通常の`npm run dev`と`npm run build`ではService Workerを生成・登録しません。PWA専用のローカル確認は次を使用します。
+
+```bash
+npm run build:pwa:test
+npm run verify:pwa
+npm run test:e2e:pwa
+```
 
 ## 設計ドキュメント
 
@@ -49,6 +64,10 @@ npm run build
 - [フェーズ2 API・認証詳細設計](./docs/phase2-auth-cloud-backup-api-design.md)
 - [フェーズ2 フロントエンド詳細設計](./docs/phase2-auth-cloud-backup-frontend-design.md)
 - [フェーズ2 実装計画・ゲート・PR分割](./docs/phase2-auth-cloud-backup-implementation-plan.md)
+- [フェーズ3 PWA要件定義](./docs/phase3-pwa-requirements.md)
+- [フェーズ3 PWA基本・詳細設計](./docs/phase3-pwa-design.md)
+- [フェーズ3 PWA実装計画](./docs/phase3-pwa-implementation-plan.md)
+- [フェーズ3 PWA実機手動チェックリスト](./docs/phase3-pwa-device-checklist.md)
 
 2026年8月3日時点で、フェーズ2の任意GitHub認証、手動の暗号化Gistバックアップ、復号プレビュー後のsafe merge復元、offline・390×844・キーボード／focus・主要3ブラウザ回帰を実装済みです。Productionではcloud feature flagを有効化し、GitHub Appの本番2 callback、expiring user token、`Gists: write`、GitHub／session用環境変数を設定済みです。両本番Originで実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認しました。IndexedDBをローカルデータの正本とし、未ログイン・認証エラー・オフラインでも従来の編集、保存、Markdown／JSONのimport/exportを利用できます。
 
@@ -59,3 +78,5 @@ npm run build
 - 4,500,000 bytes成功／4,500,001 bytes拒否はunitテストで固定済みです。Productionでの実上限サイズ試験は追加品質確認として未実施です。
 - Cloud Backup／Restore開始時のGist再検出と復号ダイアログの横スクロール修正は主要3ブラウザで回帰済みですが、Production反映前です。
 - ブラウザのストレージ容量の制限に依存します。
+- PWAはProduction環境変数`VITE_PWA_ENABLED=true`を設定したbuildだけで有効になります。Preview deploymentと通常localhostではService Workerを登録しません。
+- Android Chrome／iPhone Safariの最終実機確認は[実機手動チェックリスト](./docs/phase3-pwa-device-checklist.md)に従って実施します。
