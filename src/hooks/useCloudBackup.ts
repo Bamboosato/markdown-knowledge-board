@@ -6,6 +6,7 @@ import {
   type CloudBackupMetadata,
 } from '../lib/cloudApi'
 import { createBackupDocument } from '../lib/backup'
+import { cloudBackupCompletedMessage } from '../lib/cloudBackupNotice'
 import {
   getStoredCloudBackupMetadata,
   setStoredCloudBackupMetadata,
@@ -33,6 +34,13 @@ export type CloudBackupNotice = {
   code?: string
 }
 
+function requiresReauthorization(error: unknown): boolean {
+  return (
+    error instanceof CloudApiError &&
+    (error.code === 'AUTH_REQUIRED' || error.code === 'REAUTH_REQUIRED')
+  )
+}
+
 async function withExclusiveBackupLock<T>(task: () => Promise<T>): Promise<T> {
   if (!navigator.locks) return task()
   return navigator.locks.request(
@@ -55,9 +63,11 @@ export function useCloudBackup(options: {
   session: GitHubSessionState
   csrfToken: string | null
   isOnline: boolean
+  onReauthorizationRequired?: () => void
 }) {
-  const user =
-    options.session.status === 'signed-in' ? options.session.user : null
+  const { onReauthorizationRequired } = options
+  const userId =
+    options.session.status === 'signed-in' ? options.session.user.id : null
   const [discovery, setDiscovery] = useState<CloudBackupDiscoveryState>({
     status: 'idle',
   })
@@ -69,7 +79,7 @@ export function useCloudBackup(options: {
 
   const discover = useCallback(
     async (cachedGistId?: string) => {
-      if (!options.enabled || !user || !options.isOnline) {
+      if (!options.enabled || userId === null || !options.isOnline) {
         setDiscovery({ status: 'idle' })
         return null
       }
@@ -82,6 +92,9 @@ export function useCloudBackup(options: {
         return result
       } catch (error) {
         if (operation !== operationRef.current) return null
+        if (requiresReauthorization(error)) {
+          onReauthorizationRequired?.()
+        }
         setDiscovery({ status: 'unavailable' })
         setNotice({
           tone: 'warning',
@@ -94,24 +107,29 @@ export function useCloudBackup(options: {
         return null
       }
     },
-    [options.enabled, options.isOnline, user],
+    [
+      options.enabled,
+      options.isOnline,
+      onReauthorizationRequired,
+      userId,
+    ],
   )
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       operationRef.current += 1
       setNotice(null)
-      if (!user || !options.enabled) {
+      if (userId === null || !options.enabled) {
         setStoredMetadata(null)
         setDiscovery({ status: 'idle' })
         return
       }
-      const cached = getStoredCloudBackupMetadata(user.id)
+      const cached = getStoredCloudBackupMetadata(userId)
       setStoredMetadata(cached)
       if (options.isOnline) void discover(cached?.gistId)
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [discover, options.enabled, options.isOnline, user])
+  }, [discover, options.enabled, options.isOnline, userId])
 
   const selectCandidate = useCallback(
     async (gistId: string) => {
@@ -132,7 +150,7 @@ export function useCloudBackup(options: {
       if (!options.isOnline) {
         throw new CloudApiError('OFFLINE', 'You are offline.')
       }
-      if (!user || !options.csrfToken) {
+      if (userId === null || !options.csrfToken) {
         throw new CloudApiError('AUTH_REQUIRED', 'GitHub sign-in is required.')
       }
       if (uploading) {
@@ -181,7 +199,7 @@ export function useCloudBackup(options: {
             current,
           })
           const metadata = setStoredCloudBackupMetadata(
-            user.id,
+            userId,
             result,
             discovery.status === 'selected'
               ? discovery.backup.htmlUrl
@@ -191,11 +209,14 @@ export function useCloudBackup(options: {
           setDiscovery({ status: 'selected', backup: metadata })
           setNotice({
             tone: 'success',
-            message: `Encrypted cloud backup completed (${notes.length} notes).`,
+            message: cloudBackupCompletedMessage(notes.length),
           })
           return metadata
         })
       } catch (error) {
+        if (requiresReauthorization(error)) {
+          onReauthorizationRequired?.()
+        }
         setNotice({
           tone: 'warning',
           message:
@@ -213,8 +234,9 @@ export function useCloudBackup(options: {
       discovery,
       options.csrfToken,
       options.isOnline,
+      onReauthorizationRequired,
       uploading,
-      user,
+      userId,
     ],
   )
 

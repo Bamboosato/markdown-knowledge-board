@@ -12,6 +12,7 @@ import {
   sha256Base64Url,
   type VerifiedBackupGist,
 } from '../../api/_lib/gists.js'
+import { GitHubRefreshTransientError } from '../../api/_lib/github.js'
 import { ORIGIN_CONFIG } from '../../api/_lib/origins.js'
 import {
   parseSessionKeyRing,
@@ -82,11 +83,14 @@ async function authCookie(payload: SessionPayloadV1 = sessionPayload()) {
   return `${SESSION_COOKIE_NAME}=${sealed}`
 }
 
-async function discoveryRequest(path = '/api/cloud-backups') {
+async function discoveryRequest(
+  path = '/api/cloud-backups',
+  payload: SessionPayloadV1 = sessionPayload(),
+) {
   return new Request(`${ORIGIN_CONFIG.primary.origin}${path}`, {
     headers: {
       Origin: ORIGIN_CONFIG.primary.origin,
-      Cookie: await authCookie(),
+      Cookie: await authCookie(payload),
     },
   })
 }
@@ -181,6 +185,80 @@ describe('GET /api/cloud-backups', () => {
     )
     expect(response.status).toBe(401)
     expect(await errorCode(response)).toBe('AUTH_REQUIRED')
+  })
+
+  it('refreshes a session at the five-minute boundary before GitHub access', async () => {
+    const current = sessionPayload()
+    current.accessTokenExpiresAt = NOW + 5 * 60 * 1_000
+    const refreshed = {
+      ...current,
+      accessToken: 'ghu_refreshed',
+      refreshToken: 'ghr_refreshed',
+      accessTokenExpiresAt: NOW + 8 * 60 * 60 * 1_000,
+      issuedAt: NOW,
+    }
+    const refreshSession = vi.fn(async () => refreshed)
+    const resolveBackup = vi.fn(async () => ({ status: 'none' as const }))
+    const response = await handleCloudBackupDiscoveryRequest(
+      await discoveryRequest('/api/cloud-backups', current),
+      { ...baseDependencies, refreshSession, resolveBackup },
+    )
+
+    expect(response.status).toBe(200)
+    expect(refreshSession).toHaveBeenCalledWith(current, {
+      env: baseDependencies.env,
+      now: NOW,
+    })
+    expect(resolveBackup).toHaveBeenCalledWith('ghu_refreshed', 123, undefined)
+    expect(response.headers.get('Set-Cookie')).toContain(
+      `${SESSION_COOKIE_NAME}=v1.active.`,
+    )
+  })
+
+  it.each([
+    ['refresh rejection', NOW + 60_000, 1],
+    ['expired refresh token', NOW, 0],
+  ] as const)(
+    'requires reauthorization on %s without contacting GitHub',
+    async (_label, refreshTokenExpiresAt, expectedRefreshCalls) => {
+      const current = sessionPayload()
+      current.accessTokenExpiresAt = NOW
+      current.refreshTokenExpiresAt = refreshTokenExpiresAt
+      const refreshSession = vi.fn(async () => null)
+      const resolveBackup = vi.fn()
+      const response = await handleCloudBackupDiscoveryRequest(
+        await discoveryRequest('/api/cloud-backups', current),
+        { ...baseDependencies, refreshSession, resolveBackup },
+      )
+
+      expect(response.status).toBe(401)
+      expect(await errorCode(response)).toBe('REAUTH_REQUIRED')
+      expect(response.headers.get('Set-Cookie')).toContain(
+        `${SESSION_COOKIE_NAME}=;`,
+      )
+      expect(response.headers.get('Set-Cookie')).toContain('Max-Age=0')
+      expect(refreshSession).toHaveBeenCalledTimes(expectedRefreshCalls)
+      expect(resolveBackup).not.toHaveBeenCalled()
+    },
+  )
+
+  it('preserves the session when refresh is temporarily unavailable', async () => {
+    const current = sessionPayload()
+    current.accessTokenExpiresAt = NOW
+    const response = await handleCloudBackupDiscoveryRequest(
+      await discoveryRequest('/api/cloud-backups', current),
+      {
+        ...baseDependencies,
+        refreshSession: vi.fn(async () => {
+          throw new GitHubRefreshTransientError('unavailable')
+        }),
+        resolveBackup: vi.fn(),
+      },
+    )
+
+    expect(response.status).toBe(503)
+    expect(await errorCode(response)).toBe('SESSION_CHECK_UNAVAILABLE')
+    expect(response.headers.get('Set-Cookie')).toBeNull()
   })
 
   it.each([

@@ -488,11 +488,13 @@ function App() {
     session: githubSession.session,
     csrfToken: githubSession.csrfToken,
     isOnline: githubSession.isOnline,
+    onReauthorizationRequired: githubSession.requireReauthorization,
   });
   const cloudRestore = useCloudRestore({
     enabled: cloudCapability.status === "enabled",
     session: githubSession.session,
     isOnline: githubSession.isOnline,
+    onReauthorizationRequired: githubSession.requireReauthorization,
   });
   const pwa = usePwaLifecycle();
   const [notes, setNotes] = useState<Note[]>([]);
@@ -2360,7 +2362,11 @@ function App() {
   }
 
   async function beginCloudBackup() {
-    if (githubSession.session.status !== "signed-in") return;
+    const currentSession = await githubSession.refresh();
+    if (currentSession.status !== "signed-in") {
+      setIsAppMenuOpen(true);
+      return;
+    }
     const resolution = await cloudBackup.discover(
       cloudBackup.storedMetadata?.gistId
     );
@@ -2378,8 +2384,15 @@ function App() {
     }
   }
 
+  async function retryCloudCheck() {
+    const currentSession = await githubSession.refresh();
+    if (currentSession.status !== "signed-in") return;
+    await cloudBackup.discover(cloudBackup.storedMetadata?.gistId);
+  }
+
   function handleCloudBackupStart() {
     setIsAppMenuOpen(false);
+    githubSession.clearNotice();
     cloudBackup.clearNotice();
     if (isDirtyRef.current || tagInput.trim().length > 0) {
       setCloudDialog("backup");
@@ -2470,7 +2483,11 @@ function App() {
   }
 
   async function beginCloudRestore() {
-    if (githubSession.session.status !== "signed-in") return;
+    const currentSession = await githubSession.refresh();
+    if (currentSession.status !== "signed-in") {
+      setIsAppMenuOpen(true);
+      return;
+    }
     const resolution = await cloudBackup.discover(
       cloudBackup.storedMetadata?.gistId
     );
@@ -2494,6 +2511,7 @@ function App() {
 
   function handleCloudRestoreStart() {
     setIsAppMenuOpen(false);
+    githubSession.clearNotice();
     cloudBackup.clearNotice();
     cloudRestore.clear();
     setCloudRestoreDialogError(null);
@@ -3485,11 +3503,7 @@ function App() {
                         onDisconnect={handleGitHubDisconnect}
                         onCloudBackup={handleCloudBackupStart}
                         onCloudRestore={handleCloudRestoreStart}
-                        onCloudRetry={() =>
-                          void cloudBackup.discover(
-                            cloudBackup.storedMetadata?.gistId
-                          )
-                        }
+                        onCloudRetry={() => void retryCloudCheck()}
                       />
                     )}
                   </>

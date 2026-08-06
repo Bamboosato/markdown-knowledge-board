@@ -46,6 +46,13 @@ export class CloudRestoreApplyError extends CloudApiError {
   }
 }
 
+function requiresReauthorization(error: unknown): boolean {
+  return (
+    error instanceof CloudApiError &&
+    (error.code === 'AUTH_REQUIRED' || error.code === 'REAUTH_REQUIRED')
+  )
+}
+
 function countPlan(
   plan: RestorePlanItem[],
   failed = 0,
@@ -99,7 +106,9 @@ export function useCloudRestore(options: {
   enabled: boolean
   session: GitHubSessionState
   isOnline: boolean
+  onReauthorizationRequired?: () => void
 }) {
+  const { onReauthorizationRequired } = options
   const [downloading, setDownloading] = useState(false)
   const [preparing, setPreparing] = useState(false)
   const [applying, setApplying] = useState(false)
@@ -147,11 +156,21 @@ export function useCloudRestore(options: {
         if (operation !== operationRef.current) return null
         contentRef.current = content
         return content
+      } catch (error) {
+        if (requiresReauthorization(error)) {
+          onReauthorizationRequired?.()
+        }
+        throw error
       } finally {
         if (operation === operationRef.current) setDownloading(false)
       }
     },
-    [options.enabled, options.isOnline, signedIn],
+    [
+      options.enabled,
+      options.isOnline,
+      onReauthorizationRequired,
+      signedIn,
+    ],
   )
 
   const prepare = useCallback(async (passphrase: string) => {

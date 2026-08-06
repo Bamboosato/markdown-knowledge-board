@@ -106,9 +106,14 @@ test.describe('Phase 2 encrypted Gist backup', () => {
       })
     })
 
-    await page.goto('/?cloudTest=1')
+    await page.goto('/?cloudTest=1&auth=connected')
     await createDraft(page, 'Private project note', 'Never send this plaintext')
-  const menu = await openGitHubMenu(page)
+    const menu = await openGitHubMenu(page)
+    await expect(
+      menu.getByText(
+        'GitHub connected. Backup and restore run only when you choose them.',
+      ),
+    ).toBeVisible()
     const backupItem = menu.getByRole('menuitem', { name: 'Cloud Backup' })
     await expect(backupItem).toBeEnabled()
     await backupItem.click()
@@ -140,7 +145,16 @@ test.describe('Phase 2 encrypted Gist backup', () => {
       .fill('correct horse battery staple')
     await passphraseDialog.getByRole('button', { name: 'Encrypt and Back Up' }).click()
 
-    await expect(page.getByText('Encrypted cloud backup completed (1 notes).')).toBeVisible()
+    await expect(
+      page.getByText(
+        'Cloud backup completed. 1 note was encrypted and saved to GitHub.',
+      ),
+    ).toBeVisible()
+    await expect(
+      page.getByText(
+        'GitHub connected. Backup and restore run only when you choose them.',
+      ),
+    ).toHaveCount(0)
     expect(createCalls).toBe(1)
     expect(uploadHeaders['content-type']).toBe(
       'application/vnd.mkb.encrypted-backup+json',
@@ -167,6 +181,40 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     expect(metadata).not.toContain('correct horse battery staple')
     expect(metadata).not.toContain('ciphertext')
     expect(metadata).not.toContain('ghu_')
+  })
+
+  test('replaces stale connected state with reauthorization when cloud access expires', async ({
+    page,
+  }) => {
+    await stubSignedInSession(page)
+    let discoveryCalls = 0
+    await page.route(/\/api\/cloud-backups(?:\?.*)?$/, async (route) => {
+      discoveryCalls += 1
+      await route.fulfill(
+        discoveryCalls === 1
+          ? {
+              status: 200,
+              contentType: 'application/json',
+              body: success({ status: 'none' }),
+            }
+          : failure(
+              'REAUTH_REQUIRED',
+              'GitHub sign-in has expired. Sign in again.',
+              401,
+            ),
+      )
+    })
+
+    await page.goto('/?cloudTest=1')
+    const menu = await openGitHubMenu(page)
+    await expect(menu.getByText('Connected as @octocat')).toBeVisible()
+    await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
+
+    await expect(menu.getByText('Reauthorization required.')).toBeVisible()
+    await expect(
+      menu.getByRole('menuitem', { name: 'Sign in with GitHub' }),
+    ).toBeVisible()
+    await expect(menu.getByText('Connected as @octocat')).toHaveCount(0)
   })
 
   test('refreshes stale none discovery and updates a backup created from another Origin', async ({
@@ -231,7 +279,11 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await expect.poll(() => discoveryCalls).toBeGreaterThan(callsBeforeRemoteChange)
     await submitPassphrase(page)
 
-    await expect(page.getByText('Encrypted cloud backup completed (1 notes).')).toBeVisible()
+    await expect(
+      page.getByText(
+        'Cloud backup completed. 1 note was encrypted and saved to GitHub.',
+      ),
+    ).toBeVisible()
     expect(createCalls).toBe(0)
     expect(updateCalls).toBe(1)
     expect(updateHeaders['x-mkb-expected-revision']).toBe(revisionB)
@@ -304,7 +356,11 @@ test.describe('Phase 2 encrypted Gist backup', () => {
     await menu.getByRole('menuitem', { name: 'Cloud Backup' }).click()
     await submitPassphrase(page)
 
-    await expect(page.getByText('Encrypted cloud backup completed (1 notes).')).toBeVisible()
+    await expect(
+      page.getByText(
+        'Cloud backup completed. 1 note was encrypted and saved to GitHub.',
+      ),
+    ).toBeVisible()
     expect(blockedCreateCalls).toBe(1)
     expect(updateCalls).toBe(1)
   })
