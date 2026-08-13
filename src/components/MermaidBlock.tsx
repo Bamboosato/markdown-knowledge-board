@@ -170,7 +170,7 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
   const showDiagram = view === "diagram";
 
   return (
-    <figure className="mermaid-block">
+    <figure className="mermaid-block" data-mermaid-status={renderState.status}>
       <div className="mermaid-block-header">
         <figcaption>Mermaid</figcaption>
         <div className="mermaid-view-toggle" aria-label="Mermaid display mode">

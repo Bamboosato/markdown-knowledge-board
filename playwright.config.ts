@@ -8,6 +8,7 @@ const phase2CrossBrowserTests = [
   "**/phase2-backup.spec.ts",
   "**/phase2-restore.spec.ts",
   "**/phase2-production-readiness.spec.ts",
+  "**/preview-pdf.spec.ts",
 ];
 
 export default defineConfig({

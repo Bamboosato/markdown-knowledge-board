@@ -507,6 +507,10 @@
   overflow: hidden;
 }
 
+.print-surface {
+  display: none;
+}
+
 .editor-tabs {
   display: flex;
   align-items: center;
@@ -3538,6 +3542,142 @@
   .preview-link-toast {
     bottom: 12px;
     width: calc(100vw - 24px);
+  }
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 14mm 16mm;
+  }
+
+  html,
+  body,
+  #root {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    background: #ffffff;
+  }
+
+  .app {
+    display: block;
+    width: auto;
+    max-width: none;
+    height: auto;
+    overflow: visible;
+    background: #ffffff;
+  }
+
+  .app > :not(.print-surface) {
+    display: none !important;
+  }
+
+  .print-surface {
+    display: block !important;
+    color: #1f1f1f;
+  }
+
+  .print-document {
+    width: auto;
+    max-width: none;
+  }
+
+  .print-document-header {
+    margin: 0 0 12mm;
+    break-after: avoid;
+  }
+
+  .print-document-header h1 {
+    margin: 0;
+    color: #111111;
+    font-size: 22pt;
+    line-height: 1.2;
+  }
+
+  .print-document-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    margin: 5mm 0 0;
+    padding: 0;
+    list-style: none;
+    color: #555555;
+    font-size: 9pt;
+  }
+
+  .print-document-tags li {
+    padding: 2px 6px;
+    border: 1px solid #c7cbd1;
+    border-radius: 4px;
+  }
+
+  .print-mdPreview {
+    display: block;
+    padding: 0;
+    overflow: visible;
+    font-size: 10.5pt;
+    line-height: 1.6;
+  }
+
+  .print-mdPreview > * {
+    flex-shrink: initial;
+  }
+
+  .print-mdPreview h1,
+  .print-mdPreview h2,
+  .print-mdPreview h3,
+  .print-mdPreview h4 {
+    break-after: avoid;
+  }
+
+  .print-mdPreview pre,
+  .print-mdPreview table,
+  .print-mdPreview blockquote,
+  .print-mdPreview .mermaid-block {
+    break-inside: avoid;
+  }
+
+  .print-mdPreview thead {
+    display: table-header-group;
+  }
+
+  .print-mdPreview tr,
+  .print-mdPreview img {
+    break-inside: avoid;
+  }
+
+  .print-mdPreview img {
+    max-width: 100%;
+  }
+
+  .print-mdPreview a {
+    color: inherit;
+    text-decoration: underline;
+  }
+
+  .print-mdPreview .mermaid-block-header {
+    display: none;
+  }
+
+  .print-mdPreview .mermaid-diagram-panel,
+  .print-mdPreview .mermaid-diagram-scroll {
+    overflow: visible;
+  }
+
+  .print-mdPreview .mermaid-diagram-svg {
+    max-width: 100%;
+  }
+
+  .print-task-checkbox {
+    display: inline-block;
+    min-width: 1.2em;
+    margin-right: 0.25em;
+  }
+
+  .print-empty {
+    margin: 0;
+    color: #555555;
   }
 }
 
