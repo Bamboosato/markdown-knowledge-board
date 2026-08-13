@@ -1,8 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
 import { useCallback } from "react";
 import { useLayoutEffect } from "react";
-import { isValidElement } from "react";
 import type {
   CSSProperties,
   DragEvent,
@@ -11,8 +9,6 @@ import type {
   MouseEvent,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
-import remarkGfm from "remark-gfm";
-import { remarkMark } from "remark-mark-highlight";
 import {
   Archive,
   Bold,
@@ -57,9 +53,9 @@ import {
   MarkdownToolbarMenu,
   type MarkdownToolbarMenuItem,
 } from "./components/MarkdownToolbarMenu";
+import { MarkdownPreview } from "./components/MarkdownPreview";
 import { MarpSlides } from "./components/MarpSlides";
 import { MetadataDialog } from "./components/MetadataDialog";
-import { MermaidBlock } from "./components/MermaidBlock";
 import { PwaInstallHelpDialog } from "./components/PwaInstallHelpDialog";
 import { PwaStatusRegion } from "./components/PwaStatusRegion";
 import { PwaUpdateDialog } from "./components/PwaUpdateDialog";
@@ -120,8 +116,7 @@ import {
   toggleSelectedLinePrefixes,
   wrapSelection,
 } from "./lib/markdownEdit";
-import { getTaskLineIndexes, toggleTaskAtLine } from "./lib/markdownTasks";
-import { remarkSingleLineHighlight } from "./lib/remarkSingleLineHighlight";
+import { toggleTaskAtLine } from "./lib/markdownTasks";
 import { getCloudCapability } from "./lib/cloudCapability";
 import { requestPersistentStorage } from "./lib/storagePersistence";
 
@@ -219,11 +214,6 @@ type NoteCardMenuPosition = {
 type FilterConditions = {
   query: string;
   tags: string[];
-};
-
-type MarkdownCodeElementProps = {
-  className?: string;
-  children?: unknown;
 };
 
 const TAG_SUGGESTION_LIMIT = 8;
@@ -382,6 +372,36 @@ function downloadBlob(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
+const PRINT_READY_TIMEOUT_MS = 10_000;
+
+async function waitForPrintableContent(element: HTMLElement): Promise<boolean> {
+  await Promise.race([
+    document.fonts?.ready.catch(() => undefined) ?? Promise.resolve(),
+    new Promise<void>((resolve) => window.setTimeout(resolve, 1_000)),
+  ]);
+
+  const startedAt = performance.now();
+  return new Promise((resolve) => {
+    const check = () => {
+      const pendingMermaid = element.querySelector(
+        '[data-mermaid-status="loading"]'
+      );
+      const imagesReady = Array.from(element.querySelectorAll("img")).every(
+        (image) => image.complete
+      );
+      const timedOut = performance.now() - startedAt >= PRINT_READY_TIMEOUT_MS;
+
+      if ((!pendingMermaid && imagesReady) || timedOut) {
+        resolve(!timedOut);
+        return;
+      }
+      window.requestAnimationFrame(check);
+    };
+
+    window.requestAnimationFrame(check);
+  });
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
@@ -420,11 +440,6 @@ async function saveBackupBlob(
     }
     throw error;
   }
-}
-
-function getTaskLabelText(lineText: string): string {
-  const text = lineText.replace(/^\s*[-*]\s*\[[ x]\]\s+/i, "").trim();
-  return text || "Task";
 }
 
 function areStringArraysEqual(left: string[], right: string[]): boolean {
@@ -529,6 +544,7 @@ function App() {
   const isDirtyRef = useRef(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [lastSaveError, setLastSaveError] = useState<string | null>(null);
+  const [isPrintPreparing, setIsPrintPreparing] = useState(false);
   const [previewLinkNotice, setPreviewLinkNotice] = useState<string | null>(null);
   const [mobileView, setMobileView] = useState<MobileView>("notes");
   const [unsavedDialog, setUnsavedDialog] =
@@ -548,6 +564,7 @@ function App() {
     null
   );
   const bodyRef = useRef<MarkdownBodyEditorHandle | null>(null);
+  const printSurfaceRef = useRef<HTMLDivElement | null>(null);
   const noteListRef = useRef<HTMLUListElement | null>(null);
   const [pendingNoteListRevealId, setPendingNoteListRevealId] = useState<
     string | null
@@ -662,11 +679,6 @@ function App() {
   const [activeTagSuggestionIndex, setActiveTagSuggestionIndex] = useState(0);
   const tagTextInputRef = useRef<HTMLInputElement | null>(null);
   const tagSuggestRef = useRef<HTMLDivElement | null>(null);
-  const draftLines = useMemo(() => draftBody.split("\n"), [draftBody]);
-  const taskLineIndexes = useMemo(
-    () => new Set(getTaskLineIndexes(draftBody)),
-    [draftBody]
-  );
   const isTocRendered = tocVisibility !== "closed";
   const isTocOpen = tocVisibility === "opening" || tocVisibility === "open";
   const hasPreviewContent = draftBody.trim().length > 0;
@@ -3167,6 +3179,35 @@ function App() {
     downloadMarkdown(getDraftSnapshot());
   };
 
+  const handlePrint = async () => {
+    if ((!selectedNote && !isDraftNote) || isPrintPreparing) {
+      return;
+    }
+
+    const printSurface = printSurfaceRef.current;
+    if (!printSurface) {
+      return;
+    }
+
+    setIsPrintPreparing(true);
+    await waitForPrintableContent(printSurface);
+
+    const previousTitle = document.title;
+    const restoreAfterPrint = () => {
+      document.title = previousTitle;
+      setIsPrintPreparing(false);
+      window.removeEventListener("afterprint", restoreAfterPrint);
+    };
+
+    document.title = `${sanitizeDownloadName(draftTitle.trim() || "Untitled")} - Markdown Knowledge Board`;
+    window.addEventListener("afterprint", restoreAfterPrint);
+    try {
+      window.print();
+    } catch {
+      restoreAfterPrint();
+    }
+  };
+
   const handleDownloadDraft = () => {
     downloadMarkdown(getDraftSnapshot());
   };
@@ -3611,6 +3652,19 @@ function App() {
                 >
                   <Download aria-hidden="true" />
                   Export
+                </button>
+                <button
+                  className="actions-menu-item"
+                  type="button"
+                  role="menuitem"
+                  disabled={isPrintPreparing}
+                  onClick={() => {
+                    setIsActionsMenuOpen(false);
+                    void handlePrint();
+                  }}
+                >
+                  <FileDown aria-hidden="true" />
+                  {isPrintPreparing ? "Preparing PDF..." : "Print / PDF"}
                 </button>
                 <div className="actions-menu-separator" role="separator" />
                 <button
@@ -4265,116 +4319,30 @@ function App() {
             {draftBody.trim().length === 0 ? (
               <div className="preview-empty">Nothing to preview.</div>
             ) : (
-              <div ref={previewRef} className="mdPreview mdPreview-scroll">
-                <ReactMarkdown
-                  remarkPlugins={[
-                    remarkGfm,
-                    remarkMark,
-                    remarkSingleLineHighlight,
-                  ]}
-                  components={{
-                    a: ({ href, onClick, ...props }) => (
-                      <a
-                        {...props}
-                        href={href}
-                        onClick={(event) => {
-                          onClick?.(event);
-                          if (event.defaultPrevented || !href) {
-                            return;
-                          }
-                          const targetTitle = getPreviewNoteLinkTitle(href);
-                          if (!targetTitle) {
-                            return;
-                          }
-                          event.preventDefault();
-                          void handlePreviewNoteLink(targetTitle);
-                        }}
-                      />
-                    ),
-                    input: () => null,
-                    pre: ({ children }) => {
-                      const codeElement = Array.isArray(children)
-                        ? children[0]
-                        : children;
-                      if (
-                        isValidElement<MarkdownCodeElementProps>(codeElement)
-                      ) {
-                        const languageMatch = /language-(\S+)/i.exec(
-                          codeElement.props.className ?? ""
-                        );
-                        const language = languageMatch?.[1]?.toLowerCase();
-                        if (language === "mermaid") {
-                          const code = String(
-                            codeElement.props.children ?? ""
-                          ).replace(/\n$/, "");
-                          return <MermaidBlock code={code} />;
-                        }
-                      }
-                      return <pre>{children}</pre>;
-                    },
-                    li: ({ node, children, ...props }) => {
-                      const className = props.className ?? "";
-                      const isTask = className.includes("task-list-item");
-
-                      if (!isTask) {
-                        return <li className={className}>{children}</li>;
-                      }
-
-                      const startLine = (node as { position?: { start?: { line?: number } } })
-                        ?.position?.start?.line;
-                      const lineIndex =
-                        typeof startLine === "number" ? startLine - 1 : NaN;
-
-                      const isTaskLine =
-                        Number.isFinite(lineIndex) &&
-                        taskLineIndexes.has(lineIndex);
-                      const lineText = isTaskLine
-                        ? draftLines[lineIndex] ?? ""
-                        : "";
-                      const checked = /^\s*[-*]\s*\[x\]\s+/i.test(lineText);
-
-                      return (
-                        <li className={className}>
-                          <button
-                            type="button"
-                            className="taskCheckbox"
-                            role="checkbox"
-                            aria-checked={checked}
-                            aria-label={`${
-                              checked ? "Mark task incomplete" : "Mark task complete"
-                            }: ${getTaskLabelText(lineText)}`}
-                            disabled={!Number.isFinite(lineIndex)}
-                            onClick={() => {
-                              if (!Number.isFinite(lineIndex)) {
-                                return;
-                              }
-                              const currentBody =
-                                bodyRef.current?.getValue() ?? draftBody;
-                              const nextBody = toggleTaskAtLine(
-                                currentBody,
-                                lineIndex
-                              );
-                              if (bodyRef.current) {
-                                bodyRef.current.replaceValue(nextBody, {
-                                  addToHistory: true,
-                                });
-                              } else {
-                                setDraftBody(nextBody);
-                                markDirty();
-                              }
-                            }}
-                          >
-                            {checked ? "☑" : "☐"}
-                          </button>
-                          <span className="taskText">{children}</span>
-                        </li>
-                      );
-                    },
-                  }}
-                >
-                  {draftBody}
-                </ReactMarkdown>
-              </div>
+              <MarkdownPreview
+                markdown={draftBody}
+                previewRef={previewRef}
+                onPreviewLinkClick={(event, href) => {
+                  const targetTitle = getPreviewNoteLinkTitle(href);
+                  if (!targetTitle) {
+                    return;
+                  }
+                  event.preventDefault();
+                  void handlePreviewNoteLink(targetTitle);
+                }}
+                onTaskToggle={(lineIndex) => {
+                  const currentBody = bodyRef.current?.getValue() ?? draftBody;
+                  const nextBody = toggleTaskAtLine(currentBody, lineIndex);
+                  if (bodyRef.current) {
+                    bodyRef.current.replaceValue(nextBody, {
+                      addToHistory: true,
+                    });
+                  } else {
+                    setDraftBody(nextBody);
+                    markDirty();
+                  }
+                }}
+              />
             )}
           </div>
         ) : null}
@@ -4391,6 +4359,29 @@ function App() {
           />
         ) : null}
       </main>
+      </div>
+      <div ref={printSurfaceRef} className="print-surface" aria-hidden="true">
+        <article className="print-document">
+          <header className="print-document-header">
+            <h1>{draftTitle.trim() || "Untitled"}</h1>
+            {draftTags.length > 0 ? (
+              <ul className="print-document-tags">
+                {draftTags.map((tag) => (
+                  <li key={tag}>{tag}</li>
+                ))}
+              </ul>
+            ) : null}
+          </header>
+          {draftBody.trim().length === 0 ? (
+            <p className="print-empty">Nothing to preview.</p>
+          ) : (
+            <MarkdownPreview
+              markdown={draftBody}
+              mode="print"
+              className="mdPreview print-mdPreview"
+            />
+          )}
+        </article>
       </div>
       {isFilterDialogOpen ? (
         <div

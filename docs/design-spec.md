@@ -243,6 +243,8 @@ editor header には以下を配置する。
   - Revert changesとの間隔は4pxとし、SaveとRevert changesの8px間隔より狭くして関連するアイコン操作を視覚的にまとめる。
   - `Metadata`: frontmatterを参照し、Custom metadataを編集するmodal dialogを開く。
   - `Export`: `Download` アイコンとラベルを表示する。
+  - `Print / PDF`: `FileDown` アイコンとラベルを表示し、選択中ノートのPreview本文全体をブラウザ標準の印刷プレビューへ渡す。保存先やPDF保存の確定はブラウザ／OSに委ねる。
+  - `Print / PDF` は保存済みノートまたは編集中のdraftがある場合に利用でき、本文・タイトル・タグの未保存変更を含めて現在のPreviewと一致する内容を出力する。印刷開始前にフォント、画像、Mermaidの非同期描画を待つ。
   - 区切り線の後に `Delete`: `Trash2` アイコンと赤いラベルを表示する。確認ダイアログと Undo の仕様は維持する。
 - アイコンボタンには同名の英語 accessible name と Tooltip を設定する。メニューは項目選択、外側クリック、Escape で閉じ、Escape 時はトリガーへフォーカスを戻す。
 - アイコンボタンの枠線は共通色・1px、Lucideアイコンは共通色・2pxの線幅に統一する。disabled時もアイコンのopacityは下げず、淡い背景色とカーソルで無効状態を表現して視認性を維持する。
@@ -342,6 +344,11 @@ editor header には以下を配置する。
   - `mermaid` fenced code block は Mermaid 図として表示する。
   - Mermaid 図は `Diagram` / `Code` を切り替えられる。
   - 本文が空の場合は `プレビューする内容がありません` を表示する。
+  - `Print / PDF` はPreviewの表示内容を文書として複数ページに展開する。viewport内の見えている範囲だけを画像化せず、本文の先頭から末尾までを出力する。
+  - 印刷文書にはタイトル、タグ、レンダリング済み本文を含め、Sidebar、Editor操作部、タブ、TOC、PWA通知、Mermaidの切替操作などのアプリUIは含めない。タイトルとタグは画面Previewの表示領域を広げないため印刷専用に追加する。
+  - 印刷時はA4縦、標準余白、本文のスクロール制約解除、見出し・表・コード・Mermaid図の途中改ページ抑制を適用する。大きすぎて分割が必要な要素は出力を欠落させず、ブラウザの改ページに委ねる。
+  - Mermaidまたは画像の描画に失敗した場合は、エラー表示またはMarkdownコードを印刷し、内容を無言で欠落させない。印刷ダイアログをキャンセルしてもdraft、dirty状態、保存データを変更しない。
+  - PDF出力の対象はPreview本文とし、Slidesの選択中スライドまたは全スライドのPDF化は別機能として扱う。印刷処理はブラウザ内で完結し、ノート本文をサーバーやCloud Backupへ送信しない。
 
 #### Preview基本カラー
 

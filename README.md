@@ -29,6 +29,7 @@ npm run build
 - Tag filter はカンマ区切りで指定します。
 - ノートを選択すると右ペインで編集できます。
 - Save で保存、Export で選択中ノートを .md として出力します。
+- More actions の `Print / PDF` で、選択中ノートのPreview本文全体をブラウザの印刷プレビューへ渡せます。PDFとして保存する場合は、ブラウザ／OSの印刷画面で保存先を選択します。
 - Delete で削除時に確認ダイアログが出ます。
 - tags は export 時に YAML フロントマターとして出力されます。
 - import でフロントマターがあれば tags を復元します。
