@@ -60,6 +60,7 @@ npm run test:e2e:pwa
 ## 設計ドキュメント
 
 - [現行設計仕様](./docs/design-spec.md)
+- [Markdown Import／表示中ノート更新 要件（実装予定）](./docs/markdown-import-current-note-update-requirements.md)
 - [フェーズ2 認証・クラウドバックアップ要件定義](./docs/phase2-auth-cloud-backup-requirements.md)
 - [フェーズ2 認証・クラウドバックアップ基本設計](./docs/phase2-auth-cloud-backup-architecture.md)
 - [フェーズ2 API・認証詳細設計](./docs/phase2-auth-cloud-backup-api-design.md)
