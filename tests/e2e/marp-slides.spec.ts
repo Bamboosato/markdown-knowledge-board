@@ -245,6 +245,58 @@ test.describe("A2 Marp slides", () => {
     await expect(page.getByText("Status: Saved")).toBeVisible();
   });
 
+  test("keeps the disabled Marp settings tooltip above the Slides panel", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await page.goto("/");
+    await page.getByRole("button", { name: /new note/i }).click();
+    await page.getByRole("button", { name: "Slides" }).click();
+
+    const settingsButton = page.getByRole("button", { name: "Marp settings" });
+    await expect(settingsButton).toBeDisabled();
+    const marpToggle = page.getByLabel("Marp", { exact: true });
+    await marpToggle.check();
+    await expect(settingsButton).toBeEnabled();
+    await marpToggle.uncheck();
+    await expect(settingsButton).toBeDisabled();
+    await settingsButton.hover();
+    await expect
+      .poll(() =>
+        settingsButton.evaluate(
+          (button) => getComputedStyle(button, "::after").opacity
+        )
+      )
+      .toBe("1");
+
+    const appearance = await settingsButton.evaluate((button) => {
+      const buttonStyle = getComputedStyle(button);
+      const icon = button.querySelector("svg");
+      const tooltipStyle = getComputedStyle(button, "::after");
+      const buttonBox = button.getBoundingClientRect();
+      const tooltipHeight = Number.parseFloat(tooltipStyle.height);
+      const tooltipTop =
+        buttonBox.top + Number.parseFloat(tooltipStyle.top);
+
+      return {
+        buttonOpacity: buttonStyle.opacity,
+        iconOpacity: icon ? getComputedStyle(icon).opacity : null,
+        tooltipOpacity: tooltipStyle.opacity,
+        tooltipBottom: tooltipTop + tooltipHeight,
+      };
+    });
+    const slidesPanelTop = await page
+      .locator(".slides-panel")
+      .evaluate((panel) => panel.getBoundingClientRect().top);
+
+    expect(appearance.tooltipOpacity).toBe("1");
+    expect(appearance.tooltipBottom).toBeGreaterThan(slidesPanelTop);
+    // Opacity on the button would create a stacking context and let the
+    // following Slides panel cover this overlapping part of the tooltip.
+    expect(appearance.buttonOpacity).toBe("1");
+    expect(appearance.iconOpacity).toBe("0.55");
+  });
+
   test("uses UI settings over legacy Marp frontmatter in the body", async ({
     page,
   }) => {

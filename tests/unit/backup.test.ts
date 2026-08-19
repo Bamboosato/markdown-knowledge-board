@@ -4,6 +4,7 @@ import {
   createBackupDocument,
   parseBackupNotes,
   parseImportFileContent,
+  parseMarkdownBodyFileContent,
 } from "../../src/lib/backup";
 import type { FrontmatterValue, Note } from "../../src/lib/types";
 
@@ -149,5 +150,75 @@ describe("local backup version 1", () => {
     expect(() =>
       parseImportFileContent("# Note", "note.json", "markdown")
     ).toThrow("Only .md, .markdown, and .txt files can be imported here.");
+  });
+
+  it("assigns a fresh ID when Markdown frontmatter contains an existing ID", () => {
+    const markdown = [
+      "---",
+      "id: existing-note",
+      "title: Imported title",
+      "updatedAt: 1700000000000",
+      "tags:",
+      "  - Imported",
+      "---",
+      "# Imported body",
+    ].join("\n");
+
+    const [first] = parseImportFileContent(markdown, "import.md", "markdown");
+    const [second] = parseImportFileContent(markdown, "import.md", "markdown");
+
+    expect(first).toMatchObject({
+      title: "Imported title",
+      body: "# Imported body",
+      tags: ["Imported"],
+      updatedAt: 1_700_000_000_000,
+    });
+    expect(first.id).not.toBe("existing-note");
+    expect(second.id).not.toBe("existing-note");
+    expect(second.id).not.toBe(first.id);
+  });
+
+  it("extracts only the Markdown body when replacing a current note", () => {
+    const body = parseMarkdownBodyFileContent(
+      [
+        "---",
+        "id: ignored-id",
+        "title: Ignored title",
+        "tags:",
+        "  - Ignored",
+        "---",
+        "# Replacement body",
+      ].join("\n"),
+      "replacement.markdown"
+    );
+
+    expect(body).toBe("# Replacement body");
+  });
+
+  it("rejects an empty replacement file and unsupported extension", () => {
+    expect(() => parseMarkdownBodyFileContent("  \n", "empty.md")).toThrow(
+      "File is empty."
+    );
+    expect(() => parseMarkdownBodyFileContent("Body", "note.json")).toThrow(
+      "Only .md, .markdown, and .txt files can be imported here."
+    );
+  });
+
+  it("does not reuse an embedded Markdown ID when a backup record has no ID", () => {
+    const [note] = parseBackupNotes(
+      JSON.stringify({
+        app: "markdown-knowledge-board",
+        version: 1,
+        notes: [
+          {
+            markdown: "---\nid: embedded-id\n---\n# Backup body",
+          },
+        ],
+      }),
+      "missing-id.json"
+    );
+
+    expect(note.id).not.toBe("embedded-id");
+    expect(note.body).toBe("# Backup body");
   });
 });

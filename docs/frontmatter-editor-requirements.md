@@ -35,25 +35,26 @@ Title、Tags、Marp設定など既存UIが管理する属性の編集経路は�
 
 | 分類 | 主な確認事項 |
 | --- | --- |
-| 機能観点 | 開閉、read-only表示、行追加・変更・削除、Apply、Cancel、keyboard shortcut、Import／Export／Backup |
+| 機能観点 | 開閉、read-only表示、行追加・変更・削除、Apply、Cancel、keyboard shortcut、Import／Export／Backup、表示中ノートのBody置換 |
 | 非機能観点 | 多数行、長い値、モバイル、内部スクロール、focus管理、連続操作、応答性 |
-| データ観点 | canonical order、値型、予約語、重複key、安全でないkey、未知属性のroundtrip |
+| データ観点 | canonical order、値型、予約語、重複key、安全でないkey、未知属性のroundtrip、Body置換時の既存metadata維持 |
 | UI観点 | 既存Edit画面不変、項目順、read-onlyとeditableの識別、error、ボタン、responsive dialog |
 
 ### 3.2 系統分類
 
 | 系統 | 主な確認事項 |
 | --- | --- |
-| 正常系 | 参照、Custom field追加・編集・削除、Apply、メインSave、再読込、Export |
-| 異常系 | 空key、重複key、予約語、Value構文error、保存失敗、Import破損 |
-| 境界値 | Custom field 0件／1件／多数、空文字、長いkey／value、900px境界、dialog最大高 |
-| 状態遷移 | closed／open、clean／dirty、Apply／Cancel／Discard、ノート切替、Edit／Preview／Slides |
+| 正常系 | 参照、Custom field追加・編集・削除、Apply、メインSave、再読込、Export、Body置換後のmetadata維持 |
+| 異常系 | 空key、重複key、予約語、Value構文error、保存失敗、Import破損、Body置換失敗 |
+| 境界値 | Custom field 0件／1件／多数、空文字、長いkey／value、同名Title、900px境界、dialog最大高 |
+| 状態遷移 | closed／open、clean／dirty、Apply／Cancel／Discard、ノート切替、Edit／Preview／Slides、Body置換dialog |
 
 ### 3.3 前提・タイミング・証跡
 
 - viewport、選択ノート、active tab、メインのdirty状態、ダイアログ初期値を明示する。
 - ダイアログ内のローカル変更とNote draftへの適用済み変更を区別する。
 - Import／Export／Backupテストは独立したNoteデータを準備し、実行順に依存させない。
+- Body置換テストは対象ノートID、Title、Tags、Pin、Marp設定、Custom metadata、`updatedAt`とsource frontmatterを実行前後で比較する。
 - 失敗時は表示順、各行のkey／value／error、Apply可否、メインdraft、保存Note、Export YAMLを取得する。
 - 同一ブラウザでの連続open／closeによる古いlocal stateの残留を確認する。
 
@@ -167,6 +168,8 @@ Title、Tags、Marp設定など既存UIが管理する属性の編集経路は�
 
 ## 9. データ・Import／Export／Backup
 
+Markdown importと表示中ノートのBody置換に関する識別規則、dialog、未保存確認の詳細は[Markdown Import／表示中ノート更新 要件](./markdown-import-current-note-update-requirements.md)に従う。
+
 | ID | 要件 |
 | --- | --- |
 | MD-DATA-001 | NoteへCustom metadataを構造化データとして保持し、Bodyへfrontmatter文字列を混在させない。 |
@@ -176,6 +179,8 @@ Title、Tags、Marp設定など既存UIが管理する属性の編集経路は�
 | MD-DATA-005 | Backup／RestoreでもCustom metadataの順序と値型を保持する。 |
 | MD-DATA-006 | Apply済みでメインSave前のCustom metadataは他のdraft項目と同じ未保存確認対象にする。 |
 | MD-DATA-007 | dialogを開かずにTitle、Tags、Bodyを保存しても既存Custom metadataを失わない。 |
+| MD-DATA-008 | `Replace Current Note Body`ではsource frontmatterのmetadataを採用せず、既存のID、Title、Tags、Pin、Marp設定、Custom metadataを維持する。Bodyに差分がある場合だけ`updatedAt`を現在時刻へ更新する。 |
+| MD-DATA-009 | Markdown／text importとJSON backupでTitleまたは`title + updatedAt`を識別に使わない。新規Markdown／text importは新ID、表示中ノート更新は選択ID、JSON backup更新はbackup IDだけを使用する。 |
 
 ## 10. Markdown Preview・TOC
 
@@ -207,3 +212,5 @@ Title、Tags、Marp設定など既存UIが管理する属性の編集経路は�
 | MD-AC-007 | メインSave、再読込、Export、Import、Backup／RestoreでCustom metadataの順序と型が保持される。 |
 | MD-AC-008 | PCとmobileの両方でdialog操作、内部スクロール、footer操作、focus復帰が成立する。 |
 | MD-AC-009 | Markdown PreviewとTOCにfrontmatterが表示されない。 |
+| MD-AC-010 | 表示中ノートのBody置換後も既存のID、Title、Tags、Pin、Marp設定、Custom metadataが維持され、source frontmatterのmetadataで上書きされない。 |
+| MD-AC-011 | 同じTitleまたは`title + updatedAt`を持つ別IDノートがImportで暗黙に統合・更新されない。 |

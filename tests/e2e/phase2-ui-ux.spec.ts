@@ -1323,6 +1323,17 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     ]);
     expect(dropWasPrevented).toBe(true);
 
+    const choiceDialog = page.getByRole("dialog", {
+      name: "Import Markdown Files",
+    });
+    await expect(choiceDialog).toBeVisible();
+    await expect(
+      choiceDialog.getByRole("button", { name: "Replace Current Note Body" })
+    ).toBeDisabled();
+    await choiceDialog
+      .getByRole("button", { name: "Add as New Notes" })
+      .click();
+
     const dialog = page.getByRole("dialog", { name: "Import Complete" });
     await expect(dialog).toBeVisible();
     await expectResultValue(dialog, "Added", "3");
@@ -1360,6 +1371,16 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(previewPanel).not.toHaveClass(/is-drag-active/);
 
     expect(await dispatchFileDrag(page, "drop", files)).toBe(true);
+    const choiceDialog = page.getByRole("dialog", {
+      name: "Import Markdown File",
+    });
+    await expect(choiceDialog).toBeVisible();
+    await expect(
+      choiceDialog.getByRole("button", { name: "Cancel" })
+    ).toBeFocused();
+    await choiceDialog
+      .getByRole("button", { name: "Add as New Note" })
+      .click();
     const dialog = page.getByRole("dialog", { name: "Import Complete" });
     await expect(dialog).toBeVisible();
     await expectResultValue(dialog, "Added", "1");
@@ -1374,7 +1395,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expectBodyEditorValue(page.getByLabel("Body"), "Original preview body");
   });
 
-  test("keeps an unsaved draft when a Body file drop is canceled", async ({
+  test("keeps a Draft when its Body file import choice is canceled", async ({
     page,
   }) => {
     await page.goto("/");
@@ -1389,12 +1410,16 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
         content: "# Must not import",
       },
     ]);
-    const unsavedDialog = page.getByRole("dialog", { name: "Unsaved Changes" });
-    await expect(unsavedDialog).toContainText("import Markdown or text files");
-    await unsavedDialog.getByRole("button", { name: "Cancel" }).click();
+    await page
+      .getByRole("dialog", { name: "Import Markdown File" })
+      .getByRole("button", { name: "Cancel" })
+      .click();
 
     await expect(page.getByLabel("Title")).toHaveValue("Unsaved drop source");
     await expectBodyEditorValue(page.getByLabel("Body"), "Keep this draft");
+    await expect(
+      page.getByRole("dialog", { name: "Unsaved Changes" })
+    ).toHaveCount(0);
     await expect(page.getByRole("dialog", { name: "Import Complete" })).toHaveCount(0);
   });
 

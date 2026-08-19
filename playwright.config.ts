@@ -9,6 +9,7 @@ const phase2CrossBrowserTests = [
   "**/phase2-restore.spec.ts",
   "**/phase2-production-readiness.spec.ts",
   "**/preview-pdf.spec.ts",
+  "**/markdown-import-current-note.spec.ts",
 ];
 
 export default defineConfig({

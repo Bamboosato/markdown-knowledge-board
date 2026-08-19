@@ -1,8 +1,9 @@
 import {
   cloneCustomMetadata,
+  parseMarkdownWithFrontmatter,
   toMarkdownWithFrontmatter,
 } from "./frontmatter";
-import { createNoteFromMarkdown, getPinnedAt } from "./note";
+import { createId, createNoteFromMarkdown, getPinnedAt } from "./note";
 import type { CustomMetadataEntry, Note } from "./types";
 
 export type BackupNoteRecord = {
@@ -25,6 +26,12 @@ export type BackupDocument = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function assertMarkdownImportFileName(fileName: string): void {
+  if (!/\.(?:md|markdown|txt)$/i.test(fileName)) {
+    throw new Error("Only .md, .markdown, and .txt files can be imported here.");
+  }
 }
 
 export function createBackupDocument(
@@ -71,7 +78,7 @@ export function parseBackupNotes(content: string, fileName: string): Note[] {
       throw new Error(`Backup note ${index + 1} is missing Markdown content.`);
     }
 
-    const id = typeof item.id === "string" ? item.id : undefined;
+    const id = typeof item.id === "string" ? item.id : createId();
     const title = typeof item.title === "string" ? item.title : undefined;
     const tags =
       Array.isArray(item.tags) && item.tags.every((tag) => typeof tag === "string")
@@ -113,8 +120,21 @@ export function parseImportFileContent(
     }
     return parseBackupNotes(content, fileName);
   }
-  if (!/\.(?:md|markdown|txt)$/i.test(fileName)) {
-    throw new Error("Only .md, .markdown, and .txt files can be imported here.");
+  assertMarkdownImportFileName(fileName);
+  return [
+    createNoteFromMarkdown(content, fileName, { id: createId() }, true),
+  ];
+}
+
+export function parseMarkdownBodyFileContent(
+  content: string,
+  fileName: string
+): string {
+  assertMarkdownImportFileName(fileName);
+  if (content.trim().length === 0) {
+    throw new Error("File is empty.");
   }
-  return [createNoteFromMarkdown(content, fileName, undefined, true)];
+
+  const parsed = parseMarkdownWithFrontmatter(content);
+  return parsed.body ?? content;
 }

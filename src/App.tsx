@@ -53,6 +53,7 @@ import {
   MarkdownToolbarMenu,
   type MarkdownToolbarMenuItem,
 } from "./components/MarkdownToolbarMenu";
+import { ImportChoiceDialog } from "./components/ImportChoiceDialog";
 import { MarkdownPreview } from "./components/MarkdownPreview";
 import { MarpSlides } from "./components/MarpSlides";
 import { MetadataDialog } from "./components/MetadataDialog";
@@ -100,6 +101,7 @@ import { dbInitError, deleteNote, getAllNotes, saveNote } from "./lib/db";
 import {
   createBackupDocument,
   parseImportFileContent,
+  parseMarkdownBodyFileContent,
 } from "./lib/backup";
 import {
   areCustomMetadataEqual,
@@ -108,6 +110,7 @@ import {
   toMarkdownWithFrontmatter,
 } from "./lib/frontmatter";
 import { createId, getCurrentTimestamp, getPinnedAt } from "./lib/note";
+import { findNoteIndexById, replaceNoteBody } from "./lib/noteImport";
 import {
   insertCodeBlock,
   insertLink,
@@ -171,6 +174,18 @@ type UnsavedDialogState = {
 type ImportFailure = {
   fileName: string;
   reason: string;
+};
+
+type ImportChoiceDialogState = {
+  files: File[];
+  targetKind: "draft" | "saved";
+  targetNoteId: string | null;
+  targetNoteTitle: string;
+};
+
+type ImportFilesOptions = {
+  returnFocusTarget?: HTMLElement | null;
+  confirmUnsaved?: boolean;
 };
 
 type OperationDialogState =
@@ -612,9 +627,12 @@ function App() {
   );
   const [operationDialog, setOperationDialog] =
     useState<OperationDialogState | null>(null);
+  const [importChoiceDialog, setImportChoiceDialog] =
+    useState<ImportChoiceDialogState | null>(null);
   const operationDialogRef = useRef<HTMLDivElement | null>(null);
   const operationDialogCloseButtonRef = useRef<HTMLButtonElement | null>(null);
   const operationDialogReturnFocusRef = useRef<HTMLElement | null>(null);
+  const importChoiceReturnFocusRef = useRef<HTMLElement | null>(null);
   const [isBackupBusy, setIsBackupBusy] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isAppMenuOpen, setIsAppMenuOpen] = useState(false);
@@ -842,6 +860,17 @@ function App() {
     },
     [closeOperationDialog]
   );
+
+  const restoreImportFocus = useCallback((target: HTMLElement | null) => {
+    window.requestAnimationFrame(() => {
+      const fallback = document.querySelector<HTMLElement>(".tab-button.active");
+      if (target?.isConnected) {
+        target.focus();
+      } else {
+        fallback?.focus();
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const closeTimer = window.setTimeout(() => {
@@ -1460,20 +1489,6 @@ function App() {
     return note;
   };
 
-  const findImportMatchIndex = (candidate: Note, currentNotes: Note[]) => {
-    const idMatch = currentNotes.findIndex((note) => note.id === candidate.id);
-    if (idMatch >= 0) {
-      return idMatch;
-    }
-
-    const normalizedTitle = candidate.title.trim().toLowerCase();
-    return currentNotes.findIndex(
-      (note) =>
-        note.title.trim().toLowerCase() === normalizedTitle &&
-        note.updatedAt === candidate.updatedAt
-    );
-  };
-
   const clearDeleteUndoTimer = () => {
     if (deleteUndoTimerRef.current !== null) {
       window.clearTimeout(deleteUndoTimerRef.current);
@@ -1736,33 +1751,69 @@ function App() {
     []
   );
 
+  const showImportResult = (
+    result: Extract<OperationDialogState, { kind: "import" }>,
+    returnFocusTarget: HTMLElement | null
+  ) => {
+    operationDialogReturnFocusRef.current = returnFocusTarget;
+    setOperationDialog(result);
+  };
+
   const importFiles = async (
     files: File[],
-    importKind: "markdown" | "backup"
+    importKind: "markdown" | "backup",
+    options: ImportFilesOptions = {}
   ) => {
     if (files.length === 0) {
       return;
     }
 
-    const importTarget =
-      importKind === "backup"
-        ? "import a backup"
-        : "import Markdown or text files";
-    const canContinue = await confirmUnsavedTransition(importTarget);
-    if (!canContinue) {
-      return;
+    const resolvedReturnFocus =
+      options.returnFocusTarget ??
+      (importKind === "backup"
+        ? appMenuButtonRef.current
+        : markdownImportButtonRef.current);
+
+    if (options.confirmUnsaved !== false) {
+      const importTarget =
+        importKind === "backup"
+          ? "import a backup"
+          : "import Markdown or text files";
+      const canContinue = await confirmUnsavedTransition(importTarget);
+      if (!canContinue) {
+        restoreImportFocus(resolvedReturnFocus);
+        return;
+      }
     }
 
-    const imported: Note[] = [];
     const failures: ImportFailure[] = [];
     let added = 0;
     let updated = 0;
     let skipped = 0;
-    let workingNotes = notes.slice();
 
     setIsImporting(true);
 
     try {
+      let workingNotes: Note[];
+      try {
+        workingNotes = sortNotes(await getAllNotes());
+      } catch (error) {
+        const message = getErrorMessage(error, "Failed to read saved notes.");
+        setDbError(message);
+        showImportResult(
+          {
+            kind: "import",
+            added: 0,
+            updated: 0,
+            skipped: 0,
+            failed: files.length,
+            failures: files.map((file) => ({ fileName: file.name, reason: message })),
+          },
+          resolvedReturnFocus
+        );
+        return;
+      }
+
       for (const file of files) {
         try {
           const content = await file.text();
@@ -1773,33 +1824,27 @@ function App() {
           );
 
           for (const candidate of candidates) {
-            const matchIndex = findImportMatchIndex(candidate, workingNotes);
-            if (matchIndex >= 0) {
+            const matchIndex =
+              importKind === "backup"
+                ? findNoteIndexById(workingNotes, candidate.id)
+                : -1;
+            if (importKind === "backup" && matchIndex >= 0) {
               const existing = workingNotes[matchIndex];
-              const nextNote = { ...candidate, id: existing.id };
-              if (importKind === "markdown") {
-                const pinnedAt = getPinnedAt(existing);
-                if (pinnedAt !== undefined) {
-                  nextNote.pinnedAt = pinnedAt;
-                }
-              }
-              if (areNotesEquivalent(existing, nextNote)) {
+              if (areNotesEquivalent(existing, candidate)) {
                 skipped += 1;
                 continue;
               }
 
-              await saveNote(nextNote);
+              await saveNote(candidate);
               workingNotes = workingNotes.map((note, index) =>
-                index === matchIndex ? nextNote : note
+                index === matchIndex ? candidate : note
               );
-              imported.push(nextNote);
               updated += 1;
               continue;
             }
 
             await saveNote(candidate);
             workingNotes = [candidate, ...workingNotes];
-            imported.push(candidate);
             added += 1;
           }
         } catch (error) {
@@ -1810,31 +1855,21 @@ function App() {
         }
       }
 
-      if (imported.length > 0 || skipped > 0) {
-        setNotes((prev) =>
-          sortNotes([
-            ...workingNotes.filter((note) =>
-              prev.some((item) => item.id === note.id)
-            ),
-            ...workingNotes.filter(
-              (note) => !prev.some((item) => item.id === note.id)
-            ),
-          ])
-        );
+      if (added > 0 || updated > 0) {
+        setNotes(sortNotes(workingNotes));
       }
 
-      setOperationDialog({
-        kind: "import",
-        added,
-        updated,
-        skipped,
-        failed: failures.length,
-        failures,
-      });
-      operationDialogReturnFocusRef.current =
-        importKind === "backup"
-          ? appMenuButtonRef.current
-          : markdownImportButtonRef.current;
+      showImportResult(
+        {
+          kind: "import",
+          added,
+          updated,
+          skipped,
+          failed: failures.length,
+          failures,
+        },
+        resolvedReturnFocus
+      );
 
       setDbError(dbInitError);
     } finally {
@@ -1853,6 +1888,242 @@ function App() {
       await importFiles(files, importKind);
     } finally {
       input.value = "";
+    }
+  };
+
+  const getImportChoiceReturnFocus = (): HTMLElement | null => {
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement) {
+      return activeElement;
+    }
+    return document.querySelector<HTMLElement>(".tab-button.active");
+  };
+
+  const closeImportChoiceDialog = () => {
+    const returnFocusTarget = importChoiceReturnFocusRef.current;
+    importChoiceReturnFocusRef.current = null;
+    setImportChoiceDialog(null);
+    restoreImportFocus(returnFocusTarget);
+  };
+
+  const handleAddDroppedFiles = async () => {
+    if (!importChoiceDialog) {
+      return;
+    }
+    const { files, targetKind } = importChoiceDialog;
+    const returnFocusTarget = importChoiceReturnFocusRef.current;
+    importChoiceReturnFocusRef.current = null;
+    setImportChoiceDialog(null);
+    await importFiles(files, "markdown", {
+      returnFocusTarget,
+      confirmUnsaved: targetKind === "saved",
+    });
+  };
+
+  const handleReplaceCurrentNoteBody = async () => {
+    if (!importChoiceDialog || importChoiceDialog.files.length !== 1) {
+      return;
+    }
+
+    const { files, targetKind, targetNoteId } = importChoiceDialog;
+    const [file] = files;
+    const returnFocusTarget = importChoiceReturnFocusRef.current;
+    importChoiceReturnFocusRef.current = null;
+    setImportChoiceDialog(null);
+    setIsImporting(true);
+
+    try {
+      let replacementBase: Note | null = null;
+      if (targetKind === "saved") {
+        const persistedTarget = notes.find((note) => note.id === targetNoteId);
+        if (!persistedTarget || selectedId !== targetNoteId) {
+          showImportResult(
+            {
+              kind: "import",
+              added: 0,
+              updated: 0,
+              skipped: 0,
+              failed: 1,
+              failures: [
+                {
+                  fileName: file.name,
+                  reason: "The current note is no longer available.",
+                },
+              ],
+            },
+            returnFocusTarget
+          );
+          return;
+        }
+
+        replacementBase = persistedTarget;
+        if (isDirtyRef.current || tagInput.trim().length > 0) {
+          const choice = await requestUnsavedChoice(
+            "replace the current note body"
+          );
+          if (choice === "cancel") {
+            restoreImportFocus(returnFocusTarget);
+            return;
+          }
+          if (choice === "discard") {
+            resetDraft(persistedTarget);
+          } else {
+            const draftSnapshot = getDraftSnapshot();
+            if (draftSnapshot.id !== targetNoteId || !(await handleSave())) {
+              restoreImportFocus(returnFocusTarget);
+              return;
+            }
+            replacementBase = draftSnapshot;
+          }
+        }
+      } else if (selectedNote || selectedId !== targetNoteId) {
+        showImportResult(
+          {
+            kind: "import",
+            added: 0,
+            updated: 0,
+            skipped: 0,
+            failed: 1,
+            failures: [
+              {
+                fileName: file.name,
+                reason: "The current note is no longer available.",
+              },
+            ],
+          },
+          returnFocusTarget
+        );
+        return;
+      }
+
+      let replacementBody: string;
+      try {
+        replacementBody = parseMarkdownBodyFileContent(
+          await file.text(),
+          file.name
+        );
+      } catch (error) {
+        showImportResult(
+          {
+            kind: "import",
+            added: 0,
+            updated: 0,
+            skipped: 0,
+            failed: 1,
+            failures: [
+              {
+                fileName: file.name,
+                reason: getErrorMessage(error, "Failed to read this file."),
+              },
+            ],
+          },
+          returnFocusTarget
+        );
+        return;
+      }
+
+      if (targetKind === "draft") {
+        if (draftBody === replacementBody) {
+          showImportResult(
+            {
+              kind: "import",
+              added: 0,
+              updated: 0,
+              skipped: 1,
+              failed: 0,
+              failures: [],
+            },
+            returnFocusTarget
+          );
+          return;
+        }
+
+        // Keep React's Draft state authoritative. Import replacement must not
+        // depend on CodeMirror emitting an onChange notification after an
+        // imperative edit (for example while focus/composition is changing).
+        setDraftBody(replacementBody);
+        markDirty();
+        showImportResult(
+          {
+            kind: "import",
+            added: 0,
+            updated: 1,
+            skipped: 0,
+            failed: 0,
+            failures: [],
+          },
+          returnFocusTarget
+        );
+        return;
+      }
+
+      if (!replacementBase) {
+        return;
+      }
+
+      const nextNote = replaceNoteBody(
+        replacementBase,
+        replacementBody,
+        getCurrentTimestamp()
+      );
+      if (!nextNote) {
+        showImportResult(
+          {
+            kind: "import",
+            added: 0,
+            updated: 0,
+            skipped: 1,
+            failed: 0,
+            failures: [],
+          },
+          returnFocusTarget
+        );
+        setDbError(dbInitError);
+        return;
+      }
+
+      try {
+        await saveNote(nextNote);
+      } catch (error) {
+        const message = getErrorMessage(error, "Failed to save the note.");
+        setDbError(message);
+        showImportResult(
+          {
+            kind: "import",
+            added: 0,
+            updated: 0,
+            skipped: 0,
+            failed: 1,
+            failures: [{ fileName: file.name, reason: message }],
+          },
+          returnFocusTarget
+        );
+        return;
+      }
+
+      setNotes((currentNotes) =>
+        sortNotes([
+          nextNote,
+          ...currentNotes.filter((note) => note.id !== nextNote.id),
+        ])
+      );
+      setSelectedId(nextNote.id);
+      resetDraft(nextNote);
+      setDbError(dbInitError);
+      void requestPersistentStorage();
+      showImportResult(
+        {
+          kind: "import",
+          added: 0,
+          updated: 1,
+          skipped: 0,
+          failed: 0,
+          failures: [],
+        },
+        returnFocusTarget
+      );
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -1898,7 +2169,18 @@ function App() {
     if (isImporting) {
       return;
     }
-    await importFiles(Array.from(event.dataTransfer.files), "markdown");
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length === 0) {
+      return;
+    }
+    importChoiceReturnFocusRef.current = getImportChoiceReturnFocus();
+    setImportChoiceDialog({
+      files,
+      targetKind: selectedNote ? "saved" : "draft",
+      targetNoteId: selectedId,
+      targetNoteTitle:
+        (selectedNote?.title ?? draftTitle.trim()) || "Untitled",
+    });
   };
 
   const handleNewNote = async () => {
@@ -4233,7 +4515,8 @@ function App() {
             onDragEnter={handleImportDragEnter}
             onDragOver={handleImportDragOver}
             onDragLeave={handleImportDragLeave}
-            onDrop={handleImportDrop}
+            // Capture file drops before CodeMirror inserts their text into the document.
+            onDropCapture={handleImportDrop}
           >
             <div className="body-header">
               <div className="label" id="body-label">
@@ -4314,7 +4597,7 @@ function App() {
             onDragEnter={handleImportDragEnter}
             onDragOver={handleImportDragOver}
             onDragLeave={handleImportDragLeave}
-            onDrop={handleImportDrop}
+            onDropCapture={handleImportDrop}
           >
             {draftBody.trim().length === 0 ? (
               <div className="preview-empty">Nothing to preview.</div>
@@ -4529,6 +4812,15 @@ function App() {
             </div>
           </div>
         </div>
+      ) : null}
+      {importChoiceDialog ? (
+        <ImportChoiceDialog
+          fileNames={importChoiceDialog.files.map((file) => file.name)}
+          noteTitle={importChoiceDialog.targetNoteTitle}
+          onAdd={() => void handleAddDroppedFiles()}
+          onReplace={() => void handleReplaceCurrentNoteBody()}
+          onCancel={closeImportChoiceDialog}
+        />
       ) : null}
       {unsavedDialog ? (
         <div className="modal-backdrop">

@@ -506,25 +506,29 @@ Editor header、選択中カードの縦3点メニュー、または固定済み
 
 ### 7.9 インポート
 
-Sidebar の `Import Markdown` から複数の `.md`、`.markdown`、`.txt` ファイル、application menu の `Import Backup` から複数 JSON バックアップファイルを選択できる。PC では Edit の Body 領域または Preview 領域へ Markdown / text ファイルをドラッグ＆ドロップしても、`Import Markdown` と同じ処理を実行する。Body への挿入・置換やPreview内容の変更ではなく、各ファイルをノートとして追加または更新する。Edit／Previewの両ドロップ領域は同じ受入表示とイベント処理を使用し、各導線は取込後の未保存確認、重複判定、保存、結果表示を共通とする。
+Sidebar の `Import Markdown` から複数の `.md`、`.markdown`、`.txt` ファイル、application menu の `Import Backup` から複数 JSON バックアップファイルを選択できる。`Import Markdown` では各ファイルを常に新しいIDのノートとして追加し、source frontmatterのID、Title、`updatedAt`が既存ノートと一致しても暗黙に更新しない。
+
+PCでDraft／Saved／UnsavedのEditのBody領域またはPreview領域へMarkdown／textファイルをドラッグ＆ドロップした場合は、状態にかかわらず共通の取込方法dialogを表示する。単一ファイルでは`Add as New Note`、`Replace Current Note Body`、`Cancel`を選択できる。複数ファイルでは`Replace Current Note Body`をdisabledにし、各ファイルの新規追加だけを選択可能にする。英文copy、focus、未保存確認、データ規則、テスト範囲の詳細は[Markdown Import／表示中ノート更新 要件](./markdown-import-current-note-update-requirements.md)に従う。
 
 各ファイルについて以下を行う。
 
 1. file text を読む。
 2. `.json` の場合はバックアップ形式を検証し、含まれる各ノートの Markdown を parse する。
 3. `.md`、`.markdown`、`.txt` の場合は YAML frontmatter を parse する。frontmatter がなければファイル全文を本文として扱う。
-4. `id` は frontmatter またはバックアップメタデータから復元し、なければ新規作成する。
+4. Markdown／textの新規追加ではsourceの`id`を採用せず、新しいIDを発行する。JSON backupではbackup内のIDを復元する。
 5. `.md`、`.markdown`、`.txt` の title は frontmatter の `title`、ファイル名の順で決定する。本文中の H1 はTitle決定には使用せず本文に残す。JSONバックアップはバックアップメタデータ、Markdown frontmatter、本文中の H1、ファイル名の順で決定する。
 6. body は frontmatter 除去後の本文を使う。frontmatter がなければファイル全文を使う。
 7. tags は frontmatter の `tags` が文字列配列の場合のみ復元する。
 8. updatedAt は frontmatter の `updatedAt` を number または parse 可能な date string として復元する。なければ現在時刻。
-9. JSONバックアップの `pinnedAt` はfiniteかつ0以上のnumberの場合だけ復元する。Markdown／text importで既存ノートを更新する場合は既存の固定状態を維持し、新規Markdown／text importは未固定とする。
+9. JSONバックアップの `pinnedAt` はfiniteかつ0以上のnumberの場合だけ復元する。新規Markdown／text importは未固定とする。
 10. 対応済みの標準属性とMarp属性を除いた未知属性は、安全な値型であればCustom metadataとして復元する。
    - frontmatter内の出現順を維持し、string、number、boolean、null、sequence、mappingの型を保持する。
-11. 重複判定は `id` を優先し、次に現行データモデルで扱える `title + updatedAt` の一致を見る。
-12. 同一内容と固定状態なら skipped、差分があれば updated、重複がなければ added として IndexedDB に保存する。
+11. JSON backupの重複判定は`id`一致だけを使用する。Titleと`updatedAt`は、Markdown／text importとJSON backupのいずれでも識別子として使用しない。
+12. JSON backupで同一IDかつ同一内容ならskipped、差分があればupdated、ID不一致ならaddedとしてIndexedDBに保存する。同名TitleでもIDが異なるノートは統合しない。
 13. import 結果ダイアログで added / updated / skipped / failed を表示する。
 14. 失敗したファイルはファイル名と理由を表示し、成功分は保存する。
+
+`Replace Current Note Body`ではdialog表示時の対象種別と選択IDを更新先として保持し、frontmatter除去後のBodyだけを置換する。既存のTitle、Tags、Pin、Marp設定、Custom metadataを維持し、source fileの`id`、Title、Tags、`updatedAt`、Marp属性、Custom metadataを反映しない。Draftは追加の未保存確認やIndexedDB保存を行わず、Bodyだけを変更してDraft状態を維持する。Saved／UnsavedはBodyに差分がある場合だけ`updatedAt`を現在時刻へ更新し、同一Bodyなら保存せずskippedとする。file read、parseまたは保存が失敗した場合は既存ノートとdraftを変更しない。
 
 ### 7.10 エクスポート
 
@@ -894,8 +898,8 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 - search と tag filter が組み合わせて動作すること。
 - FilterのApply／Clear後にカード一覧が先頭へ戻り、ノートを開いてNotesへ戻った場合は以前のスクロール位置が復元されること。
 - NOTES見出しツールが未適用→`Filter · n`→Clearの状態遷移を行い、表示件数、active条件数、Filter dialogの内容が一致すること。Clear後はFilterへfocusが戻ること。
-- Markdown import/export が frontmatter を含めて動作すること。
-- EditのBodyまたはPreviewへMarkdown／textファイルをドロップすると、いずれもImport Markdownと同じ結果になり、未保存確認をCancelした場合は取込と編集中データの変更が発生しないこと。
+- Markdown import/export が frontmatter を含めて動作し、新規Markdown／text importはsource ID、Title、`updatedAt`の一致にかかわらず新IDで追加されること。
+- Draft／Saved／UnsavedのEditのBodyまたはPreviewへ単一のMarkdown／textファイルをドロップすると共通の取込方法dialogが開き、`Add as New Note`、`Replace Current Note Body`、`Cancel`が選択どおりに動作すること。DraftのAddでは現在のDraftを維持し、DraftのReplaceでは追加確認なしでBodyだけを変更すること。未保存確認をCancelした場合は取込と編集中データの変更が発生しないこと。
 - Preview内リンクで一覧外のノートへ切り替えた場合、desktopでは切替後、mobileではNotesへ戻った後に対象カードが一覧の表示範囲へ入ること。すでに見えている場合、リンク不成立、未保存確認Cancelでは一覧位置が変わらないこと。
 - Preview内リンク先がFilter対象外の場合はFilterと保留IDを維持して通知し、Filter解除後に対象カードへ移動すること。
 - More actionsからMetadata dialogを開き、Exportと同じ順序でread-only属性とCustom metadataを参照できること。
@@ -920,16 +924,18 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 - 大量ノートでPreviewリンクを連続操作してもdocumentやeditorを誤ってスクロールせず、最後に成功したリンク先だけをreveal対象にすること。smooth scroll中もカード選択やNotesへの切替を阻害しないこと。
 - FilterのApply / Clearを連続してもchip件数とClear表示が競合せず、消えたClearへfocusを残さないこと。
 - 連続または微小deltaのwheelでも倍率が意図せず多段階変化せず、tab切替とunmountでlistener、delta accumulator、status timerが多重化・残存しないこと。
+- import dialog表示中またはfile read／save中の追加dropを抑止し、pendingの選択ID以外へ遅延更新や二重保存が発生しないこと。
 
 ### 13.3 データ観点
 
 - `Note` の `id`, `title`, `body`, `tags`, `updatedAt`, `pinnedAt`, Custom metadata が欠けないこと。
-- 既存の `pinnedAt` がないノートは未固定として読み込め、JSON Backup／ImportとDelete／Undoでは固定状態をroundtripでき、Markdown Import／Exportでは固定状態をfrontmatterへ混入させないこと。
+- 既存の `pinnedAt` がないノートは未固定として読み込め、JSON Backup／ImportとDelete／Undoでは固定状態をroundtripでき、Markdown Import／Exportでは固定状態をfrontmatterへ混入させないこと。表示中ノートのBody置換では既存の固定状態を維持すること。
 - frontmatter の invalid data を誤って採用しないこと。
 - 予約属性と危険なkeyをCustom metadataとして採用せず、未知の安全な属性はroundtripで保持すること。
 - 同名タグ、大小文字違いタグの重複扱いが一貫すること。
 - import/export 後に Markdown 本文が意図せず変形しないこと。
-- Previewへのファイルドロップは表示中ノートの本文を挿入・置換せず、対応ファイルから追加または更新されたノートだけを保存すること。
+- `Add as New Note`では表示中ノートまたはDraftを変更せず新IDのノートだけを追加すること。`Replace Current Note Body`では既存Title、Tags、Pin、Marp設定、Custom metadataを維持し、Saved／UnsavedはBodyと`updatedAt`だけを更新し、DraftはBodyだけを変更してDraft状態を維持すること。
+- Markdown／text importとJSON backupでTitleまたは`title + updatedAt`一致による既存ノート更新を行わず、JSON backupはID一致だけを更新すること。
 - Preview優先表示およびタブ切替だけでは本文、metadata、dirty状態、保存データが変化しないこと。
 - Previewリンクによる一覧スクロールと保留IDは表示状態だけに作用し、ノート順、Filter条件、本文、metadata、dirty状態、IndexedDBを変更しないこと。
 - `NOTES (filtered of total)`は一覧結果件数、`Filter · n`はSearch 1件とTag選択数を表し、両者を混同しないこと。
@@ -949,7 +955,8 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 - desktopとmobileでノートカードとスクロールバーの間隔が8px、スクロールバーと右外枠の間隔が4px確保されること。Sidebar、Editor、固定ヘッダーの左右外周余白がdesktopでは16px、mobileでは12pxとなり、Preview／Edit／SlidesおよびEdit拡大時に一貫すること。
 - desktop と mobile の両方でタブがPreview、Edit、Slidesの順に表示され、選択状態とキーボードのフォーカス移動順が一致すること。
 - PCではEditの基準`0.95rem`、Previewの基準`1rem`と見出しの相対比を保って80%〜180%へ拡縮し、mobileは保存済み倍率にかかわらず現行サイズを維持すること。倍率statusがfocusを奪わず読み上げられること。
-- PCのEdit／Previewでファイルをドラッグ中は同じImport案内を表示し、dragleave、drop、Import処理終了後に強調表示が残らないこと。
+- PCのEdit／Previewでファイルをドラッグ中は同じImport案内を表示し、drop後は同じ英文取込方法dialogを表示すること。dragleave、dialogのCancel、Import処理終了後に強調表示が残らないこと。
+- 取込方法dialogは対象ファイル名と表示中ノート名、metadata維持の説明を表示し、初期focusを`Cancel`へ置くこと。Tab循環、Escape、backdrop Cancel、close後のfocus復帰が成立すること。
 - desktopではPreviewリンク先カードがSidebarのスクロール領域内へ最小距離で現れ、mobileではEditor表示中にdocumentを動かさず、Notesへ戻った時だけ同じカードが見えること。reduced motion時はsmooth animationを使用しないこと。
 - Metadata追加前後で既存Edit画面のTitle、Tags、Body配置が変わらないこと。
 - PCとmobileでMetadata dialogのread-only属性、Custom row、内部scroll、footer、focus管理へ到達できること。
