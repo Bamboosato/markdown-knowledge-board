@@ -111,6 +111,7 @@ import {
 } from "./lib/frontmatter";
 import { createId, getCurrentTimestamp, getPinnedAt } from "./lib/note";
 import { findNoteIndexById, replaceNoteBody } from "./lib/noteImport";
+import { getTagSuggestions, normalizeTag } from "./lib/tagSuggestions";
 import {
   insertCodeBlock,
   insertLink,
@@ -312,10 +313,6 @@ function parseTags(value: string): string[] {
       }
     });
   return Array.from(tags.values());
-}
-
-function normalizeTag(tag: string): string {
-  return tag.trim().toLowerCase();
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -2221,42 +2218,9 @@ function App() {
     setSlideIndex(0);
   };
 
-  const candidateTags = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const note of notes) {
-      for (const tag of note.tags) {
-        const normalized = normalizeTag(tag);
-        if (!normalized) {
-          continue;
-        }
-        if (!seen.has(normalized)) {
-          seen.set(normalized, tag);
-        }
-      }
-    }
-    return Array.from(seen.values()).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" })
-    );
-  }, [notes]);
-
-  const selectedTagKeys = useMemo(
-    () => new Set(draftTags.map((tag) => normalizeTag(tag))),
-    [draftTags]
-  );
-  const tagSuggestionQuery = normalizeTag(tagInput);
   const suggestedTags = useMemo(
-    () =>
-      candidateTags
-        .filter((tag) => {
-          const normalized = normalizeTag(tag);
-          return (
-            !selectedTagKeys.has(normalized) &&
-            (tagSuggestionQuery.length === 0 ||
-              normalized.includes(tagSuggestionQuery))
-          );
-        })
-        .slice(0, TAG_SUGGESTION_LIMIT),
-    [candidateTags, selectedTagKeys, tagSuggestionQuery]
+    () => getTagSuggestions(notes, draftTags, tagInput, TAG_SUGGESTION_LIMIT),
+    [notes, draftTags, tagInput]
   );
 
   const hasTagSuggestions = isTagSuggestOpen && suggestedTags.length > 0;
@@ -2268,24 +2232,15 @@ function App() {
     () => parseTags(tagFilter),
     [tagFilter]
   );
-  const filterDraftTagKeys = useMemo(
-    () => new Set(filterDraftTags.map((tag) => normalizeTag(tag))),
-    [filterDraftTags]
-  );
-  const tagFilterSuggestionQuery = normalizeTag(filterTagInput);
   const suggestedTagFilters = useMemo(
     () =>
-      candidateTags
-        .filter((tag) => {
-          const normalized = normalizeTag(tag);
-          return (
-            !filterDraftTagKeys.has(normalized) &&
-            (tagFilterSuggestionQuery.length === 0 ||
-              normalized.includes(tagFilterSuggestionQuery))
-          );
-        })
-        .slice(0, TAG_SUGGESTION_LIMIT),
-    [candidateTags, filterDraftTagKeys, tagFilterSuggestionQuery]
+      getTagSuggestions(
+        notes,
+        filterDraftTags,
+        filterTagInput,
+        TAG_SUGGESTION_LIMIT,
+      ),
+    [notes, filterDraftTags, filterTagInput]
   );
   const hasTagFilterSuggestions =
     isTagFilterSuggestOpen && suggestedTagFilters.length > 0;
