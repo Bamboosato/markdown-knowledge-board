@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   CloudApiError,
   downloadCloudBackup,
+  getCsrfToken,
   sha256Base64Url,
 } from '../../src/lib/cloudApi'
 
@@ -126,5 +127,27 @@ describe('cloud backup download client', () => {
     await expect(downloadCloudBackup(GIST_ID)).rejects.toMatchObject<CloudApiError>({
       code: 'INVALID_RESPONSE',
     })
+  })
+})
+
+describe('GitHub session recovery client', () => {
+  it('gets a CSRF token through the same-origin bootstrap endpoint', async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json({
+        ok: true,
+        data: { csrfToken: 'a'.repeat(43) },
+        requestId: 'request-1',
+      }),
+    )
+    vi.stubGlobal('fetch', fetchImpl)
+
+    await expect(getCsrfToken()).resolves.toEqual({ csrfToken: 'a'.repeat(43) })
+    expect(fetchImpl).toHaveBeenCalledWith(
+      '/api/auth/csrf',
+      expect.objectContaining({
+        credentials: 'same-origin',
+        redirect: 'error',
+      }),
+    )
   })
 })

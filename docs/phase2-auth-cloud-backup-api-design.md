@@ -7,7 +7,7 @@
 
 本書は、[基本設計](./phase2-auth-cloud-backup-architecture.md)に基づき、Vercel Functions、GitHub App、Gist API の契約を定義する。ブラウザ内の暗号化・復元ロジックは[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)を参照する。
 
-> 実装状況（2026年8月3日時点）: Production環境ゲート、session、OAuth、Gist検出・作成・更新、`GET /api/cloud-backups/content`を実装した。session所有者、exact Gist、暗号化envelope、1～4,500,000 bytes、SHA-256を検証し、raw取得は`gist.githubusercontent.com`限定、手動redirect最大2回、各hop再検証、Bearer非送信とする。GitHub API `2026-03-10`ではfull Gist responseの`ETag`をrevisionとし、`history[0].version`は旧応答用fallbackとする。Productionだけでfeature flagとGitHub／session秘密情報を有効化し、両本番Originの実OAuth、Gist初回作成、検出、暗号文取得、既存Gist更新、復元を確認済みである。POST時に既存Gistを検出した場合は`GIST_SELECTION_REQUIRED`で重複作成を防ぎ、clientの次回開始操作で再検出する。
+> 実装状況（2026年9月25日時点）: Production環境ゲート、session、OAuth、Gist検出・作成・更新、`GET /api/cloud-backups/content`、一時的なsession確認失敗からの復旧を実装した。session所有者、exact Gist、暗号化envelope、1～4,500,000 bytes、SHA-256を検証し、raw取得は`gist.githubusercontent.com`限定、手動redirect最大2回、各hop再検証、Bearer非送信とする。GitHub API `2026-03-10`ではfull Gist responseの`ETag`をrevisionとし、`history[0].version`は旧応答用fallbackとする。Productionだけでfeature flagとGitHub／session秘密情報を有効化し、両本番Originの実OAuth、Gist初回作成、検出、暗号文取得、既存Gist更新、復元を確認済みである。POST時に既存Gistを検出した場合は`GIST_SELECTION_REQUIRED`で重複作成を防ぎ、clientの次回開始操作で再検出する。session確認が一時的にUnavailableとなった場合は、CSRF bootstrapと既存のlocal signoutを使って、GitHub APIに依存せず認証Cookieだけを明示的にリセットできる。
 
 ## 2. テスト設計観点
 
@@ -15,17 +15,17 @@ API ケースの詳細化前に、次の観点を必ず確認する。
 
 | 分類 | 観点 | 検証意図 |
 | --- | --- | --- |
-| 機能 | OAuth、session、refresh、Sign out、Disconnect、Gist 検出・作成・更新・取得 | 各 endpoint が認可された明示操作だけを実行すること |
+| 機能 | OAuth、session、refresh、CSRF bootstrap、Sign out、Unavailableからのsession reset、Disconnect、Gist 検出・作成・更新・取得 | 各 endpoint が認可された明示操作だけを実行すること |
 | 非機能 | Cookie、CSRF、SSRF、secret、timeout、rate limit、ログ | 秘密情報とローカル機能を障害・攻撃から隔離すること |
 | データ | user/Origin 分離、revision、idempotency、SHA-256、4.5 MB | 取り違え、重複作成、欠落、無警告上書きを防ぐこと |
 | UI 契約 | error code、retryable、次操作、処理段階 | クライアントが状態に応じた一貫した案内を表示できること |
 
 | 区分 | API テスト対象 |
 | --- | --- |
-| 正常系 | 2 Origin の OAuth、token refresh、初回 Gist、更新、直接 upload/download、Sign out、Disconnect |
-| 異常系 | state/CSRF/Origin 不正、401/403/404/429/5xx、timeout、raw URL 不正、payload 破損 |
+| 正常系 | 2 Origin の OAuth、token refresh、CSRF bootstrap、初回 Gist、更新、直接 upload/download、Sign out、Unavailableからのsession reset、Disconnect |
+| 異常系 | state/CSRF/Origin 不正、CSRF bootstrap失敗、401/403/404/429/5xx、timeout、raw URL 不正、payload 破損 |
 | 境界値 | Cookie 上限、0/1/複数候補、1 MB、4,500,000/4,500,001 bytes、pagination 上限 |
-| 状態遷移 | signed out→authorizing→signed in、refresh、upload retry→complete、revision mismatch、expired session |
+| 状態遷移 | signed out→authorizing→signed in、refresh、unavailable→session reset→signed out、upload retry→complete、revision mismatch、expired session |
 
 結合テストは専用 GitHub アカウントと専用 Gist を使用し、同一 Gist を更新するテストを並列実行しない。失敗時に request ID、GitHub status、処理段階、一時 session ID の末尾だけで原因を切り分けられることを前提とする。
 
@@ -91,7 +91,7 @@ state-changing endpoint は次の全条件を満たした場合だけ処理す�
 3. `__Host-mkb_csrf` Cookie と `X-CSRF-Token` header が定数時間比較で一致する。
 4. session が必要な endpoint は有効な session Cookie を持つ。
 
-CSRF token は256 bit乱数の base64url とする。`GET /api/auth/session` が Cookie と response data に同じ値を返し、client はメモリにだけ保持する。CSRF token を localStorage へ保存しない。Cookieは `__Host-mkb_csrf`、`HttpOnly; Secure; SameSite=Strict; Path=/` とし、`Domain`を付けない。
+CSRF token は256 bit乱数の base64url とする。`GET /api/auth/session` またはsession確認が不要な `GET /api/auth/csrf` が Cookie と response data に同じ値を返し、client はメモリにだけ保持する。CSRF token を localStorage へ保存しない。Cookieは `__Host-mkb_csrf`、`HttpOnly; Secure; SameSite=Strict; Path=/` とし、`Domain`を付けない。`GET /api/auth/csrf` はProduction OriginとGETだけを検証し、sessionを復号せず、GitHubへ接続しない。
 
 ### 3.6 timeout と AbortSignal
 
@@ -206,6 +206,16 @@ type SessionResponse =
 - GitHub user API の毎回呼び出しは行わず、sealed session 内の最小 profile を使用する。
 - client timeout/offline は HTTP response ではなく client の `unknown/unavailable` 状態として扱う。
 
+### 4.3.1 `GET /api/auth/csrf`
+
+session確認が一時的に失敗してCSRF tokenをclientが保持していない場合の復旧用bootstrap endpointである。
+
+- Production OriginとGETだけを検証する。
+- 有効な`__Host-mkb_csrf` Cookieがあれば同じtokenを返し、なければ新しいCookieを設定する。
+- responseは`{ csrfToken: string }`とし、session Cookieを読まず、GitHub APIを呼ばない。
+- Preview、localhost、許可外Originでは`404 CLOUD_NOT_AVAILABLE`を返し、Cookieを発行しない。
+- clientは取得したtokenをメモリにだけ保持し、続けて`POST /api/auth/signout`を呼ぶ。これによりsession、OAuth state、CSRF Cookieを消去する。
+
 ### 4.4 `POST /api/auth/signout`
 
 - CSRF と Origin を検証する。
@@ -213,6 +223,7 @@ type SessionResponse =
 - GitHub API の token 失効は行わない。
 - IndexedDB、localStorage、Gist を操作しない。
 - response は `{ signedOut: true }` とする。
+- session確認がUnavailableのときも、CSRF bootstrap後にこのendpointを再利用できる。これはGitHub tokenの失効ではなく、このブラウザの認証Cookieだけを消去する復旧操作である。
 
 ### 4.5 `POST /api/auth/disconnect`
 
@@ -539,6 +550,7 @@ GitHub 403 は permission と rate limit を response headerで切り分ける�
 | API-E-07 | revoke 失敗 | session削除、failed導線 | 失効失敗を隠さずローカル session を残さないこと |
 | API-E-08 | refresh 競合 | reauthorization-required | 無限 refresh や token ログ出力を防ぐこと |
 | API-E-09 | Vercel Preview Origin | 404、GitHub未呼出、Cookie未発行 | Previewを認証・クラウド環境として使用しないこと |
+| API-E-10 | session確認が一時Unavailable、reset実行 | CSRF bootstrap後にlocal signout、GitHub未呼出 | stuckした認証Cookieから安全に復旧できること |
 
 ### 13.4 境界値・データ
 

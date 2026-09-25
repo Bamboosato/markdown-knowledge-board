@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   handleAuthCallbackRequest,
   handleAuthStartRequest,
+  handleCsrfRequest,
   handleDisconnectRequest,
   handleSignOutRequest,
 } from '../../api/_lib/authFlows.js'
@@ -345,6 +346,57 @@ describe('POST signout and disconnect', () => {
     )
     expect(response.status).toBe(403)
     expect(revokeToken).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /api/auth/csrf', () => {
+  it('returns a CSRF token and bootstraps the host-only cookie', async () => {
+    const response = handleCsrfRequest(
+      new Request(`${ORIGIN_CONFIG.primary.origin}/api/auth/csrf`),
+      baseDependencies,
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toMatchObject({
+      ok: true,
+      data: { csrfToken: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) },
+    })
+    expect(getSetCookies(response)).toHaveLength(1)
+    expect(getSetCookies(response)[0]).toContain(
+      `${CSRF_COOKIE_NAME}=${body.data.csrfToken}`,
+    )
+    expect(getSetCookies(response)[0]).toContain('HttpOnly')
+  })
+
+  it('reuses a valid CSRF cookie without issuing a replacement', async () => {
+    const csrf = createCsrfToken()
+    const response = handleCsrfRequest(
+      new Request(`${ORIGIN_CONFIG.primary.origin}/api/auth/csrf`, {
+        headers: { Cookie: `${CSRF_COOKIE_NAME}=${csrf}` },
+      }),
+      baseDependencies,
+    )
+
+    expect((await response.json()).data.csrfToken).toBe(csrf)
+    expect(getSetCookies(response)).toHaveLength(0)
+  })
+
+  it('rejects non-GET methods and remains unavailable outside Production', async () => {
+    const methodResponse = handleCsrfRequest(
+      new Request(`${ORIGIN_CONFIG.primary.origin}/api/auth/csrf`, {
+        method: 'POST',
+      }),
+      baseDependencies,
+    )
+    expect(methodResponse.status).toBe(405)
+
+    const previewResponse = handleCsrfRequest(
+      new Request(`${ORIGIN_CONFIG.primary.origin}/api/auth/csrf`),
+      { ...baseDependencies, env: { VERCEL_ENV: 'preview' } },
+    )
+    expect(previewResponse.status).toBe(404)
+    expect(getSetCookies(previewResponse)).toHaveLength(0)
   })
 })
 

@@ -155,12 +155,12 @@ PR7の追加unitは14/14（raw redirect 2件、restore download endpoint 8件、
 
 | 分類 | 正常系・異常系・境界値・状態遷移 | 検証意図 |
 | --- | --- | --- |
-| 機能 | 読み込み後offlineでedit/save/Markdown export/JSON backup・import、明示Retry | cloud障害と無関係に全ローカル経路を維持し、復旧で自動送信しない |
-| 非機能 | audit 0件、secret非bundle、1 worker、Chromium／Firefox／WebKit | 依存脆弱性、機密情報露出、順序依存、browser差をリリース前に検出する |
+| 機能 | 読み込み後offlineでedit/save/Markdown export/JSON backup・import、明示Retry、Unavailableからのsession reset | cloud障害と無関係に全ローカル経路を維持し、復旧で自動送信しない |
+| 非機能 | audit 0件、secret非bundle、CSRF、1 worker、Chromium／Firefox／WebKit | 依存脆弱性、機密情報露出、順序依存、browser差をリリース前に検出する |
 | データ | IndexedDB、Markdown、JSON version 1、offline import、cloud mutation 0回 | offlineやfocus改善で保存内容を欠落・変形・送信しない |
 | UI | 390×844、menu scroll、dialog/result境界、初期focus、Tab containment、focus復帰、`aria-pressed` | keyboard・狭幅・支援技術で状態と次操作を判断可能にする |
 | 境界値 | online→offline→online、dialog表示後切断、desktop 1200×800／mobile 390×844 | タイミング競合とviewport境界でcloud処理やUIを誤作動させない |
-| 異常・状態 | offline判定を`AUTH_REQUIRED`より優先、WebKit test file I/O差、Production設定欠落 | 原因に合う表示を保ち、テスト環境差を製品不具合と混同しない |
+| 異常・状態 | offline判定を`AUTH_REQUIRED`より優先、Unavailable→session reset、WebKit test file I/O差、Production設定欠落 | 原因に合う表示を保ち、テスト環境差を製品不具合と混同しない |
 
 PR8自動ゲートは`npm audit --audit-level=low`が0件、`npm run lint`、`npm run test:unit`が170/170、`npm run build`、Playwrightが115/115を1 workerで成功した。内訳はChromium全77件、Firefox／WebKitはauth・backup・restore・readiness各19件で、retry／flakyはない。初回追加E2Eではoffline後の判定順が`AUTH_REQUIRED`になった実装問題を検出して`OFFLINE`優先へ修正した。ほかの失敗はdesktopで非表示のmobileボタンを選んだテスト観点不足、Playwright WebKitのnetwork-level offline中のfile input I/O制限というテスト環境問題であり、DB内容の直接確認とWebKit固有のofflineイベント再現へ修正した。
 
@@ -173,6 +173,8 @@ PR8自動ゲートは`npm audit --audit-level=low`が0件、`npm run lint`、`np
 続く既存Gist更新では、別Originが保持していた古い`none`状態からPOSTを選び、serverの重複作成防止により`GIST_SELECTION_REQUIRED`となる状態依存問題を検出した。再読込後に同一Gistを17件で更新し、重複が増えないことをProductionで確認した。再発防止としてCloud Backup／Restore開始時は`none`／`selected`を含め必ず再検出し、別Origin作成後のupdate、passphrase入力中の作成競合から再読込なしでの再試行、restoreをChromium／Firefox／WebKit各3件で直列確認した。
 
 後続のdialog横overflow修正では、tooltipの疑似要素がdocument幅を広げるUI問題を検出した。auth 27件とbackup／restore 21件の計48件をChromium／Firefox／WebKitで直列実行し、tooltip表示前後の`clientWidth === scrollWidth`を確認した。全unitは172/172、lint、buildも成功しているが、このUI修正はProduction反映前である。
+
+2026年9月25日には、session確認が一時的にUnavailableとなった際にSign out／Disconnectへ到達できない状態を解消した。`GET /api/auth/csrf`でCSRF tokenだけをbootstrapし、既存の`POST /api/auth/signout`で認証Cookieのみを消去する。GitHub API、IndexedDB、localStorage、Gistは操作しない。対象単体テスト、全単体テスト218件、Phase 2認証E2E 36件（Chromium／Firefox／WebKit）、lint、buildが成功した。
 
 2026年8月3日時点でPR1はPR #19、PR2はPR #20、PR3はPR #21、PR4はPR #22、PR5はPR #23、PR6はPR #24、PR7はPR #26としてsquash merge済みである。PR8相当のProduction readinessと実結合修正はDraft PR #27で追跡する。
 

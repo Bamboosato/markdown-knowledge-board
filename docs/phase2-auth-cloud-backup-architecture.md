@@ -7,7 +7,7 @@
 
 本書は、[フェーズ2要件定義](./phase2-auth-cloud-backup-requirements.md)を実装可能な構成へ具体化する基本設計である。現行機能の詳細は[現行設計仕様](./design-spec.md)、HTTP 契約は[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)、ブラウザ内の状態・暗号化・復元は[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)、実行順序と担当は[実装計画](./phase2-auth-cloud-backup-implementation-plan.md)を参照する。
 
-2026年8月3日時点で、ローカルJSON、暗号化、Production API境界、任意GitHub認証、手動Cloud Backup、検証済みdownload、ブラウザ復号、差分preview、safe merge、単一transaction復元、offline、mobile viewport、focus、主要3ブラウザ回帰を実装済みである。GitHub AppとGitHub／session用Production変数を設定してcloud feature flagをProductionだけで有効化し、両本番Originの実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認した。GitHub API `2026-03-10`で省略される`history`に依存せず、full Gist responseの`ETag`をrevisionに使用し、旧応答の`history[0].version`をfallbackとする。Cloud Backup／Restore開始時はOrigin別cacheの`none`／`selected`をそのまま採用せず、必ず実Gistを再検出する。Preview／Developmentへ秘密情報を配布せずlocal-onlyを維持する。
+2026年9月25日時点で、ローカルJSON、暗号化、Production API境界、任意GitHub認証、手動Cloud Backup、検証済みdownload、ブラウザ復号、差分preview、safe merge、単一transaction復元、Unavailable状態からのsession reset、offline、mobile viewport、focus、主要3ブラウザ回帰を実装済みである。GitHub AppとGitHub／session用Production変数を設定してcloud feature flagをProductionだけで有効化し、両本番Originの実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認した。GitHub API `2026-03-10`で省略される`history`に依存せず、full Gist responseの`ETag`をrevisionに使用し、旧応答の`history[0].version`をfallbackとする。Cloud Backup／Restore開始時はOrigin別cacheの`none`／`selected`をそのまま採用せず、必ず実Gistを再検出する。Preview／Developmentへ秘密情報を配布せずlocal-onlyを維持する。
 
 | 領域 | 現行実装 | フェーズ2での扱い |
 | --- | --- | --- |
@@ -15,7 +15,7 @@
 | ノートデータ | `pinnedAt`、Marp設定、`customMetadata`を含む`Note` | 暗号化snapshotと競合判定で全項目を保持する |
 | JSONバックアップ | `src/lib/backup.ts`のversion 1作成・parse、手動保存／インポート | PR1で共通moduleへの抽出と現行roundtrip回帰を完了。クラウド暗号化でも再利用する |
 | 復元基盤 | `cloudRestore.ts`のstrict検証・fingerprint・merge plan、`useCloudRestore.ts`の復号・再検証、`db.ts`のtransaction apply | PR7でpreviewとsafe merge UIへ接続済み。local-only noteと競合を保持する |
-| 認証・クラウドUI | session hook、任意ログイン、Sign out、Disconnect、明示的なCloud Backup／Restoreを実装済み | feature flagを本番2 Originだけで有効化し、Preview／localhostはlocal-onlyを維持する |
+| 認証・クラウドUI | session hook、任意ログイン、Sign out、Unavailableからのsession reset、Disconnect、明示的なCloud Backup／Restoreを実装済み | feature flagを本番2 Originだけで有効化し、Preview／localhostはlocal-onlyを維持する |
 | Vercel Functions／Gist／暗号化 | 4.5 MB上限、Gist検出・作成・ETag revision付き更新、検証済みraw download、browser暗号化・復号を実装済み | 初回作成、既存Gist更新、復元をProductionで直列確認済み。action開始時に毎回再検出する |
 
 ## 2. 設計原則
@@ -34,7 +34,7 @@
 
 | 分類 | 主な観点 | 検証意図 |
 | --- | --- | --- |
-| 機能 | 任意ログイン、手動バックアップ、手動復元、Sign out、連携解除 | 認証・クラウド機能が要求した操作だけを実行すること |
+| 機能 | 任意ログイン、手動バックアップ、手動復元、Sign out、Unavailableからのsession reset、連携解除 | 認証・クラウド機能が要求した操作だけを実行すること |
 | 非機能 | 機密情報、CSRF、SSRF、可用性、タイムアウト、性能、監査 | クラウド障害や攻撃がローカルデータと秘密情報へ波及しないこと |
 | データ | Origin 分離、暗号形式、Gist 識別、リビジョン、`pinnedAt`、`customMetadata`、マージ、rollback | データの取り違え、欠落、無警告上書きを防ぐこと |
 | UI | application menu、ダイアログ、処理中表示、mobile、支援技術 | 状態と次の操作を誤解なく、端末差があっても利用できること |
@@ -43,10 +43,10 @@
 
 | 区分 | 対象 |
 | --- | --- |
-| 正常系 | 未ログインのローカル利用、OAuth 成功、初回作成、更新、別ブラウザ復元、Sign out、連携解除 |
-| 異常系 | OAuth 拒否、state 不一致、Preview/localhostからのAPI要求、401/403/404/429/5xx、timeout、offline、復号失敗、保存失敗、payload破損 |
+| 正常系 | 未ログインのローカル利用、OAuth 成功、初回作成、更新、別ブラウザ復元、Sign out、Unavailableからのsession reset、連携解除 |
+| 異常系 | OAuth 拒否、state 不一致、CSRF bootstrap失敗、Preview/localhostからのAPI要求、401/403/404/429/5xx、timeout、offline、復号失敗、保存失敗、payload破損 |
 | 境界値 | 0件、1件、100件以上、1 MB 前後、4,500,000 bytes、4,500,001 bytes、重複 ID、複数 Gist、メタデータ20/21階層・1,000/1,001要素 |
-| 状態遷移 | 未保存→保存→OAuth、token refresh、upload retry、revision conflict、preview→apply→rollback |
+| 状態遷移 | 未保存→保存→OAuth、token refresh、unavailable→session reset→signed out、upload retry、revision conflict、preview→apply→rollback |
 
 最優先で防止する事象は、平文流出、token 流出、OAuth による未保存編集の消失、復元・更新による無警告上書き、認証障害によるローカル機能停止である。
 
@@ -209,6 +209,7 @@ Vercel Preview deploymentはPhase 2の認証・クラウド機能の検証環境
 - Cookie の復号と token refresh は Functions 内だけで行う。
 - Sign out は Cookie を失効し、Disconnect は GitHub の token 失効 endpoint も呼ぶ。
 - 認証確認は IndexedDB 初期化を待たせず、timeout/offline 時は `unknown` または `unavailable` とする。
+- Unavailableからの `Reset GitHub session` はCSRF bootstrap後にCookieだけを失効し、GitHub token revoke、IndexedDB、Gistには触れない。利用者の明示操作が成功した場合だけ signed out へ戻す。
 
 session Cookie の詳細と refresh 競合対策は API 詳細設計で定義する。
 

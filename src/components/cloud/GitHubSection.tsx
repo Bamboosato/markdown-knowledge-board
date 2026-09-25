@@ -5,6 +5,7 @@ import {
   ExternalLink,
   LogOut,
   RefreshCw,
+  RotateCcw,
   Unlink,
 } from 'lucide-react'
 import type {
@@ -24,7 +25,7 @@ type GitHubSectionProps = {
     message: string
     settingsUrl?: string
   } | null
-  busyAction: 'signout' | 'disconnect' | null
+  busyAction: 'signout' | 'disconnect' | 'reset' | null
   cloudBackup: {
     discovery: CloudBackupDiscoveryState
     storedMetadata: StoredCloudBackupMetadata | null
@@ -36,6 +37,7 @@ type GitHubSectionProps = {
   onRetry: () => void
   onSignOut: () => void
   onDisconnect: () => void
+  onResetSession: () => void
   onCloudBackup: () => void
   onCloudRestore: () => void
   onCloudRetry: () => void
@@ -52,6 +54,7 @@ export function GitHubSection({
   onRetry,
   onSignOut,
   onDisconnect,
+  onResetSession,
   onCloudBackup,
   onCloudRestore,
   onCloudRetry,
@@ -92,16 +95,30 @@ export function GitHubSection({
       ) : null}
 
       {session.status === 'unavailable' ? (
-        <button
-          className="app-menu-item"
-          type="button"
-          role="menuitem"
-          disabled={!isOnline}
-          onClick={onRetry}
-        >
-          <RefreshCw aria-hidden="true" />
-          Retry
-        </button>
+        <>
+          <button
+            className="app-menu-item"
+            type="button"
+            role="menuitem"
+            disabled={!isOnline || busyAction !== null}
+            onClick={onRetry}
+          >
+            <RefreshCw aria-hidden="true" />
+            Retry
+          </button>
+          <button
+            className="app-menu-item"
+            type="button"
+            role="menuitem"
+            disabled={!isOnline || busyAction !== null}
+            onClick={onResetSession}
+          >
+            <RotateCcw aria-hidden="true" />
+            {busyAction === 'reset'
+              ? 'Resetting GitHub session'
+              : 'Reset GitHub session'}
+          </button>
+        </>
       ) : null}
 
       {session.status === 'signed-in' ? (

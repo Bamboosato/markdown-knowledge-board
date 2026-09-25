@@ -4,6 +4,7 @@ import {
   clearCsrfCookie,
   createCsrfToken,
   csrfCookie,
+  getOrCreateCsrfToken,
   validateStateChangingRequest,
 } from './csrf.js'
 import {
@@ -287,6 +288,21 @@ export async function handleAuthCallbackRequest(
   } catch {
     return callbackError(gate.origin.origin, 'exchange_failed')
   }
+}
+
+export function handleCsrfRequest(
+  request: Request,
+  dependencies: BaseDependencies = {},
+): Response {
+  const requestId = (dependencies.createRequestId ?? createRequestId)()
+  const env = dependencies.env ?? process.env
+  const gate = requireProductionCloudEnvironment(request, requestId, env)
+  if (gate.ok === false) return gate.response
+  if (request.method !== 'GET') return methodNotAllowed(['GET'], requestId)
+
+  const { token, setCookie } = getOrCreateCsrfToken(request)
+  const response = apiSuccess({ csrfToken: token }, requestId)
+  return setCookie ? appendCookies(response, [setCookie]) : response
 }
 
 export function handleSignOutRequest(
