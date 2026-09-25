@@ -303,6 +303,126 @@ test.describe('Phase 2 optional GitHub authentication', () => {
       .toContain('"gistId":"a1"')
   })
 
+  test('resets an unavailable GitHub session without deleting the local note', async ({
+    page,
+  }) => {
+    let csrfCalls = 0
+    let signOutCalls = 0
+    await page.route('**/api/auth/session', async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          error: {
+            code: 'SESSION_CHECK_UNAVAILABLE',
+            message: 'GitHub session is temporarily unavailable.',
+            retryable: true,
+            stage: 'auth-check',
+          },
+          requestId: 'session-unavailable',
+        }),
+      })
+    })
+    await page.route('**/api/auth/csrf', async (route) => {
+      csrfCalls += 1
+      expect(route.request().method()).toBe('GET')
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: success({ csrfToken }),
+      })
+    })
+    await page.route('**/api/auth/signout', async (route) => {
+      signOutCalls += 1
+      expect(route.request().headers()['x-csrf-token']).toBe(csrfToken)
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: success({ signedOut: true }),
+      })
+    })
+
+    await page.goto('/?cloudTest=1')
+    await createDraft(page, 'Recovery note', 'Retained after session reset')
+    await page.getByRole('button', { name: /^Save$/ }).click()
+
+    const menu = await openAppMenuSection(page, 'GitHub')
+    await expect(
+      menu.getByText('GitHub session is temporarily unavailable.'),
+    ).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: 'Retry' })).toBeVisible()
+    await expect(
+      menu.getByRole('menuitem', { name: 'Reset GitHub session' }),
+    ).toBeEnabled()
+
+    await menu.getByRole('menuitem', { name: 'Reset GitHub session' }).click()
+    await expect(
+      menu.getByText('GitHub session reset. Local notes were not changed.'),
+    ).toBeVisible()
+    await expect(
+      menu.getByRole('menuitem', { name: 'Sign in with GitHub' }),
+    ).toBeVisible()
+    await expect.poll(() => csrfCalls).toBe(1)
+    await expect.poll(() => signOutCalls).toBe(1)
+    await expect(page.getByLabel('Title')).toHaveValue('Recovery note')
+    await expectBodyEditorValue(
+      page.getByLabel('Body'),
+      'Retained after session reset',
+    )
+  })
+
+  test('does not claim recovery when the CSRF bootstrap fails', async ({ page }) => {
+    let signOutCalls = 0
+    await page.route('**/api/auth/session', async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          error: {
+            code: 'SESSION_CHECK_UNAVAILABLE',
+            message: 'GitHub session is temporarily unavailable.',
+            retryable: true,
+            stage: 'auth-check',
+          },
+          requestId: 'session-unavailable',
+        }),
+      })
+    })
+    await page.route('**/api/auth/csrf', async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          error: {
+            code: 'SESSION_CHECK_UNAVAILABLE',
+            message: 'GitHub session is temporarily unavailable.',
+            retryable: true,
+            stage: 'auth-check',
+          },
+          requestId: 'csrf-unavailable',
+        }),
+      })
+    })
+    await page.route('**/api/auth/signout', async (route) => {
+      signOutCalls += 1
+      await route.abort()
+    })
+
+    await page.goto('/?cloudTest=1')
+    const menu = await openAppMenuSection(page, 'GitHub')
+    await menu.getByRole('menuitem', { name: 'Reset GitHub session' }).click()
+    await expect(menu.getByRole('alert')).toContainText(
+      'GitHub session is temporarily unavailable.',
+    )
+    await expect(
+      menu.getByRole('menuitem', { name: 'Reset GitHub session' }),
+    ).toBeEnabled()
+    expect(signOutCalls).toBe(0)
+  })
+
   test('disconnects this browser while retaining local data and the Gist', async ({
     page,
   }) => {
@@ -360,6 +480,9 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     const menu = await openAppMenuSection(page, 'GitHub')
     await expect(menu.getByText('Offline. Local editing remains available.')).toBeVisible()
     await expect(menu.getByRole('menuitem', { name: 'Retry' })).toBeDisabled()
+    await expect(
+      menu.getByRole('menuitem', { name: 'Reset GitHub session' }),
+    ).toBeDisabled()
     await context.setOffline(false)
     await expect(menu.getByText('Connection restored. Retry to check GitHub.')).toBeVisible()
     expect(getSessionCalls()).toBe(1)

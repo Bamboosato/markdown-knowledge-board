@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   CloudApiError,
   disconnectGitHub,
+  getCsrfToken,
   getGitHubSession,
   signOutGitHub,
   type GitHubUser,
@@ -22,7 +23,7 @@ type AuthNotice = {
   settingsUrl?: string
 }
 
-type BusyAction = 'signout' | 'disconnect' | null
+type BusyAction = 'signout' | 'disconnect' | 'reset' | null
 
 function consumeAuthCallbackNotice(): AuthNotice | null {
   const url = new URL(window.location.href)
@@ -235,6 +236,36 @@ export function useGitHubSession(capability: CloudCapability) {
     }
   }, [busyAction, session])
 
+  const resetSession = useCallback(async () => {
+    if (!navigator.onLine || busyAction) return false
+    setBusyAction('reset')
+    setNotice(null)
+    try {
+      const { csrfToken } = await getCsrfToken()
+      await signOutGitHub(csrfToken)
+      operationRef.current += 1
+      csrfTokenRef.current = null
+      setCsrfToken(null)
+      setSession({ status: 'signed-out' })
+      setNotice({
+        tone: 'success',
+        message: 'GitHub session reset. Local notes were not changed.',
+      })
+      return true
+    } catch (error) {
+      setNotice({
+        tone: 'warning',
+        message:
+          error instanceof CloudApiError
+            ? error.message
+            : 'GitHub session could not be reset.',
+      })
+      return false
+    } finally {
+      setBusyAction(null)
+    }
+  }, [busyAction])
+
   return {
     session,
     isOnline,
@@ -247,5 +278,6 @@ export function useGitHubSession(capability: CloudCapability) {
     requireReauthorization,
     signOut,
     disconnect,
+    resetSession,
   }
 }

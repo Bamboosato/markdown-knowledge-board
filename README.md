@@ -71,7 +71,7 @@ npm run test:e2e:pwa
 - [フェーズ3 PWA実装計画](./docs/phase3-pwa-implementation-plan.md)
 - [フェーズ3 PWA実機手動チェックリスト](./docs/phase3-pwa-device-checklist.md)
 
-2026年8月3日時点で、フェーズ2の任意GitHub認証、手動の暗号化Gistバックアップ、復号プレビュー後のsafe merge復元、offline・390×844・キーボード／focus・主要3ブラウザ回帰を実装済みです。Productionではcloud feature flagを有効化し、GitHub Appの本番2 callback、expiring user token、`Gists: write`、GitHub／session用環境変数を設定済みです。両本番Originで実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認しました。IndexedDBをローカルデータの正本とし、未ログイン・認証エラー・オフラインでも従来の編集、保存、Markdown／JSONのimport/exportを利用できます。
+2026年9月25日時点で、フェーズ2の任意GitHub認証、手動の暗号化Gistバックアップ、復号プレビュー後のsafe merge復元、Unavailable状態からのGitHub session reset、offline・390×844・キーボード／focus・主要3ブラウザ回帰を実装済みです。Productionではcloud feature flagを有効化し、GitHub Appの本番2 callback、expiring user token、`Gists: write`、GitHub／session用環境変数を設定済みです。両本番Originで実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認しました。IndexedDBをローカルデータの正本とし、未ログイン・認証エラー・オフラインでも従来の編集、保存、Markdown／JSONのimport/exportを利用できます。GitHub session確認が一時的に失敗した場合も、`Reset GitHub session`から認証Cookieだけを明示的にリセットして再ログインできます。
 
 ## 制限事項
 

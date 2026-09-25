@@ -972,7 +972,7 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 
 ## 14. フェーズ2拡張設計（Production有効化済み・最終確認中）
 
-任意の GitHub ログインと暗号化 Gist バックアップは、現行ローカル機能を維持した追加機能として設計する。2026年8月3日時点でローカルJSON共通化、ブラウザ暗号化、Production gate・session・CSRF、GitHub OAuth、Gist検出・作成・更新、手動Cloud Backup、検証済みdownload、復号preview、safe merge復元、offlineローカル継続、mobile/focus、Chromium・Firefox・WebKit回帰まで実装済みである。GitHub AppとProduction変数を設定し、cloud feature flagをProductionだけで有効化した。両本番Originの実OAuth、secret Gist初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認済みである。Cloud Backup／Restore開始時のGist再検出と最新UI修正のProduction反映を最終確認として残す。上記 1～13 は引き続き利用者向けローカル仕様を表す。
+任意の GitHub ログインと暗号化 Gist バックアップは、現行ローカル機能を維持した追加機能として設計する。2026年9月25日時点でローカルJSON共通化、ブラウザ暗号化、Production gate・session・CSRF、GitHub OAuth、Gist検出・作成・更新、手動Cloud Backup、検証済みdownload、復号preview、safe merge復元、Unavailable状態からのsession reset、offlineローカル継続、mobile/focus、Chromium・Firefox・WebKit回帰まで実装済みである。GitHub AppとProduction変数を設定し、cloud feature flagをProductionだけで有効化した。両本番Originの実OAuth、secret Gist初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認済みである。Cloud Backup／Restore開始時のGist再検出と最新UI修正のProduction反映を最終確認として残す。上記 1～13 は引き続き利用者向けローカル仕様を表す。
 
 ### 14.1 方針
 
@@ -983,6 +983,7 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 - backup/restore は利用者の明示操作だけで開始し、ログイン完了や通信復旧で自動実行しない。
 - restore は preview 後の安全な merge と単一 IndexedDB transaction を使用し、無警告の上書き・削除・部分反映を防ぐ。
 - Sign out と GitHub 連携解除で IndexedDB と Gist を削除しない。
+- GitHub session確認が一時的にUnavailableとなった場合は、`Reset GitHub session`でCSRF保護されたlocal signoutを明示実行し、GitHub API、IndexedDB、Gistには触れない。成功後は再ログイン可能なsigned out状態へ戻す。
 - `https://mkb.bamboosato.com/` と `https://markdown-knowledge-board.vercel.app/` を有効な別 Origin として扱う。
 - GitHub認証・クラウド機能はVercel Productionだけで提供し、Preview deploymentとlocalhostでは無効化する。Previewに本番秘密情報を配布せず、ローカル機能だけを利用可能とする。
 

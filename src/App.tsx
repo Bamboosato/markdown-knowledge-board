@@ -2584,6 +2584,11 @@ function App() {
     window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
   }
 
+  async function handleGitHubSessionReset() {
+    await githubSession.resetSession();
+    window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
+  }
+
   function handleGitHubDisconnect() {
     setIsAppMenuOpen(false);
     setCloudDialog("disconnect");
@@ -3779,6 +3784,7 @@ function App() {
                         onRetry={() => void githubSession.retry()}
                         onSignOut={() => void handleGitHubSignOut()}
                         onDisconnect={handleGitHubDisconnect}
+                        onResetSession={() => void handleGitHubSessionReset()}
                         onCloudBackup={handleCloudBackupStart}
                         onCloudRestore={handleCloudRestoreStart}
                         onCloudRetry={() => void retryCloudCheck()}

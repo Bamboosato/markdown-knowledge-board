@@ -174,6 +174,10 @@ export function getGitHubSession(): Promise<SessionData> {
   return apiRequest<SessionData>('/api/auth/session')
 }
 
+export function getCsrfToken(): Promise<{ csrfToken: string }> {
+  return apiRequest<{ csrfToken: string }>('/api/auth/csrf')
+}
+
 export function signOutGitHub(csrfToken: string): Promise<{ signedOut: true }> {
   return apiRequest('/api/auth/signout', {
     method: 'POST',

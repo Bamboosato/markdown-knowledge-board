@@ -11,7 +11,7 @@
 
 本書における「フェーズ2」は、認証・クラウドバックアップ導入計画上のフェーズ名である。既存文書に記載された UI/UX 改善の Phase 番号とは別の区分として扱う。
 
-> 実装状況（2026年8月3日時点）: ローカル共通基盤、ブラウザ暗号化、Production API境界、任意GitHub認証、手動の暗号化Gistバックアップ、復号・差分preview・safe merge復元、offlineローカル継続、390×844、keyboard/focus、Chromium・Firefox・WebKit回帰、依存脆弱性解消を実装した。GitHub AppとProduction変数を設定してcloud feature flagをProductionだけで有効化し、両本番Originの実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認済みである。別OriginでGist状態が変わっても開始操作ごとに再検出する回帰を追加した。Preview／Developmentは秘密情報を持たないlocal-onlyを維持する。必須の最終残件は最新修正のProduction反映であり、4.5 MB実上限と実mobileは追加品質確認とする。
+> 実装状況（2026年9月25日時点）: ローカル共通基盤、ブラウザ暗号化、Production API境界、任意GitHub認証、手動の暗号化Gistバックアップ、復号・差分preview・safe merge復元、Unavailable状態からのGitHub session reset、offlineローカル継続、390×844、keyboard/focus、Chromium・Firefox・WebKit回帰、依存脆弱性解消を実装した。GitHub AppとProduction変数を設定してcloud feature flagをProductionだけで有効化し、両本番Originの実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認済みである。別OriginでGist状態が変わっても開始操作ごとに再検出する回帰を追加した。Preview／Developmentは秘密情報を持たないlocal-onlyを維持する。必須の最終残件は最新修正のProduction反映であり、4.5 MB実上限と実mobileは追加品質確認とする。
 
 ## 2. 採用方針サマリー
 
@@ -418,8 +418,12 @@ type EncryptedBackupEnvelope = {
 | クラウド復元 | `Restore from Cloud` |
 | Sign out | `Sign out` |
 | 連携解除 | `Disconnect GitHub` |
+| 一時障害からの復旧 | `Reset GitHub session` |
+| session reset 中 | `Resetting GitHub session` |
 | 再認証 | `Reauthorization required` |
 | オフライン | `Offline` |
+| GitHub session 一時障害 | `GitHub session is temporarily unavailable.` |
+| session reset 完了 | `GitHub session reset. Local notes were not changed.` |
 | クラウドバックアップなし | `No cloud backup` |
 | クラウド最終バックアップ | `Last cloud backup` |
 | ログイン前の保存確認タイトル | `Save changes before signing in?` |
@@ -456,7 +460,7 @@ type EncryptedBackupEnvelope = {
 | `signedIn` | ログイン済み | 利用可能 | オンライン時に利用可能 |
 | `offline` | 通信不能 | 利用可能 | 利用不可 |
 | `reauthRequired` | token 更新不能または認可取消 | 利用可能 | 再認証まで利用不可 |
-| `error` | 一時的な認証基盤エラー | 利用可能 | 再試行まで利用不可 |
+| `error` | 一時的な認証基盤エラー | 利用可能 | `Retry` または `Reset GitHub session` まで利用不可 |
 
 主な遷移:
 
@@ -468,6 +472,7 @@ signedIn  -> offline  -> signedIn        通信切断・復旧
 signedIn  -> reauthRequired              token 更新不能・認可取消
 signedIn  -> signedOut                   Sign out
 signedIn  -> signedOut                   Disconnect GitHub
+error     -> signedOut                   Reset GitHub session（CSRF bootstrap後にlocal signout）
 ```
 
 ### 10.2 ログイン前の未保存状態
@@ -584,6 +589,7 @@ validating -> conflicted
 | T-FN-007 | 安全なマージ復元を検証する | added、updated、same を含む Gist | 件数と結果が仕様通りでローカル固有ノートを保持する |
 | T-FN-008 | Sign out のデータ保持を検証する | Signed in、Gist あり、ローカルあり | セッションだけ終了し、ローカルと Gist を保持する |
 | T-FN-009 | 連携解除のデータ保持を検証する | Signed in、Gist あり、ローカルあり | 認証情報を破棄し、ローカルと Gist を保持する |
+| T-FN-010 | 一時的なsession確認失敗からの復旧を検証する | Unavailable、オンライン、ローカルあり | `Reset GitHub session` 後にsigned outとなり、再ログイン導線とローカルデータが維持される |
 
 ### 13.2 異常系
 
@@ -598,6 +604,7 @@ validating -> conflicted
 | T-FA-007 | 改ざん暗号文による破壊を防ぐことを検証する | ciphertext 1 byte 改変 | 認証タグ検証失敗、IndexedDB 変更0件 |
 | T-FA-008 | restore transaction failure の rollback を検証する | apply 途中で IndexedDB failure | 全変更 rollback、元データを保持する |
 | T-FA-009 | Gist 削除後の扱いを検証する | 保存済み Gist ID、API 404 | No cloud backup、ローカルデータ不変 |
+| T-FA-010 | session reset のCSRF bootstrap失敗を検証する | Unavailable、csrf API failure | Cookie消去済みと誤表示せず、警告を表示し、再試行可能なままにする |
 
 ### 13.3 境界値・データ
 
@@ -628,6 +635,7 @@ validating -> conflicted
 | T-ST-003 | 保存エラー後の再試行を検証する | dirty -> saving -> error -> saving -> saved | 成功後だけ認証またはバックアップへ進む |
 | T-ST-004 | 別端末競合検出を検証する | A が revision 取得後、B が更新、A が backup | A は remoteChanged となり上書きしない |
 | T-ST-005 | 処理中二重実行防止を検証する | backup ボタンを連続操作 | Gist create/update は1回だけ実行される |
+| T-ST-006 | Unavailableからのsession reset状態遷移を検証する | unavailable、reset操作、signout応答 | reset中は二重操作を受け付けず、成功後にsignedOutへ1回だけ遷移する |
 
 ### 13.5 UI・アクセシビリティ・環境差異
 
@@ -642,6 +650,7 @@ validating -> conflicted
 | T-UI-007 | ブラウザ差異を検証する | Chromium、Firefox、WebKit 系 | Web Crypto、Cookie、IndexedDB の主要フローが成立する |
 | T-UI-008 | 本番2 origin の認証境界を検証する | 独自ドメインと Vercel URL | どちらからもログインでき、開始元と異なる callback や外部 return URL が拒否される |
 | T-UI-009 | Vercel Previewの環境境界を検証する | Preview deployment URL | ローカル機能は利用できるがGitHubセクションは無効で、認証・クラウドAPIが拒否され、本番秘密情報が配布されない |
+| T-UI-010 | Unavailable時の復旧操作を検証する | desktop/mobile、online/offline、キーボード操作 | RetryとResetを区別して表示し、offline/処理中はdisabled、完了通知とSign in導線をaria-liveで確認できる |
 
 ## 14. 優先度
 

@@ -7,7 +7,7 @@
 
 本書は、[フェーズ2基本設計](./phase2-auth-cloud-backup-architecture.md)と[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)に基づき、React UI、状態管理、ローカルデータ、暗号化、バックアップ、復元の実装契約を定義する。
 
-> 実装状況（2026年8月3日時点）: ローカルJSON、暗号化、任意GitHub認証、手動Cloud Backup、明示download、復号preview、safe merge、offline中のローカルedit/save/import/export、明示Retry、cloud送信抑止、390×844のmenu/dialog/result、focus trap／復帰、passphrase表示状態、主要3ブラウザ回帰を接続した。Productionで両本番Originの実OAuth、既存Gist更新、復元まで確認済みである。別OriginでGistが作成・更新された場合に備え、Cloud Backup／Restore開始時は`none`／`selected`を含む全状態から再検出する。復号ダイアログのtooltipを含む横overflow修正は`clientWidth === scrollWidth`を主要3ブラウザで確認済みだが、これらの最新修正はProduction反映前である。パスフレーズ・token・暗号文は永続化せず、復元はcloud側の最終バックアップ時刻を更新しない。
+> 実装状況（2026年9月25日時点）: ローカルJSON、暗号化、任意GitHub認証、手動Cloud Backup、明示download、復号preview、safe merge、offline中のローカルedit/save/import/export、明示Retry、cloud送信抑止、Unavailable状態からのGitHub session reset、390×844のmenu/dialog/result、focus trap／復帰、passphrase表示状態、主要3ブラウザ回帰を接続した。Productionで両本番Originの実OAuth、既存Gist更新、復元まで確認済みである。別OriginでGistが作成・更新された場合に備え、Cloud Backup／Restore開始時は`none`／`selected`を含む全状態から再検出する。復号ダイアログのtooltipを含む横overflow修正は`clientWidth === scrollWidth`を主要3ブラウザで確認済みだが、これらの最新修正はProduction反映前である。パスフレーズ・token・暗号文は永続化せず、復元はcloud側の最終バックアップ時刻を更新しない。
 
 ## 2. テスト設計観点
 
@@ -15,7 +15,7 @@
 
 | 分類 | 観点 | 検証意図 |
 | --- | --- | --- |
-| 機能 | ローカル操作、任意ログイン、明示バックアップ、明示復元、Sign out、Disconnect | cloud 操作が既存機能を置換せず追加機能として動くこと |
+| 機能 | ローカル操作、任意ログイン、明示バックアップ、明示復元、Sign out、Unavailableからのsession reset、Disconnect | cloud 操作が既存機能を置換せず追加機能として動くこと |
 | 非機能 | Web Crypto、機密情報非保持、offline、timeout、性能、アクセシビリティ | 安全性と可用性を端末・ネットワーク差があっても維持すること |
 | データ | BackupDocument、envelope、metadata、merge、transaction、Origin 分離 | 欠落、取り違え、破損、無警告上書き、部分反映を防ぐこと |
 | UI | application menu、確認・入力・結果 dialog、mobile、focus、aria-live | 状態・危険性・次操作を利用者へ明確に伝えること |
@@ -23,9 +23,9 @@
 | 区分 | 主なケース |
 | --- | --- |
 | 正常系 | signed out のローカル利用、保存後ログイン、初回/更新 backup、preview後restore、Sign out/Disconnect |
-| 異常系 | 保存失敗、認証timeout、offline、暗号失敗、誤passphrase、破損、API失敗、transaction rollback |
+| 異常系 | 保存失敗、認証timeout、Unavailableからのreset失敗、offline、暗号失敗、誤passphrase、破損、API失敗、transaction rollback |
 | 境界値 | 0/1/100件以上、12文字passphrase、1 MB超、4,500,000/4,500,001 bytes、同一ID/同一日時/異内容、複数候補 |
-| 状態遷移 | dirty→save→redirect、checking→unknown、encrypt→upload、download→preview→apply、失敗→retry |
+| 状態遷移 | dirty→save→redirect、checking→unknown、unavailable→session reset→signed-out、encrypt→upload、download→preview→apply、失敗→retry |
 
 テストは「ボタンを押せた」ではなく、たとえば「OAuth 遷移前の IndexedDB 保存成功を保証する」「復号失敗時に IndexedDB が1件も変わらない」のように、検証意図を名称と assertion に表す。
 
@@ -121,9 +121,12 @@ checking -> unavailable
 signed-in -> signed-out                 Sign out / Disconnect
 signed-in -> reauthorization-required  token refresh failure
 unavailable -> checking                 user Retry / online event後の明示Retry
+unavailable -> signed-out               user Reset GitHub session
 ```
 
 `online` event は表示を更新するだけで、session retry、backup、restore を自動開始しない。利用者が `Retry` または cloud 操作を明示した時だけ通信する。
+
+`unavailable` では `Retry` と `Reset GitHub session` を表示する。ResetはCSRF bootstrap後に既存のlocal signoutを呼び、GitHub APIのtoken revoke、IndexedDB、localStorage、Gistには触れない。成功後は `signed-out` として `Sign in with GitHub` を表示する。offline中と処理中は両方の操作をdisabledにし、セッション確認失敗を理由に `Disconnect GitHub` を表示しない。
 
 session が `signed-in` になった直後は `GET /api/cloud-backups` を1回だけ呼び、候補有無、Gist更新日時、revisionなどの metadata を解決してよい。この処理では暗号文本体を取得・復号せず、backup/restoreも開始しない。失敗は GitHub 階層の metadata unavailable として扱う。
 
@@ -136,6 +139,7 @@ Cloud BackupまたはRestore from Cloudの開始時は、Origin別のcacheが`no
 - `Backup All Notes`、`Import Backup`、Markdown import/export、Save は cloud state を参照しない。
 - signed out、checking、unavailable のいずれでも IndexedDB state と draft を保持する。
 - Sign out/Disconnect handler から `deleteNote`、DB delete/clear、local JSON timestamp削除を呼ばない。
+- UnavailableからのReset handlerも `deleteNote`、DB delete/clear、local JSON timestamp削除、Gist API呼出を行わない。
 
 ### 4.4 offline
 
