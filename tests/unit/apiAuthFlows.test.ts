@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { describe, expect, it, vi } from 'vitest'
+import csrfHandler from '../../api/auth/csrf.js'
 import {
   handleAuthCallbackRequest,
   handleAuthStartRequest,
@@ -350,6 +351,22 @@ describe('POST signout and disconnect', () => {
 })
 
 describe('GET /api/auth/csrf', () => {
+  it('exposes the Vercel fetch adapter used by the deployed function', async () => {
+    vi.stubEnv('VERCEL_ENV', 'production')
+    try {
+      const response = await csrfHandler.fetch(
+        new Request(`${ORIGIN_CONFIG.primary.origin}/api/auth/csrf`),
+      )
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({
+        ok: true,
+        data: { csrfToken: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) },
+      })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('returns a CSRF token and bootstraps the host-only cookie', async () => {
     const response = handleCsrfRequest(
       new Request(`${ORIGIN_CONFIG.primary.origin}/api/auth/csrf`),
