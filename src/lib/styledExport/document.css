@@ -1,0 +1,301 @@
+.styled-export-document,
+.styled-export-document * {
+  box-sizing: border-box;
+}
+
+.styled-export-document {
+  width: min(100%, var(--styled-page-width, 960px));
+  max-width: none;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  border-radius: var(--styled-page-radius, 14px);
+  background: var(--styled-page, #fff);
+  box-shadow: var(--styled-page-shadow, none);
+  color: var(--styled-text, #26303b);
+  font-family: var(--styled-body-font, "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", "YuGothic", "Meiryo", system-ui, sans-serif);
+  font-size: calc(var(--styled-base-size, 15px) * var(--styled-scale, 1));
+  line-height: var(--styled-line-height, 1.8);
+  letter-spacing: var(--styled-letter-spacing, .01em);
+}
+
+.styled-export-header {
+  margin: 0;
+  padding: var(--styled-header-pad-y, 40px) var(--styled-header-pad-x, 12mm);
+  background: var(--styled-header-bg, #334155);
+  color: var(--styled-header-ink, #fff);
+  break-after: avoid;
+}
+
+.styled-export-title {
+  margin: 0;
+  color: inherit;
+  font-size: var(--styled-title-size, 1.8em);
+  font-family: var(--styled-heading-font, inherit);
+  font-weight: var(--styled-heading-weight, 700);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.styled-export-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5em;
+  margin: 1em 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.styled-export-tags li {
+  padding: .2em .65em;
+  border: 1px solid color-mix(in srgb, var(--styled-header-ink, #fff) 45%, transparent);
+  border-radius: 999px;
+  font-size: .78em;
+}
+
+.styled-export-markdown,
+.styled-export-empty {
+  padding: var(--styled-body-pad-y, 10mm) var(--styled-body-pad-x, 12mm);
+}
+
+.styled-export-markdown > * {
+  max-width: 100%;
+}
+
+.styled-export-markdown > * + * {
+  margin-top: var(--styled-content-gap, 22px);
+}
+
+.styled-export-markdown h1,
+.styled-export-markdown h2,
+.styled-export-markdown h3,
+.styled-export-markdown h4,
+.styled-export-markdown h5,
+.styled-export-markdown h6 {
+  margin: var(--styled-heading-gap, 22px) 0 .65em;
+  color: var(--styled-accent-ink, var(--styled-text));
+  font-family: var(--styled-heading-font, inherit);
+  font-weight: var(--styled-heading-weight, 700);
+  line-height: 1.3;
+  break-after: avoid;
+  break-inside: avoid;
+}
+
+.styled-export-markdown h1,
+.styled-export-markdown h2 {
+  border-left: var(--styled-heading-bar-width, 8px) solid var(--styled-accent, #334155);
+  background: var(--styled-heading-bg, transparent);
+  padding: var(--styled-heading-pad-y, 5px) 12px var(--styled-heading-pad-y, 5px) var(--styled-heading-pad-x, 12px);
+  font-size: var(--styled-heading-size, 1.3em);
+}
+
+.styled-export-document[data-design="website"] .styled-export-markdown h2 {
+  margin-bottom: 36px;
+}
+
+.styled-export-markdown h3 {
+  border-bottom: 2px solid var(--styled-accent, #334155);
+  padding-bottom: .35em;
+  font-size: 1.18em;
+}
+
+.styled-export-markdown p,
+.styled-export-markdown ul,
+.styled-export-markdown ol,
+.styled-export-markdown blockquote {
+  margin: .8em 0;
+}
+
+.styled-export-markdown ul,
+.styled-export-markdown ol {
+  padding-left: 1.5em;
+}
+
+.styled-export-markdown li::marker {
+  color: var(--styled-accent-ink, var(--styled-accent));
+  font-weight: 600;
+}
+
+.styled-export-markdown a {
+  color: var(--styled-accent-ink, var(--styled-accent));
+  text-decoration: underline;
+  text-underline-offset: .16em;
+}
+
+.styled-export-markdown blockquote {
+  margin-left: 0;
+  padding: .5em 1em;
+  border-left: 4px solid var(--styled-accent, #334155);
+  background: var(--styled-soft, #f1f5f9);
+}
+
+.styled-export-markdown pre {
+  max-width: 100%;
+  overflow: auto;
+  padding: 1em;
+  border: 1px solid var(--styled-rule, #cbd5e1);
+  border-radius: 6px;
+  background: var(--styled-soft, #f1f5f9);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  break-inside: auto;
+}
+
+.styled-export-markdown code {
+  font-family: "BIZ UDGothic", "MS Gothic", Consolas, "Courier New", monospace;
+  font-size: .9em;
+}
+
+.styled-export-markdown :not(pre) > code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--styled-text, #26303b) 7%, transparent);
+}
+
+.styled-export-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.styled-export-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .93em;
+}
+
+.styled-export-markdown th,
+.styled-export-markdown td {
+  padding: 7px 11px;
+  border: 1px solid var(--styled-rule, #d5dce5);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.styled-export-markdown thead {
+  display: table-header-group;
+}
+
+.styled-export-markdown thead th {
+  border-color: var(--styled-table-head-bg, #334155);
+  background: var(--styled-table-head-bg, #334155);
+  color: var(--styled-table-head-ink, #fff);
+  font-weight: 600;
+}
+
+.styled-export-markdown tbody tr:nth-child(even) {
+  background: var(--styled-table-stripe, #f1f5f9);
+}
+
+.styled-export-markdown tr {
+  break-inside: avoid;
+}
+
+.styled-export-markdown img,
+.styled-export-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.styled-export-mermaid {
+  max-width: 100%;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.styled-export-missing-image {
+  display: inline-block;
+  padding: .35em .55em;
+  border: 1px dashed #b45309;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.styled-export-checkbox {
+  display: inline-block;
+  min-width: 1.3em;
+  margin-right: .2em;
+}
+
+.styled-export-empty {
+  color: var(--styled-muted, #555);
+}
+
+.styled-export-document[data-design="compact"] .styled-export-header {
+  padding-top: var(--styled-header-pad-y, 12px);
+  padding-bottom: var(--styled-header-pad-y, 12px);
+}
+
+.styled-export-document[data-design="compact"] .styled-export-markdown > * + * {
+  margin-top: .65em;
+}
+
+.styled-export-document[data-design="technical"] .styled-export-markdown h2 {
+  border-left-width: var(--styled-heading-bar-width, 10px);
+  border-radius: 0 5px 5px 0;
+}
+
+.styled-export-document[data-design] {
+  max-width: none;
+  padding: 0;
+}
+
+.styled-export-document[data-design="formal"] {
+  border-top: 0;
+}
+
+.styled-export-document[data-design="soft"] {
+  background: var(--styled-page, #fff);
+}
+
+.styled-export-document[data-design="formal"] .styled-export-header {
+  border-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  .styled-export-document {
+    border-radius: 0;
+  }
+
+  .styled-export-header {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .styled-export-markdown,
+  .styled-export-empty {
+    padding: 16px;
+  }
+}
+
+@media print {
+  .styled-export-document {
+    width: auto;
+    max-width: none;
+    min-height: 0;
+    margin: 0;
+    border-radius: var(--styled-page-radius, 14px);
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .styled-export-header {
+    break-after: avoid;
+  }
+
+  .styled-export-markdown h1,
+  .styled-export-markdown h2,
+  .styled-export-markdown h3,
+  .styled-export-markdown h4 {
+    break-after: avoid;
+  }
+
+  .styled-export-markdown table,
+  .styled-export-markdown blockquote,
+  .styled-export-mermaid {
+    break-inside: auto;
+  }
+
+}

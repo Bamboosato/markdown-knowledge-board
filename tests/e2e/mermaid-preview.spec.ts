@@ -37,7 +37,8 @@ test.describe("A1 Mermaid preview", () => {
 
     await page.getByRole("button", { name: "Preview" }).click();
 
-    const codeBlock = page.locator("pre code.language-text");
+    const preview = page.locator(".preview-panel");
+    const codeBlock = preview.locator("pre code.language-text");
     await expect(codeBlock).toContainText(codeLines.join("\n"));
     await expect(codeBlock).toHaveCSS("padding", "0px");
     await expect(codeBlock).toHaveCSS("border-radius", "0px");
@@ -57,7 +58,7 @@ test.describe("A1 Mermaid preview", () => {
       });
     });
     expect(new Set(lineStarts.map((left) => Math.round(left))).size).toBe(1);
-    const codeBlockBox = await page.locator(".mdPreview pre").boundingBox();
+    const codeBlockBox = await preview.locator(".mdPreview pre").boundingBox();
     expect(codeBlockBox).not.toBeNull();
     expect(codeBlockBox!.height).toBeGreaterThan(120);
   });
@@ -118,11 +119,11 @@ test.describe("A1 Mermaid preview", () => {
     await page.keyboard.press("Shift+Tab");
     await expect(link).toHaveCSS("outline-color", "rgb(37, 99, 235)");
 
-    await expect(page.locator(".mdPreview code").filter({ hasText: "inline code" })).toHaveCSS(
+    await expect(panel.locator(".mdPreview code").filter({ hasText: "inline code" })).toHaveCSS(
       "background-color",
       "rgb(238, 241, 244)"
     );
-    const codeBlock = page.locator(".mdPreview pre");
+    const codeBlock = panel.locator(".mdPreview pre");
     await expect(codeBlock).toHaveCSS("background-color", "rgb(238, 241, 244)");
     await expect(codeBlock).toHaveCSS("border-color", "rgb(199, 203, 209)");
 
@@ -130,9 +131,9 @@ test.describe("A1 Mermaid preview", () => {
     await expect(tableHeader).toHaveCSS("background-color", "rgb(241, 243, 245)");
     await expect(tableHeader).toHaveCSS("font-weight", "700");
 
-    const quote = page.locator(".mdPreview blockquote");
+    const quote = panel.locator(".mdPreview blockquote");
     await expect(quote).toHaveCSS("color", "rgb(85, 85, 85)");
-    const completedText = page.locator(".mdPreview li.task-list-item .taskText", {
+    const completedText = panel.locator(".mdPreview li.task-list-item .taskText", {
       hasText: "Completed task",
     });
     await expect(completedText).toHaveCSS("color", "rgb(102, 102, 102)");
@@ -167,28 +168,29 @@ test.describe("A1 Mermaid preview", () => {
 
     await page.getByRole("button", { name: "Preview" }).click();
 
-    await expect(page.getByText("Mermaid", { exact: true })).toBeVisible();
+    const preview = page.locator(".preview-panel");
+    await expect(preview.getByText("Mermaid", { exact: true })).toBeVisible();
     await expect(
-      page.getByRole("img", { name: /Mermaid diagram/ })
+      preview.getByRole("img", { name: /Mermaid diagram/ })
     ).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator(".mermaid-diagram-svg svg")).toBeVisible();
-    await expect(page.locator(".mermaid-diagram-svg")).toContainText(
+    await expect(preview.locator(".mermaid-diagram-svg svg")).toBeVisible();
+    await expect(preview.locator(".mermaid-diagram-svg")).toContainText(
       diagramLabels[0]
     );
-    await expect(page.locator(".mermaid-diagram-svg")).toContainText(
+    await expect(preview.locator(".mermaid-diagram-svg")).toContainText(
       diagramLabels[1]
     );
-    await expect(page.locator("pre code.language-js")).toContainText(
+    await expect(preview.locator("pre code.language-js")).toContainText(
       'console.log("kept as code");'
     );
 
     await page.getByRole("button", { name: "Show Code" }).click();
-    await expect(page.locator(".mermaid-code")).toContainText("flowchart TD");
+    await expect(preview.locator(".mermaid-code")).toContainText("flowchart TD");
     await expect(page.getByText("Status: Saved")).toBeVisible();
 
     await page.getByRole("button", { name: "Show Diagram" }).click();
     await expect(
-      page.getByRole("img", { name: /Mermaid diagram/ })
+      preview.getByRole("img", { name: /Mermaid diagram/ })
     ).toBeVisible();
     await expect(page.getByText("Status: Saved")).toBeVisible();
   });

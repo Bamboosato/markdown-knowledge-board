@@ -1,9 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { MERMAID_CODE_SIZE_LIMIT_BYTES, renderMermaidSvg } from "../lib/mermaidRenderer";
 
 const MERMAID_RENDER_DEBOUNCE_MS = 300;
-const MERMAID_CODE_SIZE_LIMIT_BYTES = 50 * 1024;
-
-type MermaidApi = typeof import("mermaid")["default"];
 type MermaidView = "diagram" | "code";
 
 type RenderState =
@@ -17,73 +15,12 @@ type MermaidBlockProps = {
   code: string;
 };
 
-let mermaidPromise: Promise<MermaidApi> | null = null;
-
-function loadMermaid(): Promise<MermaidApi> {
-  if (!mermaidPromise) {
-    mermaidPromise = import("mermaid").then((module) => {
-      const mermaid = module.default;
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: "default",
-        securityLevel: "strict",
-        htmlLabels: false,
-      });
-      return mermaid;
-    });
-  }
-  return mermaidPromise;
-}
-
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown render error.";
 }
 
 function getUtf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).length;
-}
-
-function hasDangerousUrl(value: string): boolean {
-  const normalized = value.trim().toLowerCase();
-  return (
-    normalized.startsWith("javascript:") ||
-    normalized.startsWith("vbscript:") ||
-    normalized.startsWith("data:text/html")
-  );
-}
-
-function sanitizeSvg(svg: string): string {
-  const document = new DOMParser().parseFromString(svg, "image/svg+xml");
-  if (document.querySelector("parsererror")) {
-    throw new Error("Rendered SVG could not be parsed.");
-  }
-
-  document.querySelectorAll("script, foreignObject").forEach((element) => {
-    element.remove();
-  });
-
-  document.querySelectorAll("*").forEach((element) => {
-    Array.from(element.attributes).forEach((attribute) => {
-      const name = attribute.name.toLowerCase();
-      const value = attribute.value;
-      if (name.startsWith("on")) {
-        element.removeAttribute(attribute.name);
-        return;
-      }
-      if (
-        ["href", "xlink:href", "src", "action", "formaction"].includes(name) &&
-        hasDangerousUrl(value)
-      ) {
-        element.removeAttribute(attribute.name);
-        return;
-      }
-      if (name === "style" && /url\s*\(|expression\s*\(/i.test(value)) {
-        element.removeAttribute(attribute.name);
-      }
-    });
-  });
-
-  return new XMLSerializer().serializeToString(document.documentElement);
 }
 
 function CodeView({ code }: MermaidBlockProps) {
@@ -137,10 +74,8 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
 
     const timeoutId = window.setTimeout(async () => {
       try {
-        const mermaid = await loadMermaid();
         const renderId = `mermaid-${instanceId}-${requestId}`;
-        const { svg } = await mermaid.render(renderId, code);
-        const sanitizedSvg = sanitizeSvg(svg);
+        const sanitizedSvg = await renderMermaidSvg(code, renderId);
 
         if (isCurrent && renderRequestRef.current === requestId) {
           setAsyncRenderState({
