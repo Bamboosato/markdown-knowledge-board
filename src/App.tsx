@@ -55,6 +55,7 @@ import {
 } from "./components/MarkdownToolbarMenu";
 import { ImportChoiceDialog } from "./components/ImportChoiceDialog";
 import { MarkdownPreview } from "./components/MarkdownPreview";
+import { StyledExportView } from "./components/StyledExportView";
 import { MarpSlides } from "./components/MarpSlides";
 import { MetadataDialog } from "./components/MetadataDialog";
 import { PwaInstallHelpDialog } from "./components/PwaInstallHelpDialog";
@@ -557,6 +558,11 @@ function App() {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [lastSaveError, setLastSaveError] = useState<string | null>(null);
   const [isPrintPreparing, setIsPrintPreparing] = useState(false);
+  const [styledExportSnapshot, setStyledExportSnapshot] = useState<{
+    title: string;
+    body: string;
+    tags: string[];
+  } | null>(null);
   const [previewLinkNotice, setPreviewLinkNotice] = useState<string | null>(null);
   const [mobileView, setMobileView] = useState<MobileView>("notes");
   const [unsavedDialog, setUnsavedDialog] =
@@ -647,6 +653,7 @@ function App() {
   const [isMetadataDialogOpen, setIsMetadataDialogOpen] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const actionsMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previewTabButtonRef = useRef<HTMLButtonElement | null>(null);
   const revertButtonRef = useRef<HTMLButtonElement | null>(null);
   const [openNoteCardMenuId, setOpenNoteCardMenuId] = useState<string | null>(
     null
@@ -2863,7 +2870,8 @@ function App() {
         isMetadataDialogOpen ||
         isPwaInstallHelpOpen ||
         isPwaUpdateDialogOpen;
-      if (event.repeat || saveStatus === "saving" || isDialogOpen) {
+      if (event.repeat || saveStatus === "saving" || isDialogOpen ||
+          (isSaveShortcut && styledExportSnapshot !== null)) {
         return;
       }
 
@@ -3450,6 +3458,20 @@ function App() {
     }
   };
 
+  const openStyledExport = () => {
+    if (!selectedNote && !isDraftNote) return;
+    const note = getDraftSnapshot();
+    setIsEditorExpanded(false);
+    setStyledExportSnapshot({ title: note.title, body: note.body, tags: [...note.tags] });
+    setIsActionsMenuOpen(false);
+  };
+
+  const closeStyledExport = () => {
+    setStyledExportSnapshot(null);
+    setActiveTab("preview");
+    window.requestAnimationFrame(() => previewTabButtonRef.current?.focus());
+  };
+
   const handleDownloadDraft = () => {
     downloadMarkdown(getDraftSnapshot());
   };
@@ -3828,10 +3850,10 @@ function App() {
             className="primary-button tooltip-button"
             type="button"
             aria-label="Save"
-            aria-keyshortcuts="Control+S Meta+S"
+            aria-keyshortcuts={styledExportSnapshot ? undefined : "Control+S Meta+S"}
             data-tooltip={saveTooltip}
             onClick={handleSave}
-            disabled={saveStatus === "saving"}
+            disabled={styledExportSnapshot !== null || saveStatus === "saving"}
           >
             {saveStatus === "saving" ? "Saving" : "Save"}
           </button>
@@ -3842,7 +3864,7 @@ function App() {
             aria-label="Revert changes"
             data-tooltip="Revert changes"
             onClick={handleRevertDraft}
-            disabled={!canRevertDraft}
+            disabled={styledExportSnapshot !== null || !canRevertDraft}
           >
             <RotateCcw aria-hidden="true" />
           </button>
@@ -3856,7 +3878,7 @@ function App() {
               aria-haspopup="menu"
               aria-expanded={isActionsMenuOpen}
               aria-controls="note-actions-menu"
-              disabled={!selectedNote && !isDraftNote}
+              disabled={styledExportSnapshot !== null || (!selectedNote && !isDraftNote)}
               onClick={() => {
                 setOpenNoteCardMenuId(null);
                 setNoteCardMenuPosition(null);
@@ -3894,7 +3916,7 @@ function App() {
                   }}
                 >
                   <Download aria-hidden="true" />
-                  Export
+                  Export Markdown
                 </button>
                 <button
                   className="actions-menu-item"
@@ -3908,6 +3930,17 @@ function App() {
                 >
                   <FileDown aria-hidden="true" />
                   {isPrintPreparing ? "Preparing PDF..." : "Print / PDF"}
+                </button>
+                <button
+                  className="actions-menu-item"
+                  type="button"
+                  role="menuitem"
+                  onClick={openStyledExport}
+                >
+                  <FileDown aria-hidden="true" />
+                  <span className="actions-menu-item-label">
+                    Export Styled HTML / PDF…
+                  </span>
                 </button>
                 <div className="actions-menu-separator" role="separator" />
                 <button
@@ -4143,8 +4176,19 @@ function App() {
         ) : dbError ? (
           <div className="db-error">{dbError}</div>
         ) : null}
+        {styledExportSnapshot ? (
+          <StyledExportView
+            snapshot={styledExportSnapshot}
+            onBackToPreview={closeStyledExport}
+          />
+        ) : null}
+        <div
+          className="editor-workspace"
+          hidden={styledExportSnapshot !== null}
+        >
         <div className="editor-tabs">
           <button
+            ref={previewTabButtonRef}
             type="button"
             className={`tab-button${activeTab === "preview" ? " active" : ""}`}
             aria-pressed={activeTab === "preview"}
@@ -4602,6 +4646,7 @@ function App() {
             onSlideIndexChange={setSlideIndex}
           />
         ) : null}
+        </div>
       </main>
       </div>
       <div ref={printSurfaceRef} className="print-surface" aria-hidden="true">

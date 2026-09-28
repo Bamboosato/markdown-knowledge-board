@@ -55,6 +55,7 @@ Markdown Knowledge Board は、Markdown 形式のノートをブラウザ内で�
 - `src/App.tsx`
   - 画面全体の state と UI を管理する。
   - ノート一覧、検索、タグフィルタ、インポート、バックアップ、編集、プレビュー、保存、削除、エクスポートを扱う。
+  - 配布用Styled Exportの画面・出力フローは [配布用 Styled Export 詳細設計](./markdown-knowledge-board-styled-export-design.md) に従う。既存Markdown export／簡易Printとは独立した一時設定として扱う。
 
 ### 3.3 スタイル
 
