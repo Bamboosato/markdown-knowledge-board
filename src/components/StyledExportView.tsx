@@ -38,7 +38,17 @@ type StyledExportViewProps = {
   onBackToPreview: () => void;
 };
 
-const HTML_STYLE = `body{margin:0;padding:32px 16px;background:var(--styled-canvas,#eef1f5);color:var(--styled-text,#26303b)}@media(max-width:640px){body{padding:10px 0}}@media print{body{padding:0;background:#fff}}@page{size:A4 portrait;margin:14mm}`;
+const htmlStyle = (title: string) => `body{margin:0;padding:32px 16px;background:var(--styled-canvas,#eef1f5);color:var(--styled-text,#26303b)}@media(max-width:640px){body{padding:10px 0}}@media print{body{padding:0;background:#fff}}@page{size:A4 portrait;margin:18mm 14mm;@top-center{content:${toCssString(title)}}@bottom-right{content:counter(page) " / " counter(pages)}}`;
+
+function toCssString(value: string) {
+  return `"${Array.from(value, (character) => {
+    const codePoint = character.codePointAt(0)!;
+    if (character === "\\" || character === '"' || codePoint < 0x20 || codePoint === 0x7f || character === "<") {
+      return `\\${codePoint.toString(16)} `;
+    }
+    return character;
+  }).join("")}"`;
+}
 
 function getIssueKey(issue: StyledExportIssue) {
   return `${issue.id}:${issue.reason}`;
@@ -187,7 +197,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
     const bodyStyle = Object.entries(getThemeVariables(options))
       .map(([property, value]) => `${property}:${value}`)
       .join(";");
-    const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title || "Untitled")}</title><style>${HTML_STYLE}${styledExportDocumentCss}</style></head><body style="${escapeHtml(bodyStyle)}">${body}</body></html>`;
+    const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title || "Untitled")}</title><style>${htmlStyle(title || "Untitled")}${styledExportDocumentCss}</style></head><body style="${escapeHtml(bodyStyle)}">${body}</body></html>`;
     const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -210,13 +220,18 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
     document.body.classList.add("styled-export-printing");
     const requestId = ++printRequestRef.current;
     const previousTitle = document.title;
-    document.title = `${sanitizeDownloadName(snapshot.title || "note")} - Markdown Knowledge Board`;
+    const printTitle = snapshot.title.trim() || "Untitled";
+    document.title = `${sanitizeDownloadName(printTitle)} - Markdown Knowledge Board`;
+    const pageTitleStyle = document.createElement("style");
+    pageTitleStyle.textContent = `@page{@top-center{content:${toCssString(printTitle)}}}`;
+    document.head.appendChild(pageTitleStyle);
     let cleanupTimer: number | null = null;
     const cleanup = () => {
       if (printCleanupRef.current !== cleanup) return;
       printCleanupRef.current = null;
       if (cleanupTimer !== null) window.clearTimeout(cleanupTimer);
       document.title = previousTitle;
+      pageTitleStyle.remove();
       document.body.classList.remove("styled-export-printing");
       isPrintingRef.current = false;
       if (requestId === printRequestRef.current) setIsPrinting(false);
