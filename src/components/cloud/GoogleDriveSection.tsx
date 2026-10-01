@@ -1,4 +1,4 @@
-import { CircleUser, CloudDownload, CloudUpload, LogOut, Unlink } from 'lucide-react'
+import { CircleUser, CloudDownload, CloudUpload, Unlink } from 'lucide-react'
 import type { DriveAccount } from '../../lib/googleDrive'
 import type { GoogleDriveStatus } from '../../hooks/useGoogleDrive'
 
@@ -11,7 +11,6 @@ export function GoogleDriveSection(props: {
   operationBusy: boolean
   isOnline: boolean
   onConnect: () => void
-  onSignOut: () => void
   onDisconnect: () => void
   onBackup: () => void
   onRestore: () => void
@@ -39,9 +38,6 @@ export function GoogleDriveSection(props: {
           </button>
           <button className="app-menu-item" type="button" role="menuitem" disabled={disabled} onClick={props.onRestore}>
             <CloudDownload aria-hidden="true" />Restore from Cloud
-          </button>
-          <button className="app-menu-item" type="button" role="menuitem" disabled={busy || operationBusy} onClick={props.onSignOut}>
-            <LogOut aria-hidden="true" />Sign out
           </button>
           <button className="app-menu-item app-menu-item-danger" type="button" role="menuitem" disabled={busy || operationBusy} onClick={props.onDisconnect}>
             <Unlink aria-hidden="true" />Disconnect Google Drive

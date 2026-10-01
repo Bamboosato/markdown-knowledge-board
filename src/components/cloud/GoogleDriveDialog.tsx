@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { LoaderCircle } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
 import type { DriveFile } from '../../lib/googleDrive'
 import type { RestorePlanItem } from '../../lib/cloudRestore'
@@ -24,6 +25,7 @@ export function GoogleDriveDialog(props: {
   onExportLocal: () => void
   onExportDrive: () => void
   driveEnabled: boolean
+  exportPhase?: 'selecting' | 'uploading' | null
   onDisconnect: () => void
   onContinueEmpty: () => void
 }) {
@@ -55,7 +57,7 @@ export function GoogleDriveDialog(props: {
   }
   return (
     <div className="modal-backdrop">
-      <div ref={dialogRef} className="cloud-backup-dialog" role="dialog" aria-modal="true" aria-labelledby="google-drive-dialog-title" aria-busy={busy || undefined} onKeyDown={onKeyDown}>
+      <div ref={dialogRef} className="cloud-backup-dialog" role="dialog" aria-modal="true" aria-labelledby="google-drive-dialog-title" aria-busy={mode !== 'export-choice' && busy || undefined} onKeyDown={onKeyDown}>
         <h2 id="google-drive-dialog-title">{title}</h2>
         {mode === 'backup' && (
           <form onSubmit={event => { event.preventDefault(); props.onBackup(passphrase, confirmation) }}>
@@ -79,7 +81,21 @@ export function GoogleDriveDialog(props: {
         {mode === 'restore-preview' && <><p>Added: {props.plan.filter(x => x.action === 'added').length} · Updated: {props.plan.filter(x => x.action === 'updated').length} · Skipped: {props.plan.filter(x => x.action === 'skipped').length} · Conflicted: {props.plan.filter(x => x.action === 'conflicted').length}</p>{props.plan.some(x => x.action === 'conflicted') && <div className="cloud-restore-conflicts"><h3>Conflicts kept local</h3><ul>{props.plan.filter(x => x.action === 'conflicted').map(x => <li key={x.id}><strong>{x.title}</strong><span>{x.reason === 'local-newer' ? 'Local note is newer.' : 'Same timestamp with different content.'}</span></li>)}</ul></div>}<p className="cloud-backup-help">Local-only notes and conflicting notes are kept.</p>{props.error && <p className="cloud-backup-error" role="alert">{props.error}</p>}<div className="dialog-actions"><button ref={firstRef as React.RefObject<HTMLButtonElement>} className="primary-button" type="button" disabled={busy} onClick={props.onApply}>{busy ? 'Applying' : 'Apply Safe Merge'}</button><button className="secondary-button" type="button" disabled={busy} onClick={props.onCancel}>Cancel</button></div></>}
         {mode === 'restore-result' && <><p role="status">{props.result}</p><div className="dialog-actions"><button ref={firstRef as React.RefObject<HTMLButtonElement>} className="primary-button" type="button" onClick={props.onCancel}>Close</button></div></>}
         {mode === 'export-result' && <><p role="status">{props.result}</p><div className="dialog-actions"><button ref={firstRef as React.RefObject<HTMLButtonElement>} className="primary-button" type="button" onClick={props.onCancel}>Close</button></div></>}
-        {mode === 'export-choice' && <><p>Choose where to export the current note.</p><p className="cloud-backup-help">Google Drive stores readable Markdown. Apps with access to the file can read it.</p>{!props.driveEnabled && <p className="cloud-backup-help">Connect Google Drive from the application menu to enable this destination.</p>}{props.error && <p className="cloud-backup-error" role="alert">{props.error}</p>}<div className="dialog-actions"><button ref={firstRef as React.RefObject<HTMLButtonElement>} className="secondary-button" type="button" disabled={busy} onClick={props.onExportLocal}>Local</button><button className="primary-button" type="button" disabled={busy || !props.driveEnabled} onClick={props.onExportDrive}>{busy ? 'Exporting' : 'Google Drive'}</button><button className="secondary-button" type="button" disabled={busy} onClick={props.onCancel}>Cancel</button></div></>}
+        {mode === 'export-choice' && <>
+          <p className={busy && props.exportPhase ? 'google-export-status' : undefined} role="status" aria-live="polite" aria-atomic="true">
+            {busy && props.exportPhase ? <>
+              <LoaderCircle className="google-export-spinner" aria-hidden="true" />
+              <span>{props.exportPhase === 'selecting' ? 'Selecting a folder…' : 'Uploading to Google Drive…'}</span>
+            </> : 'Choose an export destination.'}
+          </p>
+          {!props.driveEnabled && <p className="cloud-backup-help">Connect Google Drive from the app menu.</p>}
+          {props.error && <p className="cloud-backup-error" role="alert">{props.error}</p>}
+          <div className="dialog-actions">
+            <button ref={firstRef as React.RefObject<HTMLButtonElement>} className="secondary-button" type="button" disabled={busy} onClick={props.onExportLocal}>Local</button>
+            <button className="primary-button" type="button" disabled={busy || !props.driveEnabled} onClick={props.onExportDrive}>{busy ? 'Exporting' : 'Google Drive'}</button>
+            <button className="secondary-button" type="button" disabled={busy} onClick={props.onCancel}>Cancel</button>
+          </div>
+        </>}
         {mode === 'disconnect' && <><p>This removes Google Drive access. Local notes, backups and exported Markdown remain in place.</p>{props.error && <p className="cloud-backup-error" role="alert">{props.error}</p>}<div className="dialog-actions"><button ref={firstRef as React.RefObject<HTMLButtonElement>} className="danger-button" type="button" disabled={busy} onClick={props.onDisconnect}>Disconnect Google Drive</button><button className="secondary-button" type="button" disabled={busy} onClick={props.onCancel}>Cancel</button></div></>}
       </div>
     </div>
