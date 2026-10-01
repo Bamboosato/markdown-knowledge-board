@@ -2582,6 +2582,8 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
         ].join("\n"),
       },
     ]);
+    await page.getByRole("dialog", { name: "Import Markdown File", exact: true })
+      .getByRole("button", { name: "Add as New Note", exact: true }).click();
     const resultDialog = page.getByRole("dialog", { name: "Import Complete" });
     await expectResultValue(resultDialog, "Added", "1");
     await resultDialog.getByRole("button", { name: "Close" }).click();
@@ -2594,7 +2596,10 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
       "audience",
     ]);
     await metadataDialog.getByRole("button", { name: "Cancel" }).click();
-    await clickNoteAction(page, "Export");
+    await clickNoteAction(page, "Export Markdown");
+    const exportDialog = page.getByRole("dialog", { name: "Export Markdown", exact: true });
+    await expect(exportDialog.getByRole("button", { name: "Google Drive", exact: true })).toBeDisabled();
+    await exportDialog.getByRole("button", { name: "Local", exact: true }).click();
     await expect.poll(() => page.evaluate(() => window.__downloadText ?? "")).toContain(
       "# Imported body"
     );

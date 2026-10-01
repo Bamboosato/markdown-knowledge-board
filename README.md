@@ -73,9 +73,11 @@ npm run test:e2e:pwa
 
 2026年9月25日時点で、フェーズ2の任意GitHub認証、手動の暗号化Gistバックアップ、復号プレビュー後のsafe merge復元、Unavailable状態からのGitHub session reset、offline・390×844・キーボード／focus・主要3ブラウザ回帰を実装済みです。Productionではcloud feature flagを有効化し、GitHub Appの本番2 callback、expiring user token、`Gists: write`、GitHub／session用環境変数を設定済みです。両本番Originで実OAuth、secret Gistの初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認しました。IndexedDBをローカルデータの正本とし、未ログイン・認証エラー・オフラインでも従来の編集、保存、Markdown／JSONのimport/exportを利用できます。GitHub session確認が一時的に失敗した場合も、`Reset GitHub session`から認証Cookieだけを明示的にリセットして再ログインできます。
 
+Google Driveの暗号化バックアップ・復元と、Export MarkdownのDriveフォルダー出力を実装しています。本番での利用にはGoogle Cloud設定と再ビルドが必要です。設定手順、実連携の未検証項目、テスト担当者への引き継ぎは[Google Drive実装設計](./docs/google-drive-implementation-design.md)を参照してください。
+
 ## 制限事項
 
-- GitHub認証・クラウド機能はVercel Productionの`https://mkb.bamboosato.com/`と`https://markdown-knowledge-board.vercel.app/`だけで提供します。Preview環境とlocalhostではローカル機能だけを利用できます。
+- GitHub認証・Gistクラウド機能はVercel Productionの`https://mkb.bamboosato.com/`と`https://markdown-knowledge-board.vercel.app/`だけで提供します。Preview環境と通常のlocalhostではローカル機能だけを利用できます。Google Driveは公開環境変数を設定したビルドで表示します。
 - 実Gistの初回作成、復元、既存Gistを重複作成しない更新はProductionで確認済みです。
 - 4,500,000 bytes成功／4,500,001 bytes拒否はunitテストで固定済みです。Productionでの実上限サイズ試験は追加品質確認として未実施です。
 - Cloud Backup／Restore開始時のGist再検出と復号ダイアログの横スクロール修正は主要3ブラウザで回帰済みですが、Production反映前です。

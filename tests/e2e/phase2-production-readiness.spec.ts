@@ -175,7 +175,11 @@ test.describe('Phase 2 Production readiness', () => {
 
     const downloadPromise = page.waitForEvent('download')
     await page.getByRole('button', { name: 'More actions' }).click()
-    await page.getByRole('menuitem', { name: 'Export' }).click()
+    await page.getByRole('menuitem', { name: 'Export Markdown', exact: true }).click()
+    const exportDialog = page.getByRole('dialog', { name: 'Export Markdown', exact: true })
+    await expect(exportDialog.getByRole('button', { name: 'Google Drive', exact: true })).toBeDisabled()
+    await expect(exportDialog.getByRole('button', { name: 'Local', exact: true })).toBeFocused()
+    await exportDialog.getByRole('button', { name: 'Local', exact: true }).click()
     const download = await downloadPromise
     const downloadPath = await download.path()
     expect(downloadPath).toBeTruthy()
