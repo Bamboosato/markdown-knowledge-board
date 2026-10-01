@@ -3907,6 +3907,15 @@ function App() {
                         <ChevronRight className="app-menu-category-chevron" aria-hidden="true" />
                       </button>
                     ) : null}
+                    <a className="app-menu-item app-menu-back" role="menuitem" href="/about.html" target="_blank" rel="noopener noreferrer" onClick={() => setIsAppMenuOpen(false)}>
+                      About / アプリについて
+                    </a>
+                    <a className="app-menu-item app-menu-back" role="menuitem" href="/privacy.html" target="_blank" rel="noopener noreferrer" onClick={() => setIsAppMenuOpen(false)}>
+                      Privacy Policy / プライバシーポリシー
+                    </a>
+                    <a className="app-menu-item app-menu-back" role="menuitem" href="/terms.html" target="_blank" rel="noopener noreferrer" onClick={() => setIsAppMenuOpen(false)}>
+                      Terms of Use / 利用規約
+                    </a>
                     {pwa.snapshot.registration === "ready" &&
                     pwa.snapshot.install === "available" ? (
                       <button
