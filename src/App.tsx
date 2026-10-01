@@ -70,12 +70,24 @@ import { CloudActionDialog } from "./components/cloud/CloudActionDialog";
 import { CloudBackupDialog } from "./components/cloud/CloudBackupDialog";
 import { CloudRestoreDialog } from "./components/cloud/CloudRestoreDialog";
 import { GitHubSection } from "./components/cloud/GitHubSection";
+import { GoogleDriveSection } from "./components/cloud/GoogleDriveSection";
+import { GoogleDriveDialog, type GoogleDialogMode } from "./components/cloud/GoogleDriveDialog";
 import { useCloudBackup } from "./hooks/useCloudBackup";
 import {
   CloudRestoreApplyError,
   useCloudRestore,
 } from "./hooks/useCloudRestore";
 import { useGitHubSession } from "./hooks/useGitHubSession";
+import { useGoogleDrive } from "./hooks/useGoogleDrive";
+import { findBackupFolders, type DriveFile } from "./lib/googleDrive";
+import { pickDriveFolder } from "./lib/googleIdentity";
+import {
+  applyGoogleRestore,
+  createGoogleBackup,
+  exportNoteToDrive,
+  getGoogleBackups,
+  prepareGoogleRestore,
+} from "./lib/googleDriveOperations";
 import { usePwaLifecycle } from "./hooks/usePwaLifecycle";
 import { CloudApiError } from "./lib/cloudApi";
 import {
@@ -129,8 +141,8 @@ type SaveStatus = "idle" | "draft" | "unsaved" | "saving" | "saved" | "error";
 type MobileView = "notes" | "editor";
 type ActiveTab = "edit" | "preview" | "slides";
 type UnsavedChoice = "save" | "discard" | "cancel";
-type CloudDialogKind = "sign-in" | "backup" | "restore" | "disconnect";
-type AppMenuView = "root" | "local" | "github";
+type CloudDialogKind = "sign-in" | "backup" | "restore" | "disconnect" | "google-backup" | "google-restore";
+type AppMenuView = "root" | "local" | "github" | "google";
 type CloudBackupDialogKind =
   | "passphrase"
   | "empty-warning"
@@ -511,6 +523,7 @@ function App() {
     : "New Note (Alt+N)";
   const cloudCapability = useMemo(() => getCloudCapability(), []);
   const githubSession = useGitHubSession(cloudCapability.status);
+  const googleDrive = useGoogleDrive();
   const cloudBackup = useCloudBackup({
     enabled: cloudCapability.status === "enabled",
     session: githubSession.session,
@@ -578,6 +591,30 @@ function App() {
   const [cloudRestoreDialogError, setCloudRestoreDialogError] = useState<
     string | null
   >(null);
+  const [googleDialog, setGoogleDialog] = useState<GoogleDialogMode | null>(null);
+  const [googleError, setGoogleError] = useState<string | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleFiles, setGoogleFiles] = useState<DriveFile[]>([]);
+  const [googleFolders, setGoogleFolders] = useState<DriveFile[]>([]);
+  const [googleFolderIntent, setGoogleFolderIntent] = useState<"backup" | "restore">("backup");
+  const [googlePreferredFolderId, setGooglePreferredFolderId] = useState<string | null>(null);
+  const [googleFolderId, setGoogleFolderId] = useState<string | null>(null);
+  const [googleSelected, setGoogleSelected] = useState<DriveFile | null>(null);
+  const [googlePrepared, setGooglePrepared] = useState<Awaited<ReturnType<typeof prepareGoogleRestore>> | null>(null);
+  const [googleResult, setGoogleResult] = useState<string | null>(null);
+  const [googleExportSnapshot, setGoogleExportSnapshot] = useState<Note | null>(null);
+  useEffect(() => {
+    if (googleDrive.status === "signed-in") return;
+    const timer = window.setTimeout(() => {
+      setGooglePrepared(null);
+      setGoogleFiles([]);
+      setGoogleSelected(null);
+      setGoogleFolderId(null);
+      setGoogleFolders([]);
+      setGoogleDialog(current => current === "export-choice" ? current : null);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [googleDrive.status]);
   const unsavedChoiceResolverRef = useRef<((choice: UnsavedChoice) => void) | null>(
     null
   );
@@ -645,6 +682,7 @@ function App() {
   const appMenuBackButtonRef = useRef<HTMLButtonElement | null>(null);
   const localDataMenuItemRef = useRef<HTMLButtonElement | null>(null);
   const githubMenuItemRef = useRef<HTMLButtonElement | null>(null);
+  const googleMenuItemRef = useRef<HTMLButtonElement | null>(null);
   const pwaInstallMenuItemRef = useRef<HTMLButtonElement | null>(null);
   const pwaInstallHelpMenuItemRef = useRef<HTMLButtonElement | null>(null);
   const [isPwaInstallHelpOpen, setIsPwaInstallHelpOpen] = useState(false);
@@ -2567,6 +2605,12 @@ function App() {
       }
       return;
     }
+    if (cloudDialog === "google-backup") {
+      const saved = await handleSave();
+      setCloudDialog(null);
+      if (saved) await beginGoogleBackup();
+      return;
+    }
     if (cloudDialog === "restore") {
       const saved = await handleSave();
       if (saved) {
@@ -2576,6 +2620,12 @@ function App() {
         closeCloudDialog();
         window.requestAnimationFrame(() => bodyRef.current?.focus());
       }
+      return;
+    }
+    if (cloudDialog === "google-restore") {
+      const saved = await handleSave();
+      setCloudDialog(null);
+      if (saved) await applySelectedGoogleRestore();
       return;
     }
     if (cloudDialog === "disconnect") {
@@ -2863,6 +2913,7 @@ function App() {
         cloudDialog !== null ||
         cloudBackupDialog !== null ||
         cloudRestoreDialog !== null ||
+        googleDialog !== null ||
         isFilterDialogOpen ||
         operationDialog !== null ||
         deleteConfirmation !== null ||
@@ -3426,8 +3477,158 @@ function App() {
     if (!selectedNote && !isDraftNote) {
       return;
     }
-    downloadMarkdown(getDraftSnapshot());
+    setGoogleExportSnapshot(getDraftSnapshot());
+    setGoogleError(null);
+    setGoogleDialog("export-choice");
   };
+
+  function closeGoogleDialog() {
+    if (googleBusy) return;
+    const wasExport = googleDialog === "export-choice" || googleDialog === "export-result";
+    setGoogleDialog(null);
+    setGoogleError(null);
+    setGoogleSelected(null);
+    setGooglePrepared(null);
+    setGoogleExportSnapshot(null);
+    window.requestAnimationFrame(() => (wasExport ? actionsMenuButtonRef : appMenuButtonRef).current?.focus());
+  }
+
+  async function beginGoogleBackup() {
+    setGoogleResult(null);
+    if (isDirtyRef.current || tagInput.trim()) {
+      setCloudDialog("google-backup");
+      return;
+    }
+    try {
+      const notes = await getAllNotes();
+      setGoogleError(null);
+      setGoogleDialog(notes.length === 0 ? "backup-empty" : "backup");
+      setIsAppMenuOpen(false);
+    } catch (error) {
+      googleDrive.handleError(error);
+    }
+  }
+
+  async function submitGoogleBackup(passphrase: string, confirmation: string) {
+    if (!googleDrive.account || googleBusy) return;
+    setGoogleBusy(true);
+    setGoogleError(null);
+    try {
+      const result = await createGoogleBackup(googleDrive.token(), googleDrive.account.id, passphrase, confirmation, googlePreferredFolderId ?? undefined);
+      setGoogleDialog(null);
+      setGoogleResult(`Backed up ${result.noteCount} notes to MKB Backups.`);
+      setIsAppMenuOpen(true);
+      setAppMenuView("google");
+      window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
+    } catch (error) {
+      googleDrive.handleError(error);
+      setGoogleError(error instanceof Error ? error.message : "Google Drive backup failed.");
+      if (error instanceof Error && error.message.startsWith("Several MKB Backups folders")) {
+        try {
+          setGoogleFolders(await findBackupFolders(googleDrive.token()));
+          setGoogleFolderIntent("backup");
+          setGoogleDialog("folder-choice");
+          setGoogleError(null);
+        } catch { /* Keep the original error. */ }
+      }
+    } finally { setGoogleBusy(false); }
+  }
+
+  async function beginGoogleRestore(preferredFolderId?: string) {
+    setGoogleResult(null);
+    if (!googleDrive.account || googleBusy) return;
+    setIsAppMenuOpen(false);
+    setGoogleFiles([]);
+    setGoogleFolderId(null);
+    setGoogleDialog("restore-list");
+    setGoogleError(null);
+    setGoogleBusy(true);
+    try {
+      const result = await getGoogleBackups(googleDrive.token(), preferredFolderId ?? googlePreferredFolderId ?? undefined);
+      setGoogleFiles(result.files);
+      setGoogleFolderId(result.folder?.id ?? null);
+    } catch (error) {
+      googleDrive.handleError(error);
+      setGoogleError(error instanceof Error ? error.message : "Google Drive backups could not be listed.");
+      if (error instanceof Error && error.message.startsWith("Several MKB Backups folders")) {
+        try {
+          setGoogleFolders(await findBackupFolders(googleDrive.token()));
+          setGoogleFolderIntent("restore");
+          setGoogleDialog("folder-choice");
+          setGoogleError(null);
+        } catch { /* Keep the original error. */ }
+      }
+    } finally { setGoogleBusy(false); }
+  }
+
+  function selectGoogleRestore(file: DriveFile) {
+    setGoogleSelected(file);
+    setGoogleError(null);
+    setGoogleDialog("restore-passphrase");
+  }
+
+  async function prepareSelectedGoogleRestore(passphrase: string) {
+    if (!googleFolderId || !googleSelected || googleBusy) return;
+    setGoogleBusy(true);
+    setGoogleError(null);
+    try {
+      const prepared = await prepareGoogleRestore(googleDrive.token(), googleFolderId, googleSelected.id, passphrase);
+      setGooglePrepared(prepared);
+      setGoogleDialog("restore-preview");
+    } catch (error) {
+      googleDrive.handleError(error);
+      setGoogleError(error instanceof Error ? error.message : "Google Drive backup could not be prepared.");
+    } finally { setGoogleBusy(false); }
+  }
+
+  async function applySelectedGoogleRestore() {
+    if (!googlePrepared || googleBusy) return;
+    if (isDirtyRef.current || tagInput.trim()) {
+      setCloudDialog("google-restore");
+      return;
+    }
+    setGoogleBusy(true);
+    setGoogleError(null);
+    try {
+      const plan = await applyGoogleRestore(googlePrepared.document, googlePrepared.plan);
+      const restoredNotes = sortNotes(await getAllNotes());
+      setNotes(restoredNotes);
+      if (selectedId) {
+        const selected = restoredNotes.find(note => note.id === selectedId);
+        if (selected) resetDraft(selected);
+      }
+      setGoogleResult(`Restore complete. Added ${plan.filter(item => item.action === "added").length}, updated ${plan.filter(item => item.action === "updated").length}, skipped ${plan.filter(item => item.action === "skipped").length}, conflicted ${plan.filter(item => item.action === "conflicted").length}.`);
+      setGoogleDialog("restore-result");
+    } catch (error) {
+      setGoogleError(error instanceof Error ? error.message : "Google Drive restore failed.");
+    } finally { setGoogleBusy(false); }
+  }
+
+  async function exportCurrentNoteToGoogle() {
+    if (!googleDrive.account || !googleExportSnapshot || googleBusy) return;
+    setGoogleBusy(true);
+    setGoogleError(null);
+    try {
+      const token = googleDrive.token();
+      const folder = await pickDriveFolder(token);
+      if (!folder) return;
+      const note = googleExportSnapshot;
+      await exportNoteToDrive({
+        token,
+        accountId: googleDrive.account.id,
+        folderId: folder.id,
+        note,
+        name: `${sanitizeDownloadName(note.title || "Untitled")}.md`,
+        content: toMarkdownWithFrontmatter(note),
+        confirmOverwrite: message => window.confirm(message),
+      });
+      setGoogleResult(`Markdown exported to ${folder.name}.`);
+      setGoogleDialog("export-result");
+    } catch (error) {
+      googleDrive.handleError(error);
+      setGoogleError(error instanceof Error ? error.message : "Google Drive export failed.");
+    } finally { setGoogleBusy(false); }
+  }
 
   const handlePrint = async () => {
     if ((!selectedNote && !isDraftNote) || isPrintPreparing) {
@@ -3521,6 +3722,7 @@ function App() {
     cloudDialog !== null ||
     cloudBackupDialog !== null ||
     cloudRestoreDialog !== null ||
+    googleDialog !== null ||
     isFilterDialogOpen ||
     operationDialog !== null ||
     deleteConfirmation !== null ||
@@ -3535,6 +3737,8 @@ function App() {
     cloudRestore.downloading ||
     cloudRestore.preparing ||
     cloudRestore.applying ||
+    googleBusy ||
+    googleDrive.busy ||
     isBackupBusy ||
     isImporting;
 
@@ -3684,6 +3888,24 @@ function App() {
                         />
                       </button>
                     ) : null}
+                    {googleDrive.status !== "unconfigured" ? (
+                      <button
+                        ref={googleMenuItemRef}
+                        className="app-menu-item app-menu-category"
+                        type="button"
+                        role="menuitem"
+                        aria-label="Google Drive"
+                        aria-haspopup="menu"
+                        onClick={() => {
+                          setAppMenuView("google");
+                          window.requestAnimationFrame(() => appMenuBackButtonRef.current?.focus());
+                        }}
+                      >
+                        <Cloud aria-hidden="true" />
+                        <span className="app-menu-category-content"><span>Google Drive</span><span>Backup and account</span></span>
+                        <ChevronRight className="app-menu-category-chevron" aria-hidden="true" />
+                      </button>
+                    ) : null}
                     {pwa.snapshot.registration === "ready" &&
                     pwa.snapshot.install === "available" ? (
                       <button
@@ -3723,7 +3945,7 @@ function App() {
                         const returnFocusRef =
                           appMenuView === "local"
                             ? localDataMenuItemRef
-                            : githubMenuItemRef;
+                            : appMenuView === "github" ? githubMenuItemRef : googleMenuItemRef;
                         setAppMenuView("root");
                         window.requestAnimationFrame(() =>
                           returnFocusRef.current?.focus()
@@ -3737,7 +3959,7 @@ function App() {
                       className="app-menu-section-label app-menu-submenu-title"
                       role="presentation"
                     >
-                      {appMenuView === "local" ? "Local Data" : "GitHub"}
+                      {appMenuView === "local" ? "Local Data" : appMenuView === "github" ? "GitHub" : "Google Drive"}
                     </div>
                     {appMenuView === "local" ? (
                       <>
@@ -3782,7 +4004,7 @@ function App() {
                           {isImporting ? "Importing" : "Import Backup"}
                         </button>
                       </>
-                    ) : (
+                    ) : appMenuView === "github" ? (
                       <GitHubSection
                         session={githubSession.session}
                         isOnline={githubSession.isOnline}
@@ -3810,6 +4032,21 @@ function App() {
                         onCloudBackup={handleCloudBackupStart}
                         onCloudRestore={handleCloudRestoreStart}
                         onCloudRetry={() => void retryCloudCheck()}
+                      />
+                    ) : (
+                      <GoogleDriveSection
+                        status={googleDrive.status}
+                        account={googleDrive.account}
+                        notice={googleDrive.notice}
+                        result={googleResult}
+                        busy={googleDrive.busy}
+                        operationBusy={googleBusy}
+                        isOnline={googleDrive.isOnline}
+                        onConnect={() => { setGoogleResult(null); setGooglePreferredFolderId(null); void googleDrive.connect(); }}
+                        onSignOut={() => { setGoogleResult(null); setGooglePreferredFolderId(null); googleDrive.signOut(); }}
+                        onDisconnect={() => { setIsAppMenuOpen(false); setGoogleError(null); setGoogleDialog("disconnect"); }}
+                        onBackup={() => void beginGoogleBackup()}
+                        onRestore={() => void beginGoogleRestore()}
                       />
                     )}
                   </>
@@ -4875,6 +5112,42 @@ function App() {
           }
           onConfirm={() => void confirmCloudDialog()}
           onCancel={closeCloudDialog}
+        />
+      ) : null}
+      {googleDialog ? (
+        <GoogleDriveDialog
+          key={googleDialog}
+          mode={googleDialog}
+          busy={googleBusy || googleDrive.busy}
+          error={googleError}
+          files={googleFiles}
+          folders={googleFolders}
+          selected={googleSelected}
+          plan={googlePrepared?.plan ?? []}
+          result={googleResult}
+          driveEnabled={googleDrive.status === "signed-in" && googleDrive.isOnline}
+          onCancel={closeGoogleDialog}
+          onBackup={(passphrase, confirmation) => void submitGoogleBackup(passphrase, confirmation)}
+          onSelect={selectGoogleRestore}
+          onSelectFolder={folder => {
+            setGooglePreferredFolderId(folder.id);
+            googleDrive.clearNotice();
+            if (googleFolderIntent === "backup") { setGoogleDialog("backup"); }
+            else void beginGoogleRestore(folder.id);
+          }}
+          onPrepare={passphrase => void prepareSelectedGoogleRestore(passphrase)}
+          onApply={() => void applySelectedGoogleRestore()}
+          onExportLocal={() => {
+            if (googleExportSnapshot) downloadMarkdown(googleExportSnapshot);
+            closeGoogleDialog();
+          }}
+          onExportDrive={() => void exportCurrentNoteToGoogle()}
+          onDisconnect={() => void (async () => {
+            const disconnected = await googleDrive.disconnect();
+            if (disconnected) { setGooglePreferredFolderId(null); closeGoogleDialog(); setIsAppMenuOpen(true); setAppMenuView("google"); }
+            else setGoogleError("Google Drive permission could not be removed. Try again.");
+          })()}
+          onContinueEmpty={() => setGoogleDialog("backup")}
         />
       ) : null}
       {cloudBackupDialog === "passphrase" ? (
