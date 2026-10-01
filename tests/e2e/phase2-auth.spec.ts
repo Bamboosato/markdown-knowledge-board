@@ -275,32 +275,42 @@ test.describe('Phase 2 optional GitHub authentication', () => {
     expect(startCalls).toBe(0)
   })
 
-  test('signs out without deleting the local note', async ({ page }) => {
+  test('offers only disconnect and preserves local notes after confirmation', async ({ page }) => {
     await stubSession(page, 'signed-in')
     await seedCloudMetadata(page)
-    await page.route('**/api/auth/signout', async (route) => {
+    let disconnectCalls = 0
+    await page.route('**/api/auth/disconnect', async (route) => {
+      disconnectCalls += 1
       expect(route.request().headers()['x-csrf-token']).toBe(csrfToken)
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: success({ signedOut: true }),
+        body: success({ disconnected: true, revocation: 'succeeded' }),
       })
     })
     await page.goto('/?cloudTest=1')
-    await createDraft(page, 'Local note', 'Retained after sign out')
+    await createDraft(page, 'Local note', 'Retained after disconnect')
     await page.getByRole('button', { name: /^Save$/ }).click()
 
     const menu = await openAppMenuSection(page, 'GitHub')
     await expect(menu.getByText('Connected as @octocat')).toBeVisible()
-    await menu.getByRole('menuitem', { name: 'Sign out' }).click()
-    await expect(menu.getByText('Signed out. Local notes were not changed.')).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: 'Sign out', exact: true })).toHaveCount(0)
+    await menu.getByRole('menuitem', { name: 'Disconnect GitHub' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Disconnect GitHub?' })
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    expect(disconnectCalls).toBe(0)
+    const reopenedMenu = await openAppMenuSection(page, 'GitHub')
+    await reopenedMenu.getByRole('menuitem', { name: 'Disconnect GitHub' }).click()
+    await dialog.getByRole('button', { name: 'Disconnect GitHub' }).click()
+    await expect(page.getByText('GitHub disconnected. Local notes and the encrypted Gist were not deleted.')).toBeVisible()
+    expect(disconnectCalls).toBe(1)
     await expect(page.getByLabel('Title')).toHaveValue('Local note')
-    await expectBodyEditorValue(page.getByLabel('Body'), 'Retained after sign out')
+    await expectBodyEditorValue(page.getByLabel('Body'), 'Retained after disconnect')
     await expect
       .poll(() =>
         page.evaluate(() => localStorage.getItem('mkb.cloud-backup.v1')),
       )
-      .toContain('"gistId":"a1"')
+      .toBe('{"version":1,"users":{}}')
   })
 
   test('resets an unavailable GitHub session without deleting the local note', async ({

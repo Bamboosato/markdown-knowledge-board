@@ -594,6 +594,7 @@ function App() {
   const [googleDialog, setGoogleDialog] = useState<GoogleDialogMode | null>(null);
   const [googleError, setGoogleError] = useState<string | null>(null);
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleExportPhase, setGoogleExportPhase] = useState<"selecting" | "uploading" | null>(null);
   const [googleFiles, setGoogleFiles] = useState<DriveFile[]>([]);
   const [googleFolders, setGoogleFolders] = useState<DriveFile[]>([]);
   const [googleFolderIntent, setGoogleFolderIntent] = useState<"backup" | "restore">("backup");
@@ -2636,11 +2637,6 @@ function App() {
     }
   }
 
-  async function handleGitHubSignOut() {
-    await githubSession.signOut();
-    window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
-  }
-
   async function handleGitHubSessionReset() {
     await githubSession.resetSession();
     window.requestAnimationFrame(() => appMenuButtonRef.current?.focus());
@@ -3607,11 +3603,13 @@ function App() {
   async function exportCurrentNoteToGoogle() {
     if (!googleDrive.account || !googleExportSnapshot || googleBusy) return;
     setGoogleBusy(true);
+    setGoogleExportPhase("selecting");
     setGoogleError(null);
     try {
       const token = googleDrive.token();
       const folder = await pickDriveFolder(token);
       if (!folder) return;
+      setGoogleExportPhase("uploading");
       const note = googleExportSnapshot;
       await exportNoteToDrive({
         token,
@@ -3627,7 +3625,10 @@ function App() {
     } catch (error) {
       googleDrive.handleError(error);
       setGoogleError(error instanceof Error ? error.message : "Google Drive export failed.");
-    } finally { setGoogleBusy(false); }
+    } finally {
+      setGoogleExportPhase(null);
+      setGoogleBusy(false);
+    }
   }
 
   const handlePrint = async () => {
@@ -4026,7 +4027,6 @@ function App() {
                         }}
                         onSignIn={handleGitHubSignIn}
                         onRetry={() => void githubSession.retry()}
-                        onSignOut={() => void handleGitHubSignOut()}
                         onDisconnect={handleGitHubDisconnect}
                         onResetSession={() => void handleGitHubSessionReset()}
                         onCloudBackup={handleCloudBackupStart}
@@ -4043,7 +4043,6 @@ function App() {
                         operationBusy={googleBusy}
                         isOnline={googleDrive.isOnline}
                         onConnect={() => { setGoogleResult(null); setGooglePreferredFolderId(null); void googleDrive.connect(); }}
-                        onSignOut={() => { setGoogleResult(null); setGooglePreferredFolderId(null); googleDrive.signOut(); }}
                         onDisconnect={() => { setIsAppMenuOpen(false); setGoogleError(null); setGoogleDialog("disconnect"); }}
                         onBackup={() => void beginGoogleBackup()}
                         onRestore={() => void beginGoogleRestore()}
@@ -5126,6 +5125,7 @@ function App() {
           plan={googlePrepared?.plan ?? []}
           result={googleResult}
           driveEnabled={googleDrive.status === "signed-in" && googleDrive.isOnline}
+          exportPhase={googleExportPhase}
           onCancel={closeGoogleDialog}
           onBackup={(passphrase, confirmation) => void submitGoogleBackup(passphrase, confirmation)}
           onSelect={selectGoogleRestore}

@@ -3,7 +3,6 @@ import {
   CircleUser,
   CloudUpload,
   ExternalLink,
-  LogOut,
   RefreshCw,
   RotateCcw,
   Unlink,
@@ -35,7 +34,6 @@ type GitHubSectionProps = {
   }
   onSignIn: () => void
   onRetry: () => void
-  onSignOut: () => void
   onDisconnect: () => void
   onResetSession: () => void
   onCloudBackup: () => void
@@ -52,7 +50,6 @@ export function GitHubSection({
   cloudBackup,
   onSignIn,
   onRetry,
-  onSignOut,
   onDisconnect,
   onResetSession,
   onCloudBackup,
@@ -167,16 +164,6 @@ export function GitHubSection({
               Retry Cloud Check
             </button>
           ) : null}
-          <button
-            className="app-menu-item"
-            type="button"
-            role="menuitem"
-            disabled={busyAction !== null}
-            onClick={onSignOut}
-          >
-            <LogOut aria-hidden="true" />
-            {busyAction === 'signout' ? 'Signing out' : 'Sign out'}
-          </button>
           <button
             className="app-menu-item app-menu-item-danger"
             type="button"

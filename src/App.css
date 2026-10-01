@@ -2717,6 +2717,30 @@
   color: #666;
 }
 
+.google-export-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #444;
+}
+
+.google-export-spinner {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  animation: google-export-spin 1s linear infinite;
+}
+
+@keyframes google-export-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .google-export-spinner {
+    animation: none;
+  }
+}
+
 .cloud-backup-warning {
   color: #704b10;
 }
