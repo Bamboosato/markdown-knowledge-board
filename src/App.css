@@ -1400,6 +1400,14 @@
   display: contents;
 }
 
+.github-menu-section > .app-menu-item {
+  align-items: center;
+}
+
+.github-menu-section > .app-menu-item > svg {
+  margin-top: 0;
+}
+
 .github-menu-status,
 .github-menu-notice,
 .github-origin-notice {

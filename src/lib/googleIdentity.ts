@@ -7,12 +7,13 @@ type TokenClient = {
 }
 type PickerSelection = { action?: string; docs?: Array<{ id?: string; name?: string; mimeType?: string }> }
 type PickerView = {
-  setMimeTypes: (mime: string) => PickerView
   setIncludeFolders: (include: boolean) => PickerView
   setSelectFolderEnabled: (enabled: boolean) => PickerView
 }
 type PickerBuilder = {
   addView: (view: PickerView) => PickerBuilder
+  setTitle: (title: string) => PickerBuilder
+  setSelectableMimeTypes: (mime: string) => PickerBuilder
   setOAuthToken: (token: string) => PickerBuilder
   setDeveloperKey: (key: string) => PickerBuilder
   setAppId: (id: string) => PickerBuilder
@@ -128,11 +129,12 @@ export async function pickDriveFolder(token: string): Promise<{ id: string; name
   return new Promise((resolve, reject) => {
     try {
       const view = new picker.DocsView()
-        .setMimeTypes('application/vnd.google-apps.folder')
         .setIncludeFolders(true)
         .setSelectFolderEnabled(true)
       const instance = new picker.PickerBuilder()
         .addView(view)
+        .setTitle('Select a destination folder')
+        .setSelectableMimeTypes('application/vnd.google-apps.folder')
         .setOAuthToken(token)
         .setDeveloperKey(config.apiKey)
         .setAppId(config.appId)
