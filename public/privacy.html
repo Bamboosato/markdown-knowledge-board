@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Markdown Knowledge Boardのプライバシーポリシー / Privacy Policy">
+  <title>Privacy Policy / プライバシーポリシー — Markdown Knowledge Board</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/legal.css">
+</head>
+<body>
+  <header><img src="/icons/pwa-192.png" alt=""><a href="/about.html">Markdown Knowledge Board</a></header>
+  <main>
+    <h1>Privacy Policy / プライバシーポリシー</h1>
+    <p>最終更新日：2026年10月1日<br><span lang="en">Last updated: October 1, 2026</span></p>
+    <p>bamboosato（以下「運営者」）は、Markdown Knowledge Board（以下「本アプリ」）において、以下のとおり情報を取り扱います。</p>
+    <p lang="en">This policy describes how bamboosato (the “operator”) handles information in Markdown Knowledge Board (the “app”).</p>
+    <section>
+      <h2>1. Local data / 端末内のデータ</h2>
+      <p>ノートのタイトル・本文・タグ・日時、設定、バックアップや出力の管理情報は、ブラウザーのIndexedDBやlocalStorageなどに保存します。通常のノート編集のために、ノート内容を運営者のサーバーに送信することはありません。ブラウザーのデータ削除や端末の変更で、ローカルデータが利用できなくなる場合があります。</p>
+      <p lang="en">Note titles, bodies, tags, timestamps, preferences, and backup or export metadata are stored in browser storage such as IndexedDB and localStorage. Normal note editing does not send note content to the operator’s server. Clearing browser data or changing devices may make local data unavailable.</p>
+    </section>
+    <section>
+      <h2>2. Google Drive / Google Drive連携</h2>
+      <p>連携は任意です。接続時にGoogle Driveのユーザー識別子、メールアドレスまたは表示名を取得し、接続中のアカウントの表示と取り違え防止に利用します。OAuthアクセストークンはブラウザーのメモリーで保持し、Google APIへの認証に使用します。本アプリのGoogle連携では、トークンを運営者のサーバーに送信したり、ブラウザーの永続ストレージに保存したりしません。</p>
+      <p lang="en">The connection is optional. The app obtains a Google Drive user identifier and email address or display name to identify the connected account and prevent account mix-ups. OAuth access tokens are held in browser memory and used to authenticate Google API requests. This connection does not send tokens to the operator’s server or persist them in browser storage.</p>
+      <p>アクセス範囲は <code>drive.file</code> です。本アプリで作成したファイルや、ユーザーがGoogle Pickerで本アプリに利用を許可したファイル・フォルダーについて、保存・確認・復元・更新に必要な範囲でアクセスします。ファイル名、ID、更新日時、保存先、編集権限などの管理情報も利用します。Drive全体のファイルへの包括的なアクセスを要求しません。</p>
+      <p lang="en">The app requests the <code>drive.file</code> scope. It accesses app-created files and files or folders you authorize through Google Picker as needed to save, check, restore, and update data. It also uses metadata such as names, IDs, modification times, locations, and editing permissions. It does not request unrestricted access to all Drive files.</p>
+      <p>Markdown出力では、選択したノートを暗号化せずに指定フォルダーへ送信し、同じノートの既存出力を更新する場合があります。暗号化バックアップでは、ノートをブラウザー内で暗号化してから「MKB Backups」に送信し、復元時もブラウザー内で復号します。パスフレーズは保存・送信しません。</p>
+      <p lang="en">Markdown export sends the selected note without encryption to your chosen folder and may update an existing export of the same note. Encrypted backups are encrypted in the browser before being sent to “MKB Backups” and decrypted in the browser on restore. Passphrases are not stored or transmitted.</p>
+    </section>
+    <section>
+      <h2>3. GitHub / GitHub連携</h2>
+      <p>連携は任意です。GitHubのユーザーID、ユーザー名、アバターURLを取得し、接続アカウントの表示・識別に利用します。認証・バックアップ用のサーバー処理では、アクセストークンやリフレッシュトークンを扱い、暗号化したセッション情報をSecure・HttpOnly属性付きCookieに保存します。バックアップはブラウザー内で暗号化し、サーバー経由で非公開Gistに保存します。パスフレーズは送信しません。非公開Gistは共有リンクを知る人が参照できるため、リンクを慎重に管理してください。</p>
+      <p lang="en">This connection is optional. The app obtains your GitHub user ID, username, and avatar URL to display and identify the connected account. Server-side authentication and backup operations process access and refresh tokens, with encrypted session data stored in a Secure, HttpOnly cookie. Backups are encrypted in the browser and sent through the server to a secret Gist; passphrases are not transmitted. Anyone with a secret Gist’s link may access it, so handle the link carefully.</p>
+    </section>
+    <section>
+      <h2>4. External services and technical information / 外部サービスと技術情報</h2>
+      <p>本アプリの配信・サーバー処理にはVercelを使用します。接続や機能の利用に伴い、Vercel、Google、GitHubなどの提供者が、IPアドレス、アクセス日時、ブラウザー情報、リクエストやエラーなどの技術情報を処理・記録する場合があります。提供者側の取り扱い・保持期間は各サービスのポリシーと適用される設定に従います。ノートに外部画像やリンクを含め、その画像を表示したりリンクを開いたりした場合は、参照先にもアクセス情報が送信されることがあります。</p>
+      <p lang="en">Vercel hosts the app and its server operations. Providers such as Vercel, Google, and GitHub may process or log technical information, including IP addresses, access times, browser details, requests, and errors. Provider handling and retention follow their respective policies and applicable settings. Displaying external images or opening links in notes may also send access information to those destinations.</p>
+      <p>本アプリには広告配信や行動分析のためのトラッキング機能を組み込んでいません。Google APIから取得した情報を販売したり、広告目的や汎用AIモデルの学習に利用したりしません。Googleのユーザーデータは、ユーザーが利用する連携機能の提供に限定して使用します。</p>
+      <p lang="en">The app does not include advertising or behavioral analytics tracking. Information obtained from Google APIs is not sold or used for advertising or training general-purpose AI models. Google user data is used only to provide the integration features you use.</p>
+      <p>外部サービスの情報：<a href="https://policies.google.com/privacy">Google</a>、<a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub</a>、<a href="https://vercel.com/legal/privacy-policy">Vercel</a>。</p>
+      <p lang="en">Provider policies: <a href="https://policies.google.com/privacy">Google</a>, <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub</a>, and <a href="https://vercel.com/legal/privacy-policy">Vercel</a>.</p>
+    </section>
+    <section>
+      <h2>5. Retention, disconnection, and deletion / 保存・連携解除・削除</h2>
+      <p>ローカルデータは、ノート削除やブラウザーのサイトデータ削除などを行うまで残ります。Google Drive・GitHubに保存したファイルは、ユーザーが各サービスで削除するまで残ります。Disconnectは保存済みファイルを削除しません。Google DriveのDisconnectはアクセス許可を取り消します。GitHubのDisconnectは使用中のトークンの失効を試みます。必要に応じ、各アカウントの設定画面で本アプリの権限を取り消してください。ダウンロードした出力やバックアップもご自身で削除してください。</p>
+      <p lang="en">Local data remains until you delete notes, clear browser site data, or otherwise remove it. Files in Google Drive or GitHub remain until you delete them in those services. Disconnect does not delete stored files. Google Drive Disconnect revokes access permission; GitHub Disconnect attempts to revoke the token in use. You may also revoke app permissions in each account’s settings. Delete downloaded exports and backups separately as needed.</p>
+    </section>
+    <section>
+      <h2>6. Contact and changes / 問い合わせ・改定</h2>
+      <p>運営者：bamboosato。問い合わせ先：<a href="mailto:support@bamboosato.com">support@bamboosato.com</a>。問い合わせ時に受け取ったメールアドレスと内容は、回答や問題解決に利用し、その目的に必要な範囲で保持します。パスフレーズやアクセストークンは送らないでください。本ポリシーを改定する際は、このページの内容と最終更新日を更新します。データの利用目的に重要な変更がある場合は、適用前にアプリ内などでお知らせします。</p>
+      <p lang="en">Operator: bamboosato. Contact: <a href="mailto:support@bamboosato.com">support@bamboosato.com</a>. Email addresses and messages received through inquiries are used to respond and resolve issues and retained as needed for that purpose. Do not send passphrases or access tokens. Changes to this policy will be published here with an updated date. Material changes to data use will be announced in the app or through another appropriate channel before taking effect.</p>
+    </section>
+  </main>
+  <footer><nav aria-label="ページ案内 / Page navigation"><a href="/about.html">About / アプリについて</a><a href="/terms.html">Terms of Use / 利用規約</a><a href="/">Open App / アプリを開く</a></nav><p>© bamboosato</p></footer>
+</body>
+</html>
