@@ -3903,10 +3903,11 @@ function App() {
                         }}
                       >
                         <Cloud aria-hidden="true" />
-                        <span className="app-menu-category-content"><span>Google Drive</span><span>Backup and account</span></span>
+                        <span className="app-menu-category-content"><span>Google Drive</span><span>Cloud backup and account</span></span>
                         <ChevronRight className="app-menu-category-chevron" aria-hidden="true" />
                       </button>
                     ) : null}
+                    <div className="app-menu-separator" role="separator" />
                     <a className="app-menu-item app-menu-back" role="menuitem" href="/about.html" target="_blank" rel="noopener noreferrer" onClick={() => setIsAppMenuOpen(false)}>
                       About / アプリについて
                     </a>
