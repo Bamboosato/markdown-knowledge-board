@@ -1349,7 +1349,7 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(page.locator(".note-title", { hasText: "Internal Heading" })).toHaveCount(0);
   });
 
-  test("imports Markdown dropped on Preview without replacing the current note", async ({
+  test("selects Markdown dropped on Preview while preserving the original note", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -1385,12 +1385,15 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(dialog).toBeVisible();
     await expectResultValue(dialog, "Added", "1");
     await expect(previewPanel).not.toHaveClass(/is-drag-active/);
-    await expect(previewPanel).toContainText("Original preview body");
+    await expect(previewPanel).toContainText("Imported from Preview");
     await dialog.getByRole("button", { name: "Close" }).click();
     await expect(
       page.locator(".note-title", { hasText: "preview-import" })
     ).toBeVisible();
 
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expectBodyEditorValue(page.getByLabel("Body"), "# Imported from Preview");
+    await page.getByRole("button", { name: "Open note: Preview drop target" }).click();
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     await expectBodyEditorValue(page.getByLabel("Body"), "Original preview body");
   });

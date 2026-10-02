@@ -147,6 +147,245 @@ test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
 });
 
+const activationOriginal: StoredNote = {
+  id: "activation-original",
+  title: "Activation original",
+  body: "Original body",
+  tags: ["original"],
+  updatedAt: 1_700_000_000_000,
+  pinnedAt: 1_700_000_000_000,
+};
+
+async function importActivationFiles(
+  page: Page,
+  method: "drop" | "picker",
+  files = [{ name: "activated.md", content: "---\ntitle: Activated note\n---\nActivated body" }],
+  tab: "Edit" | "Preview" = "Edit",
+) {
+  if (method === "picker") {
+    await page.setInputFiles("#import-markdown", files.map((file) => ({
+      name: file.name,
+      mimeType: "text/markdown",
+      buffer: Buffer.from(file.content),
+    })));
+  } else {
+    await dropMarkdownFiles(page, tab === "Edit" ? "#body" : ".preview-panel:not([hidden])", files);
+    await page.getByRole("dialog", { name: /Import Markdown File/ })
+      .getByRole("button", { name: /Add as New Note/ }).click();
+  }
+}
+
+for (const method of ["drop", "picker"] as const) {
+  for (const tab of ["Edit", "Preview"] as const) {
+    test(`auto-activation selects a saved import from ${method} and preserves ${tab}`, async ({ page }) => {
+      await seedSavedNote(page, activationOriginal);
+      await page.getByRole("button", { name: tab, exact: true }).click();
+      await importActivationFiles(page, method, undefined, tab);
+      const result = page.getByRole("dialog", { name: "Import Complete" });
+      await expectResultValue(result, "Added", "1");
+      await result.getByRole("button", { name: "Close" }).click();
+      await expect(page.getByRole("button", { name: "Open note: Activated note" }))
+        .toHaveAttribute("aria-current", "true");
+      await expect(page.getByRole("button", { name: tab, exact: true })).toHaveClass(/active/);
+      if (tab === "Edit") {
+        await expect(page.getByLabel("Title")).toHaveValue("Activated note");
+        await expectBodyEditorValue(page.getByLabel("Body"), "Activated body");
+      } else {
+        await expect(page.locator(".preview-panel:not([hidden])")).toContainText("Activated body");
+      }
+      expect((await readStoredNotes(page)).find((note) => note.id === activationOriginal.id))
+        .toEqual(activationOriginal);
+      await expect(page.getByLabel("Editor status")).toContainText("Status: Saved");
+    });
+  }
+
+  for (const choice of ["Save and Continue", "Discard and Continue", "Cancel"] as const) {
+    test(`auto-activation protects initially dirty notes after ${choice} via ${method}`, async ({ page }) => {
+      await seedSavedNote(page, activationOriginal);
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      await page.getByLabel("Body").fill("Unsaved body to protect");
+      await importActivationFiles(page, method);
+      await page.getByRole("dialog", { name: "Unsaved Changes" })
+        .getByRole("button", { name: choice, exact: true }).click();
+      if (choice !== "Cancel") {
+        await page.getByRole("dialog", { name: "Import Complete" })
+          .getByRole("button", { name: "Close" }).click();
+      }
+      await expect(page.getByRole("button", { name: "Open note: Activation original" }))
+        .toHaveAttribute("aria-current", "true");
+      await expectBodyEditorValue(page.getByLabel("Body"),
+        choice === "Discard and Continue" ? "Original body" : "Unsaved body to protect");
+      const stored = await readStoredNotes(page);
+      expect(stored).toHaveLength(choice === "Cancel" ? 1 : 2);
+      expect(stored.find((note) => note.id === activationOriginal.id)?.body)
+        .toBe(choice === "Save and Continue" ? "Unsaved body to protect" : "Original body");
+    });
+  }
+}
+
+test("auto-activation chooses the first successful file regardless of list sort", async ({ page }) => {
+  await seedSavedNote(page, activationOriginal);
+  await importActivationFiles(page, "picker", [
+    { name: "invalid.md", content: "---\ntitle: [broken\n---\nInvalid" },
+    { name: "first.txt", content: "---\ntitle: First success\nupdatedAt: 1\n---\nFirst body" },
+    { name: "second.markdown", content: "---\ntitle: Second success\n---\nSecond body" },
+  ]);
+  const result = page.getByRole("dialog", { name: "Import Complete" });
+  await expectResultValue(result, "Added", "2");
+  await expectResultValue(result, "Failed", "1");
+  await result.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("button", { name: "Open note: First success" }))
+    .toHaveAttribute("aria-current", "true");
+});
+
+test("auto-activation leaves selection unchanged when every save fails", async ({ page }) => {
+  await seedSavedNote(page, activationOriginal);
+  await page.evaluate(() => {
+    const original = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function(value, key) {
+      if (value.title === "Activated note") throw new DOMException("Test quota failure", "QuotaExceededError");
+      return original.call(this, value, key);
+    };
+  });
+  await importActivationFiles(page, "picker");
+  const result = page.getByRole("dialog", { name: "Import Complete" });
+  await expectResultValue(result, "Added", "0");
+  await expectResultValue(result, "Failed", "1");
+  await result.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("button", { name: "Open note: Activation original" }))
+    .toHaveAttribute("aria-current", "true");
+  expect(await readStoredNotes(page)).toEqual([activationOriginal]);
+});
+
+async function delayActivationRead(page: Page) {
+  await page.evaluate(() => {
+    const gate = window as typeof window & { activationReadStarted?: boolean; releaseActivationRead?: () => void };
+    const original = File.prototype.text;
+    File.prototype.text = async function() {
+      gate.activationReadStarted = true;
+      await new Promise<void>((resolve) => { gate.releaseActivationRead = resolve; });
+      return original.call(this);
+    };
+  });
+}
+
+for (const action of ["edit", "save", "revert", "select round trip"] as const) {
+  test(`auto-activation protects a ${action} during a delayed read`, async ({ page }) => {
+    await seedSavedNote(page, activationOriginal);
+    // Prepare a second persisted note so selection can leave and return.
+    await page.getByRole("button", { name: /new note/i }).click();
+    await page.getByLabel("Title").fill("Other note");
+    await page.getByLabel("Body").fill("Other body");
+    await page.getByRole("button", { name: /^Save$/ }).click();
+    await expect(page.getByLabel("Editor status")).toContainText("Status: Saved");
+    await page.getByRole("button", { name: "Open note: Activation original" }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await delayActivationRead(page);
+    await importActivationFiles(page, "picker");
+    await page.waitForFunction(() => (window as typeof window & { activationReadStarted?: boolean }).activationReadStarted);
+    if (action === "select round trip") {
+      await page.getByRole("button", { name: "Open note: Other note" }).click();
+      await page.getByRole("button", { name: "Open note: Activation original" }).click();
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+    } else {
+      await page.getByLabel("Body").fill("Edited during import");
+      if (action === "save") {
+        await page.getByRole("button", { name: /^Save$/ }).click();
+        await expect(page.getByLabel("Editor status")).toContainText("Status: Saved");
+      } else if (action === "revert") {
+        await page.getByRole("button", { name: "Revert changes", exact: true }).click();
+        await page.getByRole("dialog", { name: "Revert changes?" })
+          .getByRole("button", { name: "Revert Changes", exact: true }).click();
+      }
+    }
+    await page.evaluate(() => (window as typeof window & { releaseActivationRead?: () => void }).releaseActivationRead?.());
+    await page.getByRole("dialog", { name: "Import Complete" })
+      .getByRole("button", { name: "Close" }).click();
+    await expect(page.getByRole("button", { name: "Open note: Activation original" }))
+      .toHaveAttribute("aria-current", "true");
+    const expectedBody = action === "save" || action === "edit" ? "Edited during import" : "Original body";
+    await expectBodyEditorValue(page.getByLabel("Body"), expectedBody);
+    expect((await readStoredNotes(page)).find((note) => note.id === activationOriginal.id)?.body)
+      .toBe(action === "save" ? expectedBody : "Original body");
+    if (action === "edit") return;
+    // Reopen to verify the list state did not overwrite the concurrent save.
+    await page.getByRole("button", { name: "Open note: Other note" }).click();
+    await page.getByRole("button", { name: "Open note: Activation original" }).click();
+    await expect(page.locator(".preview-panel:not([hidden])")).toContainText(expectedBody);
+  });
+}
+
+test("auto-activation keeps filters while selecting a hidden imported note", async ({ page }) => {
+  await seedSavedNote(page, activationOriginal);
+  await page.getByRole("button", { name: "Filter", exact: true }).click();
+  const filter = page.getByRole("dialog", { name: "Filter notes" });
+  await filter.getByRole("searchbox", { name: "Search" }).fill("Activation original");
+  await filter.getByRole("button", { name: "Apply Filters" }).click();
+  await importActivationFiles(page, "picker", undefined, "Preview");
+  await page.getByRole("dialog", { name: "Import Complete" })
+    .getByRole("button", { name: "Close" }).click();
+  await expect(page.locator(".preview-panel:not([hidden])")).toContainText("Activated body");
+  await expect(page.getByRole("button", { name: "Open note: Activated note" })).toHaveCount(0);
+  await expect(page.locator(".note-count")).toHaveText("(1 of 2)");
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Open note: Activated note" }))
+    .toHaveAttribute("aria-current", "true");
+});
+
+for (const offline of [false, true]) {
+  test(`auto-activation handles no selection ${offline ? "offline" : "online"} without leaving the mobile list`, async ({ page, context, browserName }, testInfo) => {
+    test.skip(offline && browserName === "webkit",
+      "WebKit offline emulation makes File.text() fail even for an in-memory File without the app. See the validation notes.");
+    // Exercise the file picker with a real local file, independently of uploads
+    // created from buffers by the test runner.
+    const filePath = testInfo.outputPath("activated.md");
+    await writeFile(filePath, "---\ntitle: Activated note\n---\nActivated body", "utf8");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await expect(page.getByRole("button", { name: "Import Markdown", exact: true })).toBeVisible();
+    await context.setOffline(offline);
+    await page.setInputFiles("#import-markdown", filePath);
+    const result = page.getByRole("dialog", { name: "Import Complete" });
+    await expectResultValue(result, "Added", "1");
+    await expectResultValue(result, "Failed", "0");
+    await result.getByRole("button", { name: "Close" }).click();
+    const card = page.getByRole("button", { name: "Open note: Activated note" });
+    await expect(card).toBeVisible();
+    await expect(card).toHaveAttribute("aria-current", "true");
+    expect(await readStoredNotes(page)).toHaveLength(1);
+  });
+}
+
+test("auto-activation preserves empty Draft and uncommitted tags", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /new note/i }).click();
+  await page.getByRole("combobox", { name: "Tags" }).fill("pending-tag");
+  await importActivationFiles(page, "drop");
+  await page.getByRole("dialog", { name: "Import Complete" })
+    .getByRole("button", { name: "Close" }).click();
+  await expect(page.getByLabel("Title")).toHaveValue("");
+  await expectBodyEditorValue(page.getByLabel("Body"), "");
+  await expect(page.getByRole("combobox", { name: "Tags" })).toHaveValue("pending-tag");
+  await expect(page.getByLabel("Editor status")).toContainText("Status: Draft");
+  expect(await readStoredNotes(page)).toHaveLength(1);
+});
+
+test("auto-activation rejects another import while a read is pending", async ({ page }) => {
+  await seedSavedNote(page, activationOriginal);
+  await delayActivationRead(page);
+  await importActivationFiles(page, "picker");
+  await page.waitForFunction(() => (window as typeof window & { activationReadStarted?: boolean }).activationReadStarted);
+  await dropMarkdown(page, ".preview-panel:not([hidden])", { name: "ignored.md", content: "Ignored body" });
+  await expect(page.getByRole("dialog", { name: /Import Markdown File/ })).toHaveCount(0);
+  await page.evaluate(() => (window as typeof window & { releaseActivationRead?: () => void }).releaseActivationRead?.());
+  const result = page.getByRole("dialog", { name: "Import Complete" });
+  await expectResultValue(result, "Added", "1");
+  await result.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("button", { name: "Open note: Activated note" }))
+    .toHaveAttribute("aria-current", "true");
+  expect(await readStoredNotes(page)).toHaveLength(2);
+});
+
 test("keeps a new Draft unchanged when its import choice is canceled", async ({
   page,
 }) => {

@@ -59,7 +59,8 @@ test.describe("keyboard shortcuts", () => {
     await page.keyboard.press("Control+KeyS");
 
     await expect(page.getByLabel("Editor status")).toContainText("Status: Saved");
-    await expect(page.getByText("Ctrl shortcut note", { exact: true })).toHaveCount(1);
+    // Count saved cards only; the print surface repeats the current title.
+    await expect(page.locator(".note-list").getByText("Ctrl shortcut note", { exact: true })).toHaveCount(1);
   });
 
   test("supports Command+S and exposes the platform bindings", async ({ page }) => {
@@ -90,7 +91,7 @@ test.describe("keyboard shortcuts", () => {
     });
 
     await expect(page.getByLabel("Editor status")).toContainText("Status: Saved");
-    await expect(page.getByText("Command shortcut note", { exact: true })).toHaveCount(1);
+    await expect(page.locator(".note-list").getByText("Command shortcut note", { exact: true })).toHaveCount(1);
   });
 
   test("shows Windows shortcut tooltips on hover and keyboard focus", async ({ page }) => {

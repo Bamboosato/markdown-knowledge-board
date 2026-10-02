@@ -7,6 +7,7 @@ import type {
   FocusEvent,
   KeyboardEvent,
   MouseEvent,
+  SetStateAction,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
@@ -539,10 +540,21 @@ function App() {
   });
   const pwa = usePwaLifecycle();
   const [notes, setNotes] = useState<Note[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const importInteractionRevisionRef = useRef(0);
+  const [selectedId, setSelectedIdState] = useState<string | null>(null);
+  const setSelectedId = useCallback((id: string | null) => {
+    importInteractionRevisionRef.current += 1;
+    setSelectedIdState(id);
+  }, []);
   const [draftTitle, setDraftTitle] = useState("");
   const [draftTags, setDraftTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState("");
+  const [tagInput, setTagInputState] = useState("");
+  const tagInputRef = useRef("");
+  const setTagInput = useCallback((value: string) => {
+    importInteractionRevisionRef.current += 1;
+    tagInputRef.current = value;
+    setTagInputState(value);
+  }, []);
   const [draftBody, setDraftBody] = useState("");
   const [bodyEditorResetKey, setBodyEditorResetKey] = useState(0);
   const [draftMarpEnabled, setDraftMarpEnabled] = useState(
@@ -566,9 +578,21 @@ function App() {
   const [draftCustomMetadata, setDraftCustomMetadata] = useState<
     CustomMetadataEntry[]
   >([]);
-  const [isDirty, setIsDirty] = useState(false);
+  const [isDirty, setIsDirtyState] = useState(false);
   const isDirtyRef = useRef(false);
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const setIsDirty = useCallback((value: boolean) => {
+    if (value) importInteractionRevisionRef.current += 1;
+    isDirtyRef.current = value;
+    setIsDirtyState(value);
+  }, []);
+  const [saveStatus, setSaveStatusState] = useState<SaveStatus>("idle");
+  const saveStatusRef = useRef<SaveStatus>("idle");
+  const setSaveStatus = useCallback((value: SetStateAction<SaveStatus>) => {
+    const next = typeof value === "function" ? value(saveStatusRef.current) : value;
+    if (next === "saving") importInteractionRevisionRef.current += 1;
+    saveStatusRef.current = next;
+    setSaveStatusState(next);
+  }, []);
   const [lastSaveError, setLastSaveError] = useState<string | null>(null);
   const [isPrintPreparing, setIsPrintPreparing] = useState(false);
   const [styledExportSnapshot, setStyledExportSnapshot] = useState<{
@@ -676,6 +700,7 @@ function App() {
   const importChoiceReturnFocusRef = useRef<HTMLElement | null>(null);
   const [isBackupBusy, setIsBackupBusy] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const importRequestRef = useRef(false);
   const [isAppMenuOpen, setIsAppMenuOpen] = useState(false);
   const [appMenuView, setAppMenuView] = useState<AppMenuView>("root");
   const appMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1807,9 +1832,16 @@ function App() {
     importKind: "markdown" | "backup",
     options: ImportFilesOptions = {}
   ) => {
-    if (files.length === 0) {
+    if (files.length === 0 || importRequestRef.current || isImporting) {
       return;
     }
+
+    // Reserve before awaiting a confirmation, so another import cannot replace it.
+    importRequestRef.current = true;
+    const interactionRevision = importInteractionRevisionRef.current;
+    const canAutoSelect = importKind === "markdown" &&
+      !isDirtyRef.current && tagInputRef.current.trim().length === 0 &&
+      saveStatusRef.current !== "saving";
 
     const resolvedReturnFocus =
       options.returnFocusTarget ??
@@ -1817,26 +1849,28 @@ function App() {
         ? appMenuButtonRef.current
         : markdownImportButtonRef.current);
 
-    if (options.confirmUnsaved !== false) {
-      const importTarget =
-        importKind === "backup"
-          ? "import a backup"
-          : "import Markdown or text files";
-      const canContinue = await confirmUnsavedTransition(importTarget);
-      if (!canContinue) {
-        restoreImportFocus(resolvedReturnFocus);
-        return;
-      }
-    }
-
     const failures: ImportFailure[] = [];
+    const importedNotes = new Map<string, Note>();
+    let firstAddedNote: Note | null = null;
     let added = 0;
     let updated = 0;
     let skipped = 0;
 
-    setIsImporting(true);
-
     try {
+      if (options.confirmUnsaved !== false) {
+        const importTarget =
+          importKind === "backup"
+            ? "import a backup"
+            : "import Markdown or text files";
+        const canContinue = await confirmUnsavedTransition(importTarget);
+        if (!canContinue) {
+          restoreImportFocus(resolvedReturnFocus);
+          return;
+        }
+      }
+
+      setIsImporting(true);
+
       let workingNotes: Note[];
       try {
         workingNotes = sortNotes(await getAllNotes());
@@ -1879,6 +1913,7 @@ function App() {
               }
 
               await saveNote(candidate);
+              importedNotes.set(candidate.id, candidate);
               workingNotes = workingNotes.map((note, index) =>
                 index === matchIndex ? candidate : note
               );
@@ -1887,6 +1922,8 @@ function App() {
             }
 
             await saveNote(candidate);
+            importedNotes.set(candidate.id, candidate);
+            firstAddedNote ??= candidate;
             workingNotes = [candidate, ...workingNotes];
             added += 1;
           }
@@ -1899,7 +1936,22 @@ function App() {
       }
 
       if (added > 0 || updated > 0) {
-        setNotes(sortNotes(workingNotes));
+        // Markdown creates fresh IDs. Merge only its successes to preserve saves
+        // made by the user while file reads were pending.
+        setNotes((current) => importKind === "markdown"
+          ? sortNotes([...importedNotes.values(), ...current])
+          : sortNotes(workingNotes));
+      }
+
+      if (canAutoSelect && firstAddedNote &&
+          interactionRevision === importInteractionRevisionRef.current &&
+          !isDirtyRef.current && tagInputRef.current.trim().length === 0 &&
+          saveStatusRef.current !== "saving") {
+        setSelectedId(firstAddedNote.id);
+        resetDraft(firstAddedNote);
+        setPreviewMountedForNoteId(firstAddedNote.id);
+        setSlideIndex(0);
+        setPendingNoteListRevealId(firstAddedNote.id);
       }
 
       showImportResult(
@@ -1916,6 +1968,7 @@ function App() {
 
       setDbError(dbInitError);
     } finally {
+      importRequestRef.current = false;
       setIsImporting(false);
     }
   };
@@ -1964,9 +2017,12 @@ function App() {
   };
 
   const handleReplaceCurrentNoteBody = async () => {
-    if (!importChoiceDialog || importChoiceDialog.files.length !== 1) {
+    if (!importChoiceDialog || importChoiceDialog.files.length !== 1 ||
+        importRequestRef.current) {
       return;
     }
+
+    importRequestRef.current = true;
 
     const { files, targetKind, targetNoteId } = importChoiceDialog;
     const [file] = files;
@@ -2166,6 +2222,7 @@ function App() {
         returnFocusTarget
       );
     } finally {
+      importRequestRef.current = false;
       setIsImporting(false);
     }
   };
@@ -2209,7 +2266,7 @@ function App() {
     event.stopPropagation();
     importDragDepthRef.current = 0;
     setIsImportDragActive(false);
-    if (isImporting) {
+    if (isImporting || importRequestRef.current || importChoiceDialog) {
       return;
     }
     const files = Array.from(event.dataTransfer.files);
