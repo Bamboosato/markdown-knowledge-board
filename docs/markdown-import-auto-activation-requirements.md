@@ -1,7 +1,7 @@
 # Markdown／text新規登録後の自動選択 要件・実装結果
 
-- Status: Implemented（ローカル実装済み・検証結果は末尾に記録）
-- Updated: 2026-10-02
+- Status: Implemented（PR #47を2026-10-02に`main`へマージ済み。実装時の検証結果は末尾に記録）
+- Updated: 2026-10-06
 
 ## 1. 結論
 

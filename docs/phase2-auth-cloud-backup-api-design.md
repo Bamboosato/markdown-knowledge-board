@@ -3,6 +3,10 @@
 作成日: 2026-07-30
 文書状態: Production実結合・ETag revision修正と同期
 
+更新日: 2026-10-06。現行UIの接続終了は`Disconnect GitHub`に集約しているが、`POST /api/auth/signout`はsession reset用の契約として維持する。
+
+Vercelの各route（`api/auth/**`、`api/cloud-backups/**`）は`export default { fetch(request: Request) { ... } }`のFetch adapterで公開する。`api/auth/csrf.ts`も同じ形式である。default functionが`Response`を返す形式へ変更しない。CSRFの過去の本番応答問題と修正はPR #39に記録されている。
+
 ## 1. 目的
 
 本書は、[基本設計](./phase2-auth-cloud-backup-architecture.md)に基づき、Vercel Functions、GitHub App、Gist API の契約を定義する。ブラウザ内の暗号化・復元ロジックは[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)を参照する。

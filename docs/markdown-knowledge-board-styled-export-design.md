@@ -3,6 +3,7 @@
 - 対応要件: [配布用 Styled Export 要件定義書 v0.3](./markdown-knowledge-board-styled-export-requirements-v0.3.md)
 - 作成日: 2026-09-28
 - 状態: 実装反映版
+- 更新日: 2026-10-06（印刷のページ余白欄を現行実装へ同期）
 
 ## 1. 設計方針
 
@@ -137,6 +138,8 @@ type StyledExportOptions = {
 - 文書ページの角丸、背景、影、リンク色、表罫線は画面プレビューと共通のDesign／Color定義を使う。印刷CSSではこれらを別の値に上書きしない。
 - print呼出前にフォント、画像decode、Mermaid描画の完了を待つ。準備中の二重操作を抑止する。
 - `afterprint`、例外、画面終了、および`afterprint`が発火しない場合のタイムアウトでbusy stateを解除する。cancelと保存完了は区別できないため、保存確認UIを出さない。
+- `@page`はA4縦、上下18mm・左右14mm。対応ブラウザでは`@top-center`にsnapshotのmetadata title（空なら`Untitled`）、`@bottom-right`に`counter(page) " / " counter(pages)`を出す。本文H1から選ぶ文書内見出しとは別である。ダウンロードHTMLのinline CSSと直接印刷の一時CSSの両方へ反映する。直接印刷のタイトルCSSは終了・例外・unmount時に除去する。
+- 通常の簡易Printは上中央の余白欄を空にし、本文内のタイトルを維持する。両経路のページ番号は同じ形式。CSS page margin box非対応環境では余白欄の表示を保証せず、ブラウザ標準のヘッダー／フッター設定は利用者が調整する。
 
 ## 7. アクセシビリティ・レスポンシブ
 

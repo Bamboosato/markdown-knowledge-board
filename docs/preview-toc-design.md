@@ -45,7 +45,7 @@
 | `src/App.tsx` | TOC state、見出し抽出、開閉イベント、スクロール、フォーカス、React JSXを追加する。 |
 | `src/App.css` | トリガー、ポップオーバー、階層、hover／focus、開閉アニメーション、レスポンシブ、reduced motionを追加する。 |
 | `tests/e2e/phase2-ui-ux.spec.ts` | TOC抽出、開閉、スクロール、レスポンシブ、アクセシビリティのE2Eを追加する。 |
-| `docs/design-spec.md` | 実装完了時に現行仕様としてTOCの確定動作を追記する。実装前には現行機能として記載しない。 |
+| `docs/design-spec.md` | §6.5に実装済みTOCの見出し抽出・移動・focus仕様を記載済み。 |
 
 初期実装ではロジックを`App.tsx`内に置く。抽出・位置計算が複雑化した場合は、純粋関数だけを`src/lib/previewToc.ts`へ分離する。
 

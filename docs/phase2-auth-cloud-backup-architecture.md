@@ -3,6 +3,8 @@
 作成日: 2026-07-30
 文書状態: Production実Gist作成／更新／復元・action開始時再検出と同期
 
+更新日: 2026-10-06。本書はGitHub経路の設計。現行UIでは接続終了を`Disconnect GitHub`へ集約し、独立した`Sign out`項目は表示しない。signout APIはsession resetの内部処理として残す。Google Drive・PWAは[現行設計§15〜§16](./design-spec.md)を参照する。
+
 ## 1. 目的と位置づけ
 
 本書は、[フェーズ2要件定義](./phase2-auth-cloud-backup-requirements.md)を実装可能な構成へ具体化する基本設計である。現行機能の詳細は[現行設計仕様](./design-spec.md)、HTTP 契約は[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)、ブラウザ内の状態・暗号化・復元は[フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)、実行順序と担当は[実装計画](./phase2-auth-cloud-backup-implementation-plan.md)を参照する。
@@ -77,7 +79,7 @@
 - GitHub を使わない独自アカウント
 - Gist の自動削除、ローカル全置換、パスフレーズ復旧
 - 2つの本番 Origin 間の IndexedDB・Cookie の自動共有
-- Service Worker による完全オフライン新規起動
+- Service Workerによるオフライン新規起動は本フェーズの対象外（後続の[フェーズ3](./phase3-pwa-design.md)で実装済み）。
 
 ## 5. システム構成
 

@@ -2,6 +2,8 @@
 
 作成日: 2026-09-30。要件は[Google Drive連携・バックアップ・Markdown出力 要件定義](./google-drive-backup-requirements.md)を参照。
 
+更新日: 2026-10-06。状態: PR #42〜#44、#46の実装を`main`へ取り込み済み。実Google認証・Picker・Drive操作の受入検証は開発側では未実施。
+
 ## 実装の構成
 
 - `src/hooks/useGoogleDrive.ts`: Google Drive接続状態、期限切れ、接続終了、権限取消を管理する。アクセストークンはメモリーのみに保持する。
@@ -10,9 +12,13 @@
 - `src/lib/googleDriveOperations.ts`: 暗号化バックアップ、既存の差分復元、Markdown出力と更新先判定を担当する。
 - `src/components/cloud/GoogleDriveSection.tsx`、`GoogleDriveDialog.tsx`: 既存GitHub区画に合わせた接続・操作UI。`src/App.tsx`から既存編集・メニュー状態へ接続する。
 
+Application menuのGitHub／Google Driveは同じ`Cloud backup and account`補助ラベルを使う。接続終了は各サービスの`Disconnect`へ集約し、独立した`Sign out`項目は表示しない。Googleの解除確認は`Disconnect Google Drive`／`Cancel`を表示し、確認すると認可取消を試みる。公開情報ページへのリンクはクラウドカテゴリの下の区切り線に続けて表示する。
+
 バックアップは `MKB Backups` のアプリ管理フォルダーへ、毎回新しい暗号化ファイルを作成する。フォルダーとファイルはDriveの `appProperties` で識別し、名前が同じだけのユーザーファイルを採用しない。過去世代は削除しない。バックアップ形式は既存の `BackupDocument` version 1と暗号化形式を再利用する。
 
 Export Markdownは現在のノートの出力用スナップショットを使用する。毎回Google Pickerでフォルダーを選び、ノートIDを `appProperties` に付けた `.md` ファイルとして作成する。同じフォルダーとノートIDのファイルが1つ見つかれば更新する。前回出力時のMD5と差がある場合やローカル記録がない場合は上書き確認を行う。Driveのファイル名はノートの最新タイトルへ更新する。
+
+Picker表示中は`Selecting a folder…`、送信中は`Uploading to Google Drive…`をスピナーとstatus通知で表示する。キャンセル／結果画面まで含めて二重操作を抑止し、Drive未接続・期限切れ・offlineではDrive出力を無効にする。バックアップ先の`MKB Backups`は自動管理し、Pickerで選ぶのはMarkdown出力先だけである。
 
 ## Google Cloud設定
 
@@ -29,6 +35,8 @@ Drive APIとGoogle Picker APIを有効化する。OAuth同意画面に `https://
 ローカルではGit除外対象の `.env.local` に3つの値を設定する。Vercel Productionには同じ変数名で別途設定する必要があり、ローカルのファイルはデプロイ先へ自動反映されない。Preview・Developmentは必要なOriginを個別に登録するまでGoogle連携用の値を設定しない。APIキーはブラウザで使う公開値としてビルドに含まれるため、利用先とAPIの制限で管理する。
 
 2026-10-01: 利用者からGoogle Cloud設定完了の報告と値の提供を受け、開発環境の `.env.local` と既存Vercelプロジェクト `markdown-knowledge-board` のProductionに3変数を設定した。ローカルで設定値の読み込みとビルド成功を確認した。Google Cloud側の設定内容と実認可・Picker動作は開発側では未確認。本番反映はPRのmainマージに伴うVercelの自動デプロイで行う。Preview・Developmentには値を設定していない。
+
+2026-10-06の文書監査: 上記PRはマージ済み。両本番URLの配信JSにGoogle DriveのUI実装が含まれることをHTTP取得で確認した。これはOAuthクライアント／APIキーの有効性や実Drive操作の確認ではなく、未検証項目は引き続き下記のとおりである。
 
 参考: [Google Picker Web設定](https://developers.google.com/workspace/drive/picker/guides/web-picker)、[Driveの権限スコープ](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)。
 
