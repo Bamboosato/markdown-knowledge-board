@@ -1,7 +1,8 @@
 # Markdown Knowledge Board フェーズ3 PWA基本・詳細設計
 
 作成日: 2026-08-06
-文書状態: 要件定義に基づく実装設計初版
+更新日: 2026-10-06
+文書状態: 実装反映版。両本番Originのmanifest／Service Worker配信をHTTP確認済み。実機確認は[チェックリスト](./phase3-pwa-device-checklist.md)を参照。
 上位文書: [フェーズ3 PWA要件定義](./phase3-pwa-requirements.md)
 
 ---
@@ -255,7 +256,7 @@ test有効条件:
 
 ### 7.2 HTTP cache header
 
-現行には`vercel.json`がないため、Phase 3で追加する。
+`vercel.json`に以下のcache headerを実装済み。公開情報ページのPWA navigationは`vite.config.ts`の`navigateFallbackDenylist`でアプリ画面への置換を防ぎ、precacheされたHTMLを表示する。
 
 | path | Cache-Control | 理由 |
 | --- | --- | --- |

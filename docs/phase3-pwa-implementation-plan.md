@@ -1,7 +1,8 @@
 # Markdown Knowledge Board フェーズ3 PWA実装計画
 
 作成日: 2026-08-06
-文書状態: 実装着手前計画
+更新日: 2026-10-06
+文書状態: 実装・自動検証記録を含む計画。両本番Originのmanifest／Service Worker配信をHTTP確認済み。実機・本番操作の確認状況は末尾に区別して記載する。
 参照: [要件定義](./phase3-pwa-requirements.md) / [基本・詳細設計](./phase3-pwa-design.md)
 
 ---
@@ -298,11 +299,17 @@ scripts/
 - 通常Firefox E2E: 29件成功、Chromium専用IME 1件は想定skip
 - 通常WebKit E2E: 29件成功、Chromium専用IME 1件は想定skip
 
-Release前の残作業:
+当時のRelease前残作業（2026-08-06の記録）:
 
 1. Vercel Productionだけで`VITE_PWA_ENABLED=true`を設定する。
 2. 2 Production Originへdeployし、manifest／headers／offline／update／API非cacheをsmoke確認する。
 3. ユーザーが`docs/phase3-pwa-device-checklist.md`に沿って実機を1台ずつ手動確認する。
 4. 重大Fail 0件と証跡を確認してPhase 3を完了扱いにする。
 
-現在の判定は「実装・自動検証完了／Production有効化前／実機確認待ち」とする。
+当時の判定は「実装・自動検証完了／Production有効化前／実機確認待ち」であった。
+
+### 9.1 文書監査時の確認（2026-10-06）
+
+両本番OriginのHTMLは`/manifest.webmanifest`を参照し、`/sw.js`はJavaScriptとしてHTTP 200で配信され、`Cache-Control: no-cache, max-age=0, must-revalidate`を返した。Production有効化前という判定は現状に適用しない。
+
+現在の判定は「実装済み／ProductionでPWA資産配信確認／実機確認待ち」。今回のHTTP確認ではinstall、offline新規起動、update、API非cacheのブラウザ操作を再実施していない。§9の自動検証結果は実装当時の記録であり、今回の再実行結果ではない。Android Chrome／iPhone Safariの実機結果と本番操作の証跡を確認してから完了定義を判定する。

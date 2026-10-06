@@ -2,11 +2,13 @@
 
 作成日: 2026-07-09
 
-最終更新日: 2026-08-04
+最終更新日: 2026-10-06
+
+状態: `main`の実装反映版。今回の照合範囲と実サービス／実機の未検証項目は[文書整合監査](./documentation-consistency-audit.md)を参照する。
 
 ## 1. 概要
 
-Markdown Knowledge Board は、Markdown 形式のノートをブラウザ内で管理するローカル専用の React アプリケーションである。
+Markdown Knowledge Board は、Markdown形式のノートをブラウザ内で管理し、任意のGitHub Gist／Google Drive連携を提供するローカルファーストのReactアプリケーションである。
 
 主な目的は以下。
 
@@ -16,8 +18,12 @@ Markdown Knowledge Board は、Markdown 形式のノートをブラウザ内で�
 - IndexedDB によるローカル永続化
 - Markdown プレビューとタスクチェックの更新
 - 全ノートのバックアップ出力
+- Mermaid図、Marp Slides、Preview目次、Metadata編集
+- 配布用Styled HTML／PDF出力
+- 手動の暗号化クラウドバックアップ・safe merge復元、DriveへのMarkdown出力
+- PWAインストール、オフライン再起動、明示的な更新
 
-外部 API 通信は行わず、データはブラウザの IndexedDB に保存する。
+ノートの正本はIndexedDBに保存する。GitHub認証・Gist操作はVercel Functionsを経由し、Google Drive連携はブラウザからGIS／Picker／Drive APIを利用する。クラウドバックアップはブラウザ内で暗号化するが、DriveへのMarkdown出力は非暗号化である。外部画像、Google連携スクリプトなども必要時に通信する。ログインやネットワーク復旧だけでノートを自動送信・同期しない。
 
 ## 2. 技術構成
 
@@ -35,6 +41,13 @@ Markdown Knowledge Board は、Markdown 形式のノートをブラウザ内で�
 - `react-markdown`: Markdown プレビュー
 - `remark-gfm`: GitHub Flavored Markdown 対応
 - `remark`, `remark-parse`: Markdown AST 関連処理
+- CodeMirror 6: Body編集とMarkdown記号アシスト
+- `remark-mark-highlight`: Highlight記法
+- `mermaid`: 図の遅延描画
+- `@marp-team/marp-core`: Slidesの遅延描画
+- `lucide-react`: UIアイコン
+- `vite-plugin-pwa`: manifestとService Worker生成
+- Vitest、Playwright: unit／E2E検証
 
 ### 2.3 npm scripts
 
@@ -42,6 +55,11 @@ Markdown Knowledge Board は、Markdown 形式のノートをブラウザ内で�
 - `npm run build`: TypeScript build と Vite production build
 - `npm run lint`: ESLint 実行
 - `npm run preview`: Vite preview 起動
+- `npm run test:unit`: Vitest単体テスト
+- `npm run test:e2e`: 通常Playwrightテスト
+- `npm run build:pwa:test`／`npm run verify:pwa`／`npm run test:e2e:pwa`: loopback用PWA build、構成検査、専用E2E
+- `npm run generate:pwa-icons`: SVG正本からインストール用アイコンを生成
+- `npm run benchmark:pbkdf2`: 暗号化鍵導出の性能計測
 
 ## 3. アプリケーション構成
 
@@ -88,6 +106,15 @@ Markdown Knowledge Board は、Markdown 形式のノートをブラウザ内で�
   - タスク行の検出とチェック状態切替を担当する。
 - `src/lib/taskAst.ts`
   - remark ベースのタスク行検出実装。現状の `App.tsx` からは参照されていない。
+- `src/lib/noteImport.ts`: ファイル種類別のparseと新規ノートID生成。
+- `src/hooks/useGitHubSession.ts`、`useCloudBackup.ts`、`useCloudRestore.ts`: GitHub接続とGistバックアップ／復元の状態管理。
+- `api/auth/`、`api/cloud-backups/`、`api/_lib/`: Production限定のGitHub認証・session・CSRF・Gist API。
+- `src/hooks/useGoogleDrive.ts`、`src/lib/googleIdentity.ts`、`googleDrive.ts`、`googleDriveOperations.ts`: Google接続、Picker、Drive保存／復元／Markdown出力。
+- `src/components/cloud/`: GitHub／Googleメニューとクラウド操作ダイアログ。
+- `src/components/StyledExportView.tsx`、`StyledDocument.tsx`、`src/lib/styledExport/`: 一時設定付きの配布用出力。
+- `src/lib/mermaidRenderer.ts`、`sanitizeSvg.ts`: Mermaid共通描画とSVG安全化。
+- `src/pwa/`、`src/hooks/usePwaLifecycle.ts`、`src/lib/pwaCapability.ts`: PWA登録・install・offline・update管理。
+- `src/lib/storagePersistence.ts`、`contentFontScale.ts`: 永続ストレージ要求と本文表示倍率。
 
 ## 4. データ設計
 
@@ -155,7 +182,7 @@ DB 初期化に失敗した場合は `dbInitError` にエラーメッセージ�
 - 右: editor
 
 desktop 幅では横並び。
-`max-width: 900px` 以下では `.app` を縦方向に切り替える。
+`max-width: 900px`以下では`mobileView`に応じてNotes画面とEditor画面を切り替え、片側のペインを非表示にする。
 desktop 幅では document と workspace に縦横スクロールを発生させず、Sidebar と Editor の各領域内でスクロールを管理する。Sidebar はノート一覧が表示高を超えた場合のみ縦スクロールし、横スクロールは発生させない。Editor の本文・Preview・Slidesも必要な領域内だけを縦スクロールさせる。
 画面左右の外周余白は共通tokenで管理し、desktopではSidebar、Editor、固定ヘッダーを16px、mobileでは12pxとする。Editorの上下余白はdesktopで上18px・下16px、mobileで上下16pxを維持し、Preview／Edit／Slidesで共通化する。Edit拡大時も同じ左右余白を使用する。Preview panel内部の18px余白は読みやすさのため変更しない。
 
@@ -404,10 +431,10 @@ Previewはモノクロ基調を維持し、リンクとkeyboard focusだけに�
 
 ノート一覧からノートを選択すると以下を行う。
 
-1. 未保存変更または未確定タグ入力がある場合、`window.confirm("変更を保存しますか？")` を表示する。
-2. OK の場合は現在の draft を保存する。
-3. Cancel の場合は選択処理を中断する。
-4. 対象ノートを選択し、draft state を対象ノートの内容でリセットする。
+1. 未保存変更または未確定タグ入力がある場合、アプリ内の未保存確認dialogを表示する。
+2. `Save and Continue`では保存成功後に移動する。保存失敗時は現在のdraftを保持して移動しない。
+3. `Discard and Continue`では未保存変更を破棄して移動する。`Cancel`では選択処理を中断する。
+4. 対象ノートを選択し、draft stateを対象ノートの内容でリセットしてPreviewを表示する。
 
 ### 7.3.1 ノート固定
 
@@ -536,7 +563,7 @@ PCでDraft／Saved／UnsavedのEditのBody領域またはPreview領域へMarkdow
 
 ### 7.10 エクスポート
 
-`Export` は選択中ノートを Markdown ファイルとして出力する。
+`Export Markdown`は現在のdraftの出力スナップショットをMarkdownファイルとして出力する。`Local`／`Google Drive`の出力先選択を表示し、Drive未設定・未接続・offlineではDriveをdisabledにする。保存確認やIndexedDBへの書き込みは行わない。Driveへの出力規則は§16を参照する。
 
 frontmatterはMetadata dialogと共通のcanonical order（`id`、`title`、`tags`、`updatedAt`、対象Marp属性、Custom metadata）で生成する。
 
@@ -582,9 +609,7 @@ frontmatterはMetadata dialogと共通のcanonical order（`id`、`title`、`tag
 
 ### 7.12 Markdown toolbar
 
-toolbar 操作は textarea の selection/cursor を基準に本文を変更する。
-toolbar は `lucide-react` の `Bold`、`Italic`、`Strikethrough`、`Code`、`List`、`ListTodo`、`Quote`、`Link` を使用し、スクリーンリーダーや tooltip では各操作名を維持する。見出しレベルは文字自体の識別性を優先し、`H1` / `H2` ラベルを維持する。
-toolbar は横スクロール領域にせず、幅が不足する場合はボタンを折り返す。これによりスクロールバーを表示せず、ボタンの tooltip を toolbar 外へクリップせずに表示する。
+toolbar操作はCodeMirrorのselection／cursorを保存・復元して本文を変更する。現行UIは§6.4の`Format`／`Paragraph`／`Insert`の3メニューであり、各記法を常設ボタンとして並べる旧UIではない。可視ラベル・アイコン・操作条件は[詳細設計](./edit-toolbar-menu-design.md)に従う。
 画面左右端にある操作の tooltip はボタンの内側端を基準に配置し、狭い画面でも viewport 外へはみ出さないようにする。
 toolbar は Body の編集補助であるため、Body 見出し行内に配置する。
 
@@ -603,11 +628,11 @@ Body 見出し行の右端には集中編集モードの切替ボタンを配置
 - `insertLink`
   - 選択範囲または placeholder から Markdown link を挿入する。
 
-Phase 3 時点では Markdown toolbar の無選択時挙動明確化は保留とする。現時点では `handleWrap` は選択範囲がない場合は何もしない。Bold / Italic / Strike / Code の無選択時プレースホルダー挿入、または disabled 表示は後続改善で扱う。
+選択範囲が必要なFormat項目は無選択時にdisabledとする。Highlightは1行選択のみ、ParagraphとInsertは各項目の条件に従う。無選択時のdisabled表示は実装済みである。
 
 ### 7.13 UI 文言
 
-アプリ画面に表示される UI 文言は英語で統一する。対象はボタン、ラベル、通知、確認ダイアログ、空状態、エラー文言とする。仕様書本文、テスト名、開発者向けコメントや内部識別子は対象外とする。
+編集・クラウド操作UIの文言は英語を基本とする。公開情報ページとApplication menuのAbout／Privacy Policy／Terms of Useリンクは日英併記である。仕様書本文、テスト名、開発者向けコメントや内部識別子は対象外とする。
 
 ### 7.14 Preview タスクチェック
 
@@ -700,7 +725,7 @@ Marp 有効条件:
 - `Edit` / `Preview` / `Slides` 切替は editor 上部に表示する。
 - タブボタンの角丸は入力欄・セレクトと同じ `8px` とし、カプセル型にはしない。
 - タブボタンは `min-width: 80px` とし、ラベルを左右中央に配置する。
-- 操作サイズはCSS変数で3段階に統一する。New Note、Import Markdown、Edit / Preview / Slidesは標準40px・アイコン18px、ヘッダー操作はコンパクト36px・アイコン18px、Markdownツールと拡大操作は30px・アイコン15pxを基本とする。角丸は8pxを共通値とする。
+- 操作サイズはCSS変数で管理する。標準ボタン（New Note、Edit / Preview / Slides）は36px、Import Markdownなどのアイコンボタンは40px、ヘッダー操作は36px、Markdownツールと拡大操作は30pxを基本とする。通常アイコンは18px、編集ツールは15px、角丸は8pxを共通値とする。
 - Title / Tags / Body のラベルは維持し、`0.85rem`、`600`、`#666` で補助情報として表示する。ラベル列は `56px` とする。
 - モバイルの固定ヘッダーは2段構成とし、1段目にメニュー／Notes／省略可能なタイトル、2段目にステータス／通常幅のSave／アイコン操作を横並びで表示する。Saveは全幅化しない。
 - モバイルのBodyヘッダーはラベルを上段、Markdownツールバーと拡大ボタンを下段に配置する。ツールバーは左端から拡大ボタン手前まで使用し、末尾のLink操作まで欠けずに表示する。
@@ -709,7 +734,7 @@ Marp 有効条件:
 - タブボタンと Slides 設定コントロールの高さを揃え、Preview / Slides 切替時に表示領域の上端が移動しないようにする。
 - Slides 設定 UI は `Marp` toggle と設定アイコンを持つ。設定メニューは `Slide Settings` ヘッダーと右揃えの固定幅コントロールを持ち、`Size` select、`Theme` select、`Page Numbers` switch、`Heading Divider` checkbox と見出しレベル select を配置する。
 - Marp Off の場合、設定アイコンは disabled とする。Heading Divider Off の場合、見出しレベル select は disabled とするが、再度 On にした際に直前の選択値を復元する。初回の既定値は `1` とする。
-- Body textarea には Marp frontmatter を表示しない。
+- CodeMirrorのBody editorにはMarp frontmatterを表示しない。
 - Slides では操作バーと slide viewport を表示する。
 - 選択中のタブで表示モードを判別できるため、操作バー内に重複する `Slides` 見出しは表示しない。
 - slide viewport は Marp size に合わせたステージとして表示し、`16:9` は `16 / 9`、`4:3` は `4 / 3` にする。
@@ -862,26 +887,25 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 
 現状の CSS 仕様:
 
-- desktop:
-  - `.app` は横並び flex。
-  - `.sidebar` は幅 `320px`、高さ `100vh`、縦スクロール。
-  - `.editor` は残り幅、 高さ `100vh`、内部 overflow hidden。
-- `max-width: 900px`:
-  - `.app` は縦並び。
-  - `.sidebar` は幅 `100%`。
-  - `.editor` 側の高さ/overflow は desktop 仕様が残る。
+- desktop（901px以上）では`.app`は高さ`100vh`の縦flexで、共通ヘッダー／PWA statusの下の`.app-workspace`が横並びの2ペインを構成する。
+- `.sidebar`は幅320px、workspaceの高さ100%、overflow hidden。固定操作部の下の`.note-list`だけを縦スクロールさせる。`.editor`は残り幅を使い、本文領域内でスクロールする。
+- 900px以下ではNotes／Editorを`mobileView`で切り替える。Notes画面は`100dvh`内でノート一覧だけをスクロールし、通常Editorは高さauto／最小`100dvh`でdocumentスクロールを使う。
+- Edit拡大時は`100dvh`の固定領域内でBodyをスクロールする。ヘッダー、TOC、戻る操作は§6と各詳細設計に従う。
 
 ## 12. 現状の制約
 
 現状仕様として以下の制約がある。
 
-- 外部 API 通信やクラウド同期はない。
+- GitHub／Google Drive連携と外部画像取得は通信を行う。自動同期・自動バックアップ・双方向同期は提供しない。
 - データ保存はブラウザ/プロファイル単位の IndexedDB に依存する。
 - 新規ノートは `Save` まで IndexedDB に保存されないが、一覧には表示される。
-- ノート切替時の未保存確認は `保存して移動` と `移動中止` の 2 択であり、破棄して移動する選択肢はない。
-- mobile 幅では editor の高さ/overflow 仕様により、操作領域の扱いを見直す余地がある。
+- ノート切替時の未保存確認は`Save and Continue`／`Discard and Continue`／`Cancel`の3択。PWA更新とクラウド操作の保存確認はそれぞれの専用フローに従う。
+- Google tokenはページ再読込後に失われる。Drive出力には接続と必要な権限・書き込み可能なフォルダーが必要。
+- Styled Exportの外部画像はCORS・認証・容量上限の影響を受ける。未解決画像を残したまま出力しない。
+- Slides専用のHTML／PDF／PPTX出力はない。通常PrintとStyled Exportはノート本文の文書出力を対象にする。
+- ブラウザの印刷設定、PWAインストール導線、実機性能はOS／ブラウザに依存する。
 
-### 10.2 Custom metadata不正
+### 12.1 Custom metadata不正
 
 - 空key、重複key、予約key、安全でないkey、不正なYAML valueまたは過大な構造をrow errorとする。
 - 1件以上のerrorがある場合はMetadata dialogのApplyをdisabledにし、メインdraftへ反映しない。
@@ -971,9 +995,9 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 - キーボード操作とスクリーンリーダー利用に必要な semantics があること。
 - カード本体と縦3点ボタンを個別にTab選択でき、Enterで開き、Escapeおよび削除確認Cancelで起点へフォーカスが戻ること。
 
-## 14. フェーズ2拡張設計（Production有効化済み・最終確認中）
+## 14. フェーズ2 GitHub認証・Gistバックアップ（実装済み）
 
-任意の GitHub ログインと暗号化 Gist バックアップは、現行ローカル機能を維持した追加機能として設計する。2026年9月25日時点でローカルJSON共通化、ブラウザ暗号化、Production gate・session・CSRF、GitHub OAuth、Gist検出・作成・更新、手動Cloud Backup、検証済みdownload、復号preview、safe merge復元、Unavailable状態からのsession reset、offlineローカル継続、mobile/focus、Chromium・Firefox・WebKit回帰まで実装済みである。GitHub AppとProduction変数を設定し、cloud feature flagをProductionだけで有効化した。両本番Originの実OAuth、secret Gist初回作成、検出、暗号文取得、復号、safe merge復元、既存Gistの重複なし更新を確認済みである。Cloud Backup／Restore開始時のGist再検出と最新UI修正のProduction反映を最終確認として残す。上記 1～13 は引き続き利用者向けローカル仕様を表す。
+任意のGitHubログインと暗号化Gistバックアップは実装済みである。Productionでの実OAuth・初回作成・更新・safe merge復元は過去の検証記録を[実装計画](./phase2-auth-cloud-backup-implementation-plan.md)に残す。action開始時再検出、dialog横overflow修正、session resetも`main`に取り込み済み。今回の文書監査で実OAuth／Gist操作の再検証は行っていない。実上限サイズと実mobile性能は追加品質確認として残る。
 
 ### 14.1 方針
 
@@ -995,11 +1019,13 @@ Pin／Unpinの `saveNote` が失敗した場合は、一覧順、`pinnedAt`、�
 - [フェーズ2 API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)
 - [フェーズ2 フロントエンド詳細設計](./phase2-auth-cloud-backup-frontend-design.md)
 
-実装時は上記文書の要件 ID とテスト観点をトレースし、実装完了後に本書 1～13 の技術構成、データ設計、画面仕様、状態管理、エラー仕様を実装内容へ同期する。
+上記文書はGitHub経路の要件・API契約を扱う。Google Drive経路は§16を参照する。現行GitHubメニューは`Disconnect GitHub`に接続終了を集約し、独立した`Sign out`項目は表示しない。session resetの内部処理ではsignout APIを引き続き使用する。
 
-## 15. フェーズ3 PWA拡張設計（実装済み・Production有効化前）
+## 15. フェーズ3 PWA拡張設計（実装済み・実機確認待ち）
 
 PWAは既存のローカルファースト設計へ、install、offline app shell、安全な明示更新を追加する。IndexedDBをノートの正本として維持し、Service WorkerはHTML、build asset、manifest、iconだけをprecacheする。`/api/**`、認証、session、Cloud Backup／Restore、cross-origin responseをruntime cacheしない。
+
+2026-10-06のHTTP確認で、両本番OriginのmanifestリンクとJavaScriptの`sw.js`配信を確認した。Production有効化前という旧記述は撤回する。HTTP配信確認はoffline再起動・install・updateの操作確認を代替しない。
 
 ### 15.1 Build・環境境界
 
@@ -1031,4 +1057,30 @@ PWAは既存のローカルファースト設計へ、install、offline app shel
 - [フェーズ3 PWA基本・詳細設計](./phase3-pwa-design.md)
 - [フェーズ3 PWA実装計画](./phase3-pwa-implementation-plan.md)
 - [フェーズ3 PWA実機手動チェックリスト](./phase3-pwa-device-checklist.md)
+
+## 16. Google Drive連携（実装済み・実サービス確認待ち）
+
+- 公開環境変数`VITE_GOOGLE_CLIENT_ID`／`VITE_GOOGLE_API_KEY`／`VITE_GOOGLE_APP_ID`の3つがあるビルドでメニューを表示する。GIS token modelとPickerを使い、`drive.file`を要求する。
+- tokenはメモリーだけに保持し、`unconfigured`／`signed-out`／`connecting`／`signed-in`／`reauthorization-required`と通信エラー通知を管理する。再読込後は再接続が必要。`Disconnect Google Drive`で認可取消を試み、ローカルノートとDriveファイルは保持する。
+- backupは保存済みノートを既存のversion 1形式で暗号化し、`MKB Backups`へ新しい世代として保存する。`appProperties`で管理対象を識別し、同名フォルダーだけでは採用しない。重複管理フォルダーは利用者に選択させる。
+- restoreは世代選択、復号、strict検証、差分preview、safe mergeを行う。適用時にローカルを再確認し、単一IndexedDB transactionで反映する。
+- `Export Markdown`は開いた時点の出力スナップショットを使う。`Local`は通常ダウンロード、`Google Drive`は毎回Pickerでフォルダーを選ぶ。同じフォルダー・ノートIDのファイルを更新し、MD5と前回記録による外部変更確認を行う。原子的な端末間排他は保証しない。
+- Google実OAuth／Picker／Drive API操作は開発側では未検証。設定記録、例外処理、検証引き継ぎは[実装設計](./google-drive-implementation-design.md)、受入条件は[要件](./google-drive-backup-requirements.md)を参照する。
+
+## 17. Styled Export・印刷
+
+- More actionsの`Export Styled HTML / PDF…`で`{ title, tags, body }`のスナップショットを作り、専用画面を開く。21色、8デザイン、11段階の文字倍率、タグ表示を選べる。
+- 設定・画像対応付けはReact stateだけに保持し、`Back to Preview`で破棄する。Edit／Preview本文の表示倍率設定とは独立している。
+- HTTPS画像は明示取得し、1件5 MiB・合計20 MiB・15秒timeoutを適用する。画像未解決時は出力不可。リンク警告には明示的な続行を要求する。Mermaidは安全化した静的SVGまたはfallbackコードとして出力する。
+- 画面Preview、単一HTML、印刷は`StyledDocument`を共有する。最初の有効な本文H1を文書見出しに使い、なければメタ情報のタイトルを使う。
+- 通常印刷は本文内のタイトルを維持し、上中央の余白欄は空とする。Styled印刷／ダウンロードHTMLの印刷ではスナップショットのmetadata title（空なら`Untitled`）を上中央へ出す。本文H1から選ぶ文書内見出しとは別である。両経路の右下は`counter(page) " / " counter(pages)`。CSS page margin box対応環境でのみ表示される。
+- 詳細は[Styled Export要件 v0.3](./markdown-knowledge-board-styled-export-requirements-v0.3.md)と[詳細設計](./markdown-knowledge-board-styled-export-design.md)を参照する。
+
+## 18. Markdown新規取り込み後の選択
+
+`importFiles`はMarkdown／textの登録開始時と完了時に未保存変更・未確定タグ・保存中を確認し、`importInteractionRevisionRef`で途中の選択／編集／保存操作を検出する。条件を満たす場合だけ入力順で最初に保存成功したノートを選択し、draftとPreviewを同期する。検索・タグ条件と表示タブは維持する。JSON backup、本文置換、cloud restoreにはこの自動選択を適用しない。詳細と境界・競合テストは[自動選択要件・実装結果](./markdown-import-auto-activation-requirements.md)を参照する。
+
+## 19. 公開情報ページ
+
+`public/about.html`、`privacy.html`、`terms.html`と共通`legal.css`を日英の静的情報ページとして提供する。Application menuのクラウドカテゴリと区切り線を挟み、各リンクを新規タブで開く。Service WorkerはこれらのHTMLをprecacheし、navigation fallbackのアプリ画面へ置き換えない。
 

@@ -1,7 +1,8 @@
 # Markdown Knowledge Board フェーズ3 PWA要件定義
 
 作成日: 2026-08-04
-文書状態: レビュー用初版
+更新日: 2026-10-06
+文書状態: 実装済みの要件。自動検証記録は[実装計画§9](./phase3-pwa-implementation-plan.md)を参照。両本番Originのmanifest／Service Worker配信をHTTP確認済み。実機確認は別途必要。
 対象: Markdown Knowledge Board のインストール対応、オフライン再起動、Service Worker更新管理
 
 ---

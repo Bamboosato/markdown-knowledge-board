@@ -3,11 +3,13 @@
 作成日: 2026-07-30
 文書状態: Production実結合・dialog横overflow修正と同期
 
+更新日: 2026-10-06。モジュール構成とメニューを現行実装へ同期。以下の過去検証件数は再実行結果ではない。
+
 ## 1. 目的
 
 本書は、[フェーズ2基本設計](./phase2-auth-cloud-backup-architecture.md)と[API・認証詳細設計](./phase2-auth-cloud-backup-api-design.md)に基づき、React UI、状態管理、ローカルデータ、暗号化、バックアップ、復元の実装契約を定義する。
 
-> 実装状況（2026年9月25日時点）: ローカルJSON、暗号化、任意GitHub認証、手動Cloud Backup、明示download、復号preview、safe merge、offline中のローカルedit/save/import/export、明示Retry、cloud送信抑止、Unavailable状態からのGitHub session reset、390×844のmenu/dialog/result、focus trap／復帰、passphrase表示状態、主要3ブラウザ回帰を接続した。Productionで両本番Originの実OAuth、既存Gist更新、復元まで確認済みである。別OriginでGistが作成・更新された場合に備え、Cloud Backup／Restore開始時は`none`／`selected`を含む全状態から再検出する。復号ダイアログのtooltipを含む横overflow修正は`clientWidth === scrollWidth`を主要3ブラウザで確認済みだが、これらの最新修正はProduction反映前である。パスフレーズ・token・暗号文は永続化せず、復元はcloud側の最終バックアップ時刻を更新しない。
+> 実装・過去検証記録: ローカルJSON、暗号化、GitHub認証、Cloud Backup、download、復号preview、safe merge、offlineローカル操作、Retry、session reset、390×844、focus trap／復帰、主要3ブラウザ回帰を実装済み。過去に両本番Originの実OAuth・既存Gist更新・復元を確認した。Cloud Backup／Restore開始時は全検出状態から再検出する。tooltip横overflow修正も`main`へ取り込み済み。今回の監査では本番操作の再検証は行っていない。パスフレーズ・token・暗号文は永続化せず、復元はcloud側の最終バックアップ時刻を更新しない。
 
 ## 2. テスト設計観点
 
@@ -35,31 +37,31 @@
 
 ```text
 src/
-  App.tsx                         orchestration と配置のみ
+  App.tsx                         cloud dialog state、操作調整、配置
   components/cloud/
     GitHubSection.tsx             application menu 内の状態表示
-    SaveBeforeCloudDialog.tsx     Save and Continue / Cancel
-    BackupPassphraseDialog.tsx    作成用 passphrase と確認
-    RestorePassphraseDialog.tsx   復号用 passphrase
-    GistCandidateDialog.tsx       複数候補選択
-    RemoteChangedDialog.tsx       revision 競合時の次操作
-    RestorePreviewDialog.tsx      merge preview と適用確認
-    CloudResultDialog.tsx         backup/restore/disconnect 結果
+    CloudActionDialog.tsx         保存確認とDisconnect確認
+    CloudBackupDialog.tsx         候補、passphrase、競合、backup結果
+    CloudRestoreDialog.tsx        候補、復号、preview、restore結果
   hooks/
     useGitHubSession.ts           非同期 session 状態
     useCloudBackup.ts             cloud operation orchestration
+    useCloudRestore.ts            download、復号、preview、apply
   lib/
     backup.ts                     BackupDocument v1 共通処理
     note.ts                       Note生成、ID・timestamp・pin値の正規化
     cloudApi.ts                   same-origin API client
     cloudCrypto.ts                Web Crypto と envelope
     cloudMetadata.ts              user別 non-secret metadata
+    cloudCapability.ts            Production gateとloopback test例外
+    cloudBackupNotice.ts          処理段階別notice
+    canonicalJson.ts              安定したserialization
     cloudRestore.ts               validation、diff、merge plan
     db.ts                         transaction apply を追加
-    types.ts                      cloud domain type を追加
+    types.ts                      Note、Marp、frontmatterの型
 ```
 
-PR1で`App.tsx`から`BackupDocument`、`createBackupDocument`、`parseBackupNotes`を`src/lib/backup.ts`へ、Note生成と共通値の正規化を`src/lib/note.ts`へ移した。PR2で`cloudRestore.ts`と`db.ts`の復元基盤、PR3で`canonicalJson.ts`と`cloudCrypto.ts`の暗号基盤を追加したが、cloud featureはUI未接続のままとする。ローカル JSON import/export の動作を変えず、クラウド暗号化も同じ BackupDocument を使用する。
+PR1〜PR3でbackup／Note正規化、復元基盤、暗号基盤を分離した。後続PRで上記hookとdialogをUIへ接続済み。クラウドAPIの型は`cloudApi.ts`、暗号化・復元の型は各ドメインmoduleで定義する。クラウド暗号化もローカルJSONと同じBackupDocumentを使用する。Google Driveの追加構成は[Google Drive実装設計](./google-drive-implementation-design.md)を参照する。
 
 ### 3.2 依存方向
 
@@ -580,12 +582,18 @@ lock 未対応では同一tabのsingle-flightだけを保証する。別tab競�
 
 ### 11.1 application menu
 
-既存 menu を同一 popover 内の階層表示にする。第1階層ではカテゴリだけを表示し、第2階層では選択したカテゴリの操作だけを表示する。
+既存menuを同一popover内の階層表示にする。第1階層にはカテゴリ、公開情報リンク、利用可能なPWA install操作を表示し、第2階層では選択したカテゴリの操作を表示する。GitHub／Google Driveの補助ラベルは`Cloud backup and account`で統一する。
 
 ```text
 Application menu
   Local Data >
   GitHub >                              cloud enabled の場合だけ表示
+  Google Drive >                        Google公開3変数があるビルドだけ表示
+  -----
+  About / アプリについて
+  Privacy Policy / プライバシーポリシー
+  Terms of Use / 利用規約
+  Install App / Install Help             PWA状態に応じて表示
 
 Local Data
   Back to application menu
@@ -601,8 +609,8 @@ GitHub
   Cloud Backup                             signed in + online
   Restore from Cloud                       signed in + online
   Last cloud backup: ... / No cloud backup
-  Sign out
   Disconnect GitHub
+  Retry / Reset GitHub session             unavailable時
   Offline / Reauthorization required       状態に応じて表示
 ```
 
@@ -643,7 +651,7 @@ Vercel Previewとlocalhostでは第1階層に GitHub カテゴリを表示しな
 ### 11.4 status と error
 
 - `aria-live="polite"` に段階変化、`role="alert"` に失敗結果を通知する。
-- cloud error は GitHub 階層または CloudResultDialog に表示する。
+- cloud errorはGitHub階層、`CloudBackupDialog`／`CloudRestoreDialog`内のエラー・結果表示へ出す。Disconnectの結果はGitHub階層のnoticeで表示する。
 - DB error bannerへcloud errorを混ぜない。
 - error codeに応じて `Retry`、`Sign in with GitHub`、`Restore from Cloud`、`Backup All Notes` の次操作を1つ以上提示する。
 - request ID は詳細欄に表示し、通常本文を圧迫しない。

@@ -1,6 +1,8 @@
 # Google Drive バックアップ追加の検討
 
-検討日: 2026-09-30。現行コードと Google 公式資料を確認した設計案。実装・Google Cloud の設定変更・動作テストは未実施。
+検討日: 2026-09-30。当日のコードとGoogle公式資料を確認した初期設計案。当時は実装・Google Cloud設定変更・動作テストを行っていない。
+
+2026-10-06追記: Google Drive連携はその後`main`へ実装済み。本書の「現行実装」は検討当日の状況を表す。現在の構成、設定記録、実サービスの未検証項目は[実装設計・本番検証引き継ぎ](./google-drive-implementation-design.md)を参照する。
 
 > 本書は初期検討の記録です。その後の合意を反映した [Google Drive連携・バックアップ・Markdown出力 要件定義](./google-drive-backup-requirements.md) を優先してください。固定フォルダー名は `MKB Backups`、接続UIは既存GitHubに合わせ、Export Markdownでは毎回Driveフォルダーを選択する要件に確定しています。
 
