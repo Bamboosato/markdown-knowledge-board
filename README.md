@@ -22,6 +22,24 @@ npm run dev
 npm run build
 ```
 
+## CI・依存関係の確認
+
+GitHub Actionsの`CI`はmain向けPR、mainへのpush、手動実行で起動します。
+
+- `Verify`: `npm ci`、lint、unit、監査policyテスト、本番／全依存の脆弱性監査、型チェック付きbuild。
+- `Browser smoke`: Chromiumの重要なデータ保護・描画・印刷・offline操作14件を単一workerで確認。
+- `PWA`: PWA build・cache検証と、offline再起動・更新など11件を別runnerで確認。
+
+Node.js 24とnpm 11を使用します。監査はseverityにかかわらず検出があれば失敗し、初期導入には例外を登録していません。取得失敗・不正応答も失敗扱いです。監査JSON、失敗時trace／screenshot、HTML reportと対象件数をArtifactへ14日保存します。全E2E・実クラウド操作・実機確認は変更リスクに応じて別途実施します。
+
+```bash
+npm run test:security
+npm run audit:security
+npm run test:e2e:smoke
+```
+
+依存更新の理由、限定override、実施範囲と未確認項目は[CI導入・検証記録](./docs/github-actions-ci-proposal.md)を参照してください。
+
 ## 使い方
 
 - 左ペインの Import Markdown から .md を複数選択して取り込みます。

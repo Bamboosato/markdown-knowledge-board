@@ -46,7 +46,7 @@ async function stubBrowserPrint(page: import("@playwright/test").Page) {
 }
 
 test.describe("Preview Print / PDF", () => {
-  test("prints the complete rendered Preview document without application chrome", async ({
+  test("prints the complete rendered Preview document without application chrome", { tag: '@ci-smoke' }, async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 900 });

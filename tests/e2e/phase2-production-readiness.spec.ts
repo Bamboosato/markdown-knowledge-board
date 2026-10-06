@@ -149,7 +149,7 @@ async function expectResultValue(dialog: Locator, label: string, value: string) 
 }
 
 test.describe('Phase 2 Production readiness', () => {
-  test('keeps every local data path usable offline and reconnects only after Retry', async ({
+  test('keeps every local data path usable offline and reconnects only after Retry', { tag: '@ci-smoke' }, async ({
     context,
     page,
     browserName,
