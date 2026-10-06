@@ -12,8 +12,20 @@ async function createSavedNote(page: Page, title: string, body: string) {
   await expect(page.getByText("Status: Saved")).toBeVisible();
 }
 
+async function downloadMarkdown(page: Page) {
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: 'Export Markdown', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Export Markdown', exact: true });
+  const downloadPromise = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Local', exact: true }).click();
+  const download = await downloadPromise;
+  const path = await download.path();
+  expect(path).toBeTruthy();
+  return readFile(path!, 'utf8');
+}
+
 test.describe("A2 Marp slides", () => {
-  test("renders metadata-driven Marp slides and exports frontmatter", async ({
+  test("renders metadata-driven Marp slides and exports frontmatter", { tag: '@ci-smoke' }, async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1200, height: 800 });
@@ -26,6 +38,7 @@ test.describe("A2 Marp slides", () => {
         "# First Slide",
         "",
         "Intro content",
+        "Inline $x^2 + y^2$",
         "",
         "---",
         "",
@@ -44,13 +57,21 @@ test.describe("A2 Marp slides", () => {
 
     await page.getByRole("button", { name: "Preview" }).click();
     const previewPanelBox = await page.locator(".preview-panel").boundingBox();
+    const previewTabsBox = await page.locator('.editor-tabs').boundingBox();
     expect(previewPanelBox).not.toBeNull();
+    expect(previewTabsBox).not.toBeNull();
 
     const slidesButton = page.getByRole("button", { name: "Slides" });
     await slidesButton.click();
     const slidesPanelBox = await page.locator(".slides-shell").boundingBox();
+    const slidesTabsBox = await page.locator('.editor-tabs').boundingBox();
     expect(slidesPanelBox).not.toBeNull();
-    expect(slidesPanelBox!.y).toBeCloseTo(previewPanelBox!.y, 0);
+    expect(slidesTabsBox).not.toBeNull();
+    // Preview includes a 40px TOC control, while Slides uses 36px controls.
+    // The layout contract is the same gap below each toolbar, not the same Y.
+    expect(slidesPanelBox!.y - slidesTabsBox!.y - slidesTabsBox!.height).toBeCloseTo(
+      previewPanelBox!.y - previewTabsBox!.y - previewTabsBox!.height, 0,
+    );
     const slidesSettings = page.getByLabel("Slides settings");
     await expect(slidesSettings).toBeVisible();
     const [buttonBox, settingsBox] = await Promise.all([
@@ -139,6 +160,7 @@ test.describe("A2 Marp slides", () => {
         name: "First Slide",
       })
     ).toBeVisible();
+    await expect(page.frameLocator('iframe[title="Slide preview"]').locator('mjx-container').first()).toBeVisible();
 
     await page.getByRole("button", { name: "Next" }).click();
     await expect(page.getByText("2 / 2")).toBeVisible();
@@ -157,13 +179,7 @@ test.describe("A2 Marp slides", () => {
     await expect(page.getByText("Status: Saved")).toBeVisible();
 
     await page.getByRole("button", { name: "Edit" }).click();
-    const downloadPromise = page.waitForEvent("download");
-    await page.getByRole("button", { name: "More actions" }).click();
-    await page.getByRole("menuitem", { name: "Export" }).click();
-    const download = await downloadPromise;
-    const path = await download.path();
-    expect(path).toBeTruthy();
-    const exported = await readFile(path!, "utf8");
+    const exported = await downloadMarkdown(page);
     expect(exported).toContain("marp: true");
     expect(exported).toContain("theme: gaia");
     expect(exported).toMatch(/size:\s+['"]?4:3['"]?/);
@@ -216,13 +232,7 @@ test.describe("A2 Marp slides", () => {
     await expect(page.getByText("Status: Saved")).toBeVisible();
 
     await page.getByRole("button", { name: "Edit" }).click();
-    const downloadPromise = page.waitForEvent("download");
-    await page.getByRole("button", { name: "More actions" }).click();
-    await page.getByRole("menuitem", { name: "Export" }).click();
-    const download = await downloadPromise;
-    const path = await download.path();
-    expect(path).toBeTruthy();
-    const exported = await readFile(path!, "utf8");
+    const exported = await downloadMarkdown(page);
     expect(exported).toContain("headingDivider: 3");
   });
 

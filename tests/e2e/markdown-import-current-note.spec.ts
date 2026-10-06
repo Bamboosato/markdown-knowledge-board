@@ -177,7 +177,7 @@ async function importActivationFiles(
 
 for (const method of ["drop", "picker"] as const) {
   for (const tab of ["Edit", "Preview"] as const) {
-    test(`auto-activation selects a saved import from ${method} and preserves ${tab}`, async ({ page }) => {
+    test(`auto-activation selects a saved import from ${method} and preserves ${tab}`, { tag: '@ci-smoke' }, async ({ page }) => {
       await seedSavedNote(page, activationOriginal);
       await page.getByRole("button", { name: tab, exact: true }).click();
       await importActivationFiles(page, method, undefined, tab);
@@ -223,7 +223,7 @@ for (const method of ["drop", "picker"] as const) {
   }
 }
 
-test("auto-activation chooses the first successful file regardless of list sort", async ({ page }) => {
+test("auto-activation chooses the first successful file regardless of list sort", { tag: '@ci-smoke' }, async ({ page }) => {
   await seedSavedNote(page, activationOriginal);
   await importActivationFiles(page, "picker", [
     { name: "invalid.md", content: "---\ntitle: [broken\n---\nInvalid" },
@@ -270,7 +270,7 @@ async function delayActivationRead(page: Page) {
 }
 
 for (const action of ["edit", "save", "revert", "select round trip"] as const) {
-  test(`auto-activation protects a ${action} during a delayed read`, async ({ page }) => {
+  test(`auto-activation protects a ${action} during a delayed read`, { tag: '@ci-smoke' }, async ({ page }) => {
     await seedSavedNote(page, activationOriginal);
     // Prepare a second persisted note so selection can leave and return.
     await page.getByRole("button", { name: /new note/i }).click();
@@ -356,7 +356,7 @@ for (const offline of [false, true]) {
   });
 }
 
-test("auto-activation preserves empty Draft and uncommitted tags", async ({ page }) => {
+test("auto-activation preserves empty Draft and uncommitted tags", { tag: '@ci-smoke' }, async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /new note/i }).click();
   await page.getByRole("combobox", { name: "Tags" }).fill("pending-tag");

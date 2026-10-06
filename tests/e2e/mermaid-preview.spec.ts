@@ -10,6 +10,20 @@ async function createSavedNote(page: Page, title: string, body: string) {
 }
 
 test.describe("A1 Mermaid preview", () => {
+  // The app deliberately uses SVG text labels (htmlLabels: false). Keep math
+  // delimiters as text and exclude HTML/foreignObject; KaTeX is tested in unit.
+  test('preserves literal math labels in the SVG-only Mermaid preview', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await page.goto('/');
+    await createSavedNote(page, 'Math diagram', '```mermaid\nflowchart LR\nA["$$x^2$$"] --> B["Result"]\n```');
+    await page.getByRole('button', { name: 'Preview', exact: true }).click();
+    const preview = page.locator('.preview-panel:not([hidden])');
+    await expect(preview.locator('.mermaid-diagram-svg svg')).toBeVisible({ timeout: 15_000 });
+    await expect(preview.locator('.mermaid-diagram-svg')).toContainText('$$x^2$$');
+    await expect(preview.locator('.mermaid-diagram-svg foreignObject')).toHaveCount(0);
+    await expect(preview.getByRole('alert')).toHaveCount(0);
+  });
+
   test("keeps ordinary fenced code blocks fully visible", async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 500 });
     await page.goto("/");
@@ -141,7 +155,7 @@ test.describe("A1 Mermaid preview", () => {
     await expect(completedText).toHaveCSS("text-decoration-line", "line-through");
   });
 
-  test("renders a Mermaid diagram and keeps code view accessible", async ({
+  test("renders a Mermaid diagram and keeps code view accessible", { tag: '@ci-smoke' }, async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1200, height: 800 });

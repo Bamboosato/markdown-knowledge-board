@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Pin npm and record environment
+        run: |
+          npm install --global npm@11.6.2
+          node --version
+          npm --version
+          uname -a
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:unit
+      - run: npm run test:security
+      - run: npm run audit:security
+      - run: npm run build
+      - name: Upload dependency audit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dependency-audit
+          path: .security-audit/*.json
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+  browser-smoke:
+    name: Browser smoke
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --global npm@11.6.2
+      - run: npm ci
+      - run: npx --no-install playwright install --with-deps chromium
+      - name: Record browser environment
+        run: |
+          node --version
+          npm --version
+          uname -a
+          node --input-type=module -e "import { chromium } from '@playwright/test'; const browser = await chromium.launch(); console.log('Chromium', browser.version()); await browser.close();"
+      - run: npm run test:e2e:smoke
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-smoke
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  pwa:
+    name: PWA
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --global npm@11.6.2
+      - run: npm ci
+      - run: npm run build:pwa:test
+      - run: npm run verify:pwa
+      - run: npx --no-install playwright install --with-deps chromium
+      - name: Record browser environment
+        run: |
+          node --version
+          npm --version
+          uname -a
+          node --input-type=module -e "import { chromium } from '@playwright/test'; const browser = await chromium.launch(); console.log('Chromium', browser.version()); await browser.close();"
+      - run: npm run test:e2e:pwa
+      - name: Upload PWA evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pwa
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
