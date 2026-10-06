@@ -2,7 +2,7 @@
 
 確認日: 2026-10-06（日本時間）
 
-状態: 承認済みの導入案に沿って実装・検証中。文書整合PR #48とは分離し、`codex/github-actions-ci`でworkflow、監査script、依存更新、証跡設定を追加した。GitHubの実行結果とmain必須checkの設定状況は末尾に記録する。
+状態: 承認済みの導入案に沿って実装・検証済み。文書整合PR #48とは分離し、[PR #49](https://github.com/Bamboosato/markdown-knowledge-board/pull/49)でworkflow、監査script、依存更新、証跡設定を追加した。mainへの反映後は3ジョブを必須checkとして運用する。
 
 ## 1. 結論
 
@@ -109,7 +109,7 @@ lockfile SHA-256: `107e9dcde8b7444afd146a22505c57c5600e96248b0fc5dd9d7e4a9fb8891
 
 offline再起動、API非cache、install Help、dirty更新・保存失敗・複数tabなどの既存11件を対象にする。通常buildの`dist`と同じrunnerで競合させない。PWA config側でbuildを再実行する点は初回に実行時間を計測し、共通化の必要性を判断する。
 
-Browser smoke／PWAには失敗時のtrace・screenshotとHTML reportを保存する。現行`trace: on-first-retry`だけでは初回失敗時のtraceを残せないため、CI専用設定では`retain-on-failure`を採用する案とする。reportには実施対象、skipと理由、未実施範囲、OS／browser versionを記録する。
+Browser smoke／PWAには失敗時のtrace・screenshotとHTML reportを保存する。`trace: on-first-retry`だけでは初回失敗時のtraceを残せないため、対象設定では`retain-on-failure`を採用した。件数summaryに実施対象、skipと理由、未実施範囲、OS／Node versionを記録し、browser versionはジョブの環境ログで記録する。
 
 ## 5. 監査判定と例外
 
@@ -162,6 +162,26 @@ Mermaidは既存の`htmlLabels: false`と`foreignObject`除去を維持する。
 
 ### 8.2 実行結果
 
-ローカルWindowsとGitHub Actions Linuxの結果、PR、必須check設定は検証完了後に追記する。実OAuth／Drive／Gist、OSネイティブ印刷、IME実機、Android／iPhone launcherは今回の実施対象外。
+| 検証 | Windows（Node 24.13.0／npm 11.6.2） | GitHub Actions Linux（Node 24.21.0／npm 11.6.2） |
+| --- | --- | --- |
+| npm ci、lint、型チェック付きbuild | 成功 | 成功 |
+| unit（数式互換性・CI判定を含む） | 236件成功 | 236件成功 |
+| 監査policy／CLI（異常時証跡を含む） | 46件成功 | 46件成功 |
+| 本番／全依存監査 | 0件／0件、例外なし | 0件／0件、例外なし |
+| Chromiumスモーク | 14件成功 | 14件成功 |
+| PWA専用E2E | 11件成功 | 11件成功 |
+| PWA build verifier | 成功、gzip 2,661,253 bytes | 成功、gzip 2,660,753 bytes |
+
+両環境のChromiumは149.0.7827.55。コード実装commit `00f0eb7f38b646e63a9b5e500bf1e4b1bca7debe`に対する[Linux検証run](https://github.com/Bamboosato/markdown-knowledge-board/actions/runs/37417689583)は3ジョブ成功。依存監査Artifactの4 JSON、本番・全依存0件、Browser smoke／PWAのHTML report・実行件数summaryを実際に取得して確認した。Vercel Previewも成功。
+
+依存更新の追加回帰は、Import・Mermaid・Slides・印刷のChromium 46対象とMetadataの3対象へ限定した。初回は既存Slidesテストの絶対Y比較・Exportの曖昧な選択と、新規テストのMathML前提が失敗した。Slidesは各toolbarからの余白と現行Local export経路へ修正し、Mermaidは既存SVG-only仕様を検証するよう修正して再実行した。Metadataは標準36pxとicon40pxを混同していた古い期待値を修正し、保護キー・重複キー・取消・保存・reloadの対象ケースを再実行して成功した。UI実装は変更していない。
+
+PWA実行中にnpm ciを重ねた最初のローカル結果は検証結果から除外した。最終確認はnpm ci完了後の状態でlint、unit、監査、Chromiumスモーク、PWAを直列実行した。追加のbrowserケースも単一workerで順番に実行した。
+
+E2E範囲は**対象ケースのみ**。全E2E、Firefox／WebKit、Styled Exportの実browser操作、実OAuth／Drive／Gist、OSネイティブ印刷、IME実機、Android／iPhone launcherは未実施。Styled Export関連unitは通常unitに含む。初回失敗時のtrace／screenshot取得はローカルスモークで確認し、監査取得失敗時の両scope・判定証跡は隔離したCLI integrationテストで確認した。GitHubジョブを意図的に失敗させる試験は行っていない。
+
+### 8.3 mainの品質ゲート
+
+workflow反映後に`Verify`、`Browser smoke`、`PWA`をmainの必須checkへ設定する。GitHub ActionsのAppにcheck発行元を限定し、最新mainとの整合を要求する。Vercel deploymentのcheckは継続し、CIの3ジョブとは別に確認する。マージ時はPRの最新headと全check成功を再確認する。
 
 比較元: [tennis CI](https://github.com/Bamboosato/tennis-organizing-app/blob/main/.github/workflows/ci.yml)、[監査script](https://github.com/Bamboosato/tennis-organizing-app/blob/main/scripts/security-audit.mjs)、[監査policy](https://github.com/Bamboosato/tennis-organizing-app/blob/main/scripts/security-audit-policy.mjs)。

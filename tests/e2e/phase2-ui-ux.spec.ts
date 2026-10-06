@@ -2448,7 +2448,8 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
         apply: height(".metadata-dialog-footer .primary-button"),
       };
     });
-    expect(buttonHeights).toEqual({ add: 40, cancel: 40, apply: 40 });
+    // Text actions follow the current 36px standard; icon actions remain 40px.
+    expect(buttonHeights).toEqual({ add: 36, cancel: 36, apply: 36 });
 
     await dialog.getByRole("button", { name: "Add custom field" }).click();
     const deleteButton = dialog.getByRole("button", {
