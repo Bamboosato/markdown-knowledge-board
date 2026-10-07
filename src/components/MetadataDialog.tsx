@@ -5,6 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import {
   RESERVED_FRONTMATTER_KEYS,
   UNSAFE_FRONTMATTER_KEYS,
+  assertFrontmatterExpansion,
   parseFrontmatterValueText,
   serializeFrontmatterValue,
 } from "../lib/frontmatter";
@@ -117,7 +118,26 @@ export function MetadataDialog({
     [keyCounts, normalizedKeys, rows]
   );
 
-  const hasErrors = validations.some((validation) => validation.errors.length > 0);
+  const collectionError = useMemo(() => {
+    if (validations.some((validation) => validation.errors.length > 0)) {
+      return "";
+    }
+    try {
+      // Check the same collection representation used by copying and export.
+      assertFrontmatterExpansion(
+        rows.map((_, index) => ({
+          key: normalizedKeys[index],
+          value: validations[index].parsedValue ?? "",
+        }))
+      );
+      return "";
+    } catch (error) {
+      return error instanceof Error ? error.message : "Metadata is too large.";
+    }
+  }, [normalizedKeys, rows, validations]);
+  const hasErrors =
+    Boolean(collectionError) ||
+    validations.some((validation) => validation.errors.length > 0);
   const isDirty = rowsSignature(rows) !== rowsSignature(initialRows);
 
   useEffect(() => {
@@ -372,6 +392,11 @@ export function MetadataDialog({
                   <Plus aria-hidden="true" />
                   Add custom field
                 </button>
+                {collectionError ? (
+                  <div className="metadata-row-error" role="status">
+                    {collectionError}
+                  </div>
+                ) : null}
               </section>
             </div>
             <div className="metadata-dialog-footer">
