@@ -1,6 +1,7 @@
 import type { BackupDocument, BackupNoteRecord } from "./backup";
 import { canonicalStringify } from "./canonicalJson";
 import {
+  assertFrontmatterExpansion,
   cloneCustomMetadata,
   parseMarkdownWithFrontmatter,
   RESERVED_FRONTMATTER_KEYS,
@@ -147,6 +148,8 @@ function validateCustomMetadata(
   if (value.length > MAX_METADATA_ITEMS) {
     throw new Error(`${location} contains too many entries.`);
   }
+
+  assertFrontmatterExpansion(value);
 
   const keys = new Set<string>();
   const entries = value.map((item, index) => {

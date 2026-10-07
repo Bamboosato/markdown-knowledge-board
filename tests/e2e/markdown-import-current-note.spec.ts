@@ -257,6 +257,61 @@ test("auto-activation leaves selection unchanged when every save fails", async (
   expect(await readStoredNotes(page)).toEqual([activationOriginal]);
 });
 
+test("metadata expansion limits preserve saved notes and allow a subsequent import", async ({ page }) => {
+  await seedSavedNote(page, activationOriginal);
+  const aliases = ["a0: &a0 [leaf, leaf, leaf, leaf, leaf, leaf, leaf, leaf, leaf, leaf]"];
+  for (let level = 1; level <= 4; level += 1) {
+    aliases.push(`a${level}: &a${level} [${Array(10).fill(`*a${level - 1}`).join(", ")}]`);
+  }
+  await importActivationFiles(page, "picker", [{
+    name: "oversized.md",
+    content: `---\n${aliases.join("\n")}\n---\nBody`,
+  }]);
+  const result = page.getByRole("dialog", { name: "Import Complete" });
+  await expectResultValue(result, "Added", "0");
+  await expectResultValue(result, "Failed", "1");
+  await expect(result).toContainText("Metadata expands beyond");
+  await result.getByRole("button", { name: "Close" }).click();
+  expect(await readStoredNotes(page)).toEqual([activationOriginal]);
+  await expect(page.getByRole("button", { name: "Open note: Activation original" }))
+    .toHaveAttribute("aria-current", "true");
+
+  await importActivationFiles(page, "picker", [{
+    name: "valid-alias.md",
+    content: "---\ntitle: Valid alias\nowner: &owner Team\nreviewer: *owner\n---\nValid body",
+  }]);
+  await expectResultValue(result, "Added", "1");
+  await expectResultValue(result, "Failed", "0");
+  await result.getByRole("button", { name: "Close" }).click();
+  const stored = await readStoredNotes(page);
+  expect(stored.find((note) => note.id === activationOriginal.id)).toEqual(activationOriginal);
+  expect(stored.find((note) => note.title === "Valid alias")?.customMetadata).toEqual([
+    { key: "owner", value: "Team" },
+    { key: "reviewer", value: "Team" },
+  ]);
+});
+
+test("metadata expansion limits show combined field errors before applying", async ({ page }) => {
+  await seedSavedNote(page, activationOriginal);
+  await page.getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name: "Metadata", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Metadata", exact: true });
+  // Each row is valid alone; the complete collection exceeds the shared budget.
+  const value = `[${Array(1000).fill("null").join(",")}]`;
+  for (let index = 0; index < 10; index += 1) {
+    await dialog.getByRole("button", { name: "Add custom field" }).click();
+    await dialog.locator(".metadata-custom-key").nth(index).fill(`field${index}`);
+    await dialog.locator(".metadata-custom-value").nth(index).fill(value);
+  }
+  await expect(dialog.getByRole("status")).toContainText("Metadata expands beyond");
+  await expect(dialog.getByRole("button", { name: "Apply", exact: true })).toBeDisabled();
+  await dialog.locator(".metadata-custom-value").last().fill("valid");
+  await expect(dialog.getByRole("button", { name: "Apply", exact: true })).toBeEnabled();
+  await dialog.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(await readStoredNotes(page)).toEqual([activationOriginal]);
+});
+
 async function delayActivationRead(page: Page) {
   await page.evaluate(() => {
     const gate = window as typeof window & { activationReadStarted?: boolean; releaseActivationRead?: () => void };

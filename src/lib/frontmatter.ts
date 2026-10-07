@@ -53,6 +53,63 @@ export const UNSAFE_FRONTMATTER_KEYS = new Set([
 ]);
 
 const FRONTMATTER_DELIMITER = "---";
+const MAX_EXPANDED_METADATA_VALUES = 10_000;
+const MAX_EXPANDED_METADATA_CHARACTERS = 1_000_000;
+
+/** Bound occurrences, not unique objects: copying or noRefs output expands aliases. */
+export function assertFrontmatterExpansion(value: unknown): void {
+  const pending: Array<{ value: unknown; exit?: boolean }> = [];
+  const ancestors = new Set<object>();
+  let values = 0;
+  let characters = 0;
+
+  const addCharacters = (length: number) => {
+    characters += length;
+    if (characters > MAX_EXPANDED_METADATA_CHARACTERS) {
+      throw new Error("Metadata expands beyond the 1,000,000-character limit.");
+    }
+  };
+  const enqueue = (item: unknown) => {
+    if (++values > MAX_EXPANDED_METADATA_VALUES) {
+      throw new Error("Metadata expands beyond the 10,000-value limit.");
+    }
+    if (typeof item === "string") addCharacters(item.length);
+    pending.push({ value: item });
+  };
+
+  enqueue(value);
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    const item = current.value;
+    if (!item || typeof item !== "object") continue;
+    if (current.exit) {
+      ancestors.delete(item);
+      continue;
+    }
+    if (ancestors.has(item)) {
+      throw new Error("Metadata contains a circular reference.");
+    }
+    ancestors.add(item);
+    pending.push({ value: item, exit: true });
+    if (Array.isArray(item)) {
+      for (let index = item.length - 1; index >= 0; index -= 1) {
+        enqueue(item[index]);
+      }
+    } else {
+      for (const [key, child] of Object.entries(item)) {
+        addCharacters(key.length);
+        enqueue(child);
+      }
+    }
+  }
+}
+
+function loadFrontmatterYaml(text: string): unknown {
+  const parsed = yaml.load(text, { schema: yaml.JSON_SCHEMA });
+  // Check the entire graph before reserved-field filtering or recursive copying.
+  assertFrontmatterExpansion(parsed);
+  return parsed;
+}
 
 function parseFrontmatterBlock(text: string): {
   data: unknown;
@@ -72,7 +129,7 @@ function parseFrontmatterBlock(text: string): {
 
   const frontmatterText = lines.slice(1, endIndex).join("\n");
   const body = lines.slice(endIndex + 1).join("\n");
-  const data = yaml.load(frontmatterText, { schema: yaml.JSON_SCHEMA });
+  const data = loadFrontmatterYaml(frontmatterText);
   return { data, body };
 }
 
@@ -124,11 +181,12 @@ export function parseFrontmatterValueText(text: string): FrontmatterValue {
   if (text.trim().length === 0) {
     return "";
   }
-  const parsed = yaml.load(text, { schema: yaml.JSON_SCHEMA });
+  const parsed = loadFrontmatterYaml(text);
   return normalizeFrontmatterValue(parsed);
 }
 
 export function serializeFrontmatterValue(value: FrontmatterValue): string {
+  assertFrontmatterExpansion(value);
   return yaml
     .dump(value, {
       flowLevel: 0,
@@ -142,6 +200,7 @@ export function serializeFrontmatterValue(value: FrontmatterValue): string {
 export function cloneCustomMetadata(
   entries: CustomMetadataEntry[] | undefined
 ): CustomMetadataEntry[] {
+  assertFrontmatterExpansion(entries ?? []);
   return (entries ?? []).map((entry) => ({
     key: entry.key,
     value: normalizeFrontmatterValue(entry.value),
@@ -152,6 +211,8 @@ export function areCustomMetadataEqual(
   left: CustomMetadataEntry[] | undefined,
   right: CustomMetadataEntry[] | undefined
 ): boolean {
+  assertFrontmatterExpansion(left ?? []);
+  assertFrontmatterExpansion(right ?? []);
   return JSON.stringify(left ?? []) === JSON.stringify(right ?? []);
 }
 
@@ -240,6 +301,8 @@ export function parseMarkdownWithFrontmatter(
       }
       return { key, value: normalizeFrontmatterValue(value) };
     });
+  // Validate the representation used by storage, copying and equality as well.
+  assertFrontmatterExpansion(customMetadata);
 
   return {
     id,
@@ -253,6 +316,7 @@ export function parseMarkdownWithFrontmatter(
 }
 
 export function buildFrontmatterEntries(note: Note): FrontmatterEntry[] {
+  assertFrontmatterExpansion(note.customMetadata ?? []);
   const entries: FrontmatterEntry[] = [
     {
       key: "id",
