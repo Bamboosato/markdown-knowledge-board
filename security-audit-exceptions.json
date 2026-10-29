@@ -1,0 +1,23 @@
+[
+  {
+    "advisory": "https://github.com/advisories/GHSA-gcqx-w48m-w2h4",
+    "owner": "Bamboosato",
+    "reason": "Temporary, user-approved development/build-only acceptance while no official patched deepmerge release exists (checked 2026-10-29). This is one advisory propagated through the PWA build dependency chain, not a remediation. Untrusted merge inputs can poison returned object prototypes; build-time risk remains. Exact locked versions and paths only; production findings remain blocked. Recheck upstream and remove or explicitly reassess before expiry; do not auto-renew. See docs/github-actions-ci-proposal.md section 9.",
+    "expires": "2026-11-12T00:00:00.000Z",
+    "packages": {
+      "deepmerge": {
+        "node_modules/deepmerge": "4.3.1"
+      },
+      "@rollup/plugin-node-resolve": {
+        "node_modules/@rollup/plugin-node-resolve": "16.0.3"
+      },
+      "workbox-build": {
+        "node_modules/workbox-build": "7.4.1"
+      },
+      "vite-plugin-pwa": {
+        "node_modules/vite-plugin-pwa": "1.3.0"
+      }
+    },
+    "severity": "low"
+  }
+]

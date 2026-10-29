@@ -185,3 +185,24 @@ E2E範囲は**対象ケースのみ**。全E2E、Firefox／WebKit、Styled Expor
 workflow反映後に`Verify`、`Browser smoke`、`PWA`をmainの必須checkへ設定する。GitHub ActionsのAppにcheck発行元を限定し、最新mainとの整合を要求する。Vercel deploymentのcheckは継続し、CIの3ジョブとは別に確認する。マージ時はPRの最新headと全check成功を再確認する。
 
 比較元: [tennis CI](https://github.com/Bamboosato/tennis-organizing-app/blob/main/.github/workflows/ci.yml)、[監査script](https://github.com/Bamboosato/tennis-organizing-app/blob/main/scripts/security-audit.mjs)、[監査policy](https://github.com/Bamboosato/tennis-organizing-app/blob/main/scripts/security-audit-policy.mjs)。
+
+## 9. deepmerge の期限付き開発依存例外（2026-10-29）
+
+PR #55 の監査で、本番依存0件、全依存low 4パッケージを確認した。4件は独立した脆弱性ではなく、[GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)が `vite-plugin-pwa → workbox-build → @rollup/plugin-node-resolve → deepmerge` へ波及した結果。2026-10-29時点でdeepmerge最新4.3.1にも修正がなく、公式のpatched versionは未公開。PWA plugin 2.0.0も同じ依存経路を持つため、無関係なmajor更新や旧版へのdowngradeは行わない。
+
+ユーザー承認に基づき、既存の例外機構にこのadvisoryだけを登録する。ownerはBamboosato。期限は **2026-11-12 00:00:00 UTC（日本時間09:00、約14日）**。期限一致以降は監査を失敗させる。自動延長はせず、期限前に公式修正版を再確認し、更新と回帰検証後に例外を削除する。修正版がなければ継続許容を改めて判断する。
+
+対象はlockfile上でdev限定の次の正確なpath/versionだけ：
+
+| path | version |
+| --- | --- |
+| `node_modules/deepmerge` | `4.3.1` |
+| `node_modules/@rollup/plugin-node-resolve` | `16.0.3` |
+| `node_modules/workbox-build` | `7.4.1` |
+| `node_modules/vite-plugin-pwa` | `1.3.0` |
+
+これは脆弱性の修正ではない。細工された入力をmergeすると戻り値のprototypeに攻撃者の属性を継承させる可能性があり、開発・ビルド処理の整合性リスクは残る。本番監査0件はこの開発時リスクがないことを意味しない。信頼できない設定や依存入力の安全性を保証したものでもない。
+
+監査のseverity閾値とworkflowは変更しない。既存例外schemaに任意の`severity`一致条件を追加し、この例外は`low`に限定する。既存のseverity未指定例外の挙動は維持する。本番依存、別advisory、対象外package/path/version、devでなくなった依存、critical、期限切れ、監査取得失敗は引き続きブロックする。同じadvisoryでもmoderate/high/criticalへの引き上げは例外対象外とする。実設定を読み込む回帰テストで4パッケージだけの許容、期限境界、別advisory、本番移行、version/path変更、criticalを確認する。
+
+ローカル確認（Linux、Node 24.22.1／npm 11.6.2）：`npm ci`、lint、unit 249件、監査policy/CLI 64件、型チェック付きbuild、PWA build/verifierが成功。本番監査0件、全依存low 4件は上記の明示的な例外として成功（検出0件になったわけではない）。Chromium配布ZIPが不完全でローカルbrowser installに失敗したため、Browser smoke 14件とPWA E2E 11件はPRの正確なcommitに対するGitHub Actionsで別途確認する。実機・実OAuth・OSネイティブPDFは今回の検証範囲外。

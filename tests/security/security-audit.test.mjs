@@ -147,3 +147,89 @@ for (const mode of ['clean', 'findings', 'network', 'invalid-json']) {
     }
   })
 }
+
+// Exercise the real, approved exception without relying on live registry data.
+function deepmergeExceptionFixture() {
+  const exceptions = JSON.parse(readFileSync(new URL('../../security-audit-exceptions.json', import.meta.url), 'utf8'))
+  const advisory = 'https://github.com/advisories/GHSA-gcqx-w48m-w2h4'
+  assert.equal(exceptions.length, 1)
+  assert.equal(exceptions[0].advisory, advisory)
+  assert.equal(exceptions[0].expires, '2026-11-12T00:00:00.000Z')
+  assert.equal(exceptions[0].severity, 'low')
+  assert.deepEqual(exceptions[0].packages, {
+    deepmerge: { 'node_modules/deepmerge': '4.3.1' },
+    '@rollup/plugin-node-resolve': { 'node_modules/@rollup/plugin-node-resolve': '16.0.3' },
+    'workbox-build': { 'node_modules/workbox-build': '7.4.1' },
+    'vite-plugin-pwa': { 'node_modules/vite-plugin-pwa': '1.3.0' },
+  })
+  return {
+    production: report(),
+    full: report({
+      deepmerge: finding('deepmerge', 'low', [{ url: advisory, severity: 'low' }]),
+      '@rollup/plugin-node-resolve': finding('@rollup/plugin-node-resolve', 'low', ['deepmerge']),
+      'workbox-build': finding('workbox-build', 'low', ['@rollup/plugin-node-resolve']),
+      'vite-plugin-pwa': finding('vite-plugin-pwa', 'low', ['workbox-build']),
+    }),
+    lock: JSON.parse(readFileSync(new URL('../../package-lock.json', import.meta.url), 'utf8')),
+    exceptions, now: new Date('2026-10-29T00:00:00.000Z'),
+  }
+}
+test('configured deepmerge exception allows exactly the four development findings', () => {
+  const result = evaluateAudits(deepmergeExceptionFixture())
+  assert.deepEqual(result, { ok: true, blocked: [], excepted: [
+    'deepmerge', '@rollup/plugin-node-resolve', 'workbox-build', 'vite-plugin-pwa',
+  ] })
+})
+for (const [date, ok] of [
+  ['2026-11-11T23:59:59.999Z', true],
+  ['2026-11-12T00:00:00.000Z', false],
+  ['2026-11-12T00:00:00.001Z', false],
+]) test(`configured deepmerge exception expiry: ${date}`, () => {
+  const f = deepmergeExceptionFixture(); f.now = new Date(date)
+  assert.equal(evaluateAudits(f).ok, ok)
+})
+for (const [label, mutate] of Object.entries({
+  'additional advisory propagates to all parents': (f) => {
+    f.full.vulnerabilities.deepmerge.via.push({ url, severity: 'low' })
+  },
+  'production finding': (f) => { f.production = f.full },
+  'runtime promotion': (f) => { delete f.lock.packages['node_modules/deepmerge'].dev },
+  'version change': (f) => { f.lock.packages['node_modules/deepmerge'].version = '4.3.2' },
+  'path change': (f) => {
+    const path = 'node_modules/workbox-build/node_modules/deepmerge'
+    f.lock.packages[path] = { version: '4.3.1', dev: true }
+    f.full.vulnerabilities.deepmerge.nodes = [path]
+  },
+  'critical advisory': (f) => { f.full.vulnerabilities.deepmerge.via[0].severity = 'critical' },
+})) test(`configured deepmerge exception rejects ${label}`, () => {
+  const f = deepmergeExceptionFixture(); mutate(f)
+  const result = evaluateAudits(f)
+  assert.equal(result.ok, false)
+  assert.equal(result.excepted.length, 0)
+})
+test('configured deepmerge exception does not allow an unrelated low finding', () => {
+  const f = deepmergeExceptionFixture()
+  f.lock.packages['node_modules/leaf'] = { version: '1.0.0', dev: true }
+  f.full = report({ ...f.full.vulnerabilities, leaf: finding('leaf', 'low') })
+  assert.deepEqual(evaluateAudits(f).blocked, ['full: leaf'])
+})
+
+for (const severity of ['moderate', 'high', 'critical']) {
+  test(`configured deepmerge exception rejects advisory severity escalation to ${severity}`, () => {
+    const f = deepmergeExceptionFixture()
+    f.full.vulnerabilities.deepmerge.via[0].severity = severity
+    assert.equal(evaluateAudits(f).ok, false)
+    assert.equal(evaluateAudits(f).excepted.length, 0)
+  })
+  test(`configured deepmerge exception rejects package severity escalation to ${severity}`, () => {
+    const f = deepmergeExceptionFixture()
+    f.full.vulnerabilities.deepmerge.severity = severity
+    f.full = report(f.full.vulnerabilities)
+    assert.equal(evaluateAudits(f).ok, false)
+    assert.equal(evaluateAudits(f).excepted.length, 0)
+  })
+}
+test('invalid explicit exception severity fails closed', () => {
+  const f = deepmergeExceptionFixture(); f.exceptions[0].severity = 'anything'
+  assert.equal(evaluateAudits(f).ok, false)
+})
