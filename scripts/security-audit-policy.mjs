@@ -50,6 +50,7 @@ export function evaluateAudits({ production, full, lock, exceptions = [], now = 
     if (!record(exception) || !text(exception.advisory) ||
         !exception.advisory.startsWith('https://github.com/advisories/') ||
         !text(exception.owner) || !text(exception.reason) ||
+        (Object.hasOwn(exception, 'severity') && !severities.includes(exception.severity)) ||
         !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.000Z$/.test(exception.expires) ||
         !Number.isFinite(Date.parse(exception.expires)) || !record(exception.packages) ||
         !Object.keys(exception.packages).length) return invalid('Invalid exception definition')
@@ -72,6 +73,7 @@ export function evaluateAudits({ production, full, lock, exceptions = [], now = 
   function allowed(name, exception, seen = new Set()) {
     const item = full.vulnerabilities[name]
     if (!item || seen.has(name) || item.severity === 'critical' ||
+        (exception.severity !== undefined && item.severity !== exception.severity) ||
         now.getTime() >= Date.parse(exception.expires) ||
         !Object.hasOwn(exception.packages, name) ||
         Object.hasOwn(production.vulnerabilities, name)) return false
@@ -81,7 +83,8 @@ export function evaluateAudits({ production, full, lock, exceptions = [], now = 
     const visited = new Set(seen).add(name)
     return item.via.every((cause) => typeof cause === 'string'
       ? allowed(cause, exception, visited)
-      : cause.url === exception.advisory && cause.severity !== 'critical')
+      : cause.url === exception.advisory && cause.severity !== 'critical' &&
+        (exception.severity === undefined || cause.severity === exception.severity))
   }
   for (const name of Object.keys(full.vulnerabilities)) {
     if (exceptions.some((exception) => allowed(name, exception))) excepted.push(name)
