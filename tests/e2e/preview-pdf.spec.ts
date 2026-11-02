@@ -189,7 +189,7 @@ test.describe("Preview Print / PDF", () => {
     expect(warning).toContain("Mermaid");
   });
 
-  test("generates a tall-image PDF for visual review", async ({ page }, testInfo) => {
+  test("compares tall-image print pagination and proportional scaling", async ({ page }, testInfo) => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="3000" viewBox="0 0 100 3000"><rect width="100" height="3000" fill="#cde"/><text x="2" y="30">TOP</text><text x="2" y="2980">BOTTOM</text></svg>';
     const image = "https://fixture.invalid/tall.svg";
     await page.route(image, (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", headers: { "access-control-allow-origin": "*" }, body: svg }));
@@ -198,13 +198,65 @@ test.describe("Preview Print / PDF", () => {
     await expect(page.locator(".print-surface img")).toHaveCount(1);
     await expect.poll(() => page.locator(".print-surface img").evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
     await page.pdf({ path: testInfo.outputPath("large-image-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    const trial = await page.addStyleTag({ content: "@media print { .print-mdPreview img, .styled-export-markdown img { break-inside: auto !important; } }" });
+    await page.pdf({ path: testInfo.outputPath("large-image-simple-auto.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await trial.evaluate((style) => { style.textContent = "@media print { .print-mdPreview img, .styled-export-markdown img { max-height: 245mm !important; width: auto !important; height: auto !important; } }"; });
+    await page.pdf({ path: testInfo.outputPath("large-image-simple-scaled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await trial.evaluate((style) => { style.textContent = "@media print { .print-mdPreview img, .styled-export-markdown img { break-inside: auto !important; } }"; });
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
     await page.getByRole("button", { name: "Load HTTPS images" }).click();
     await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled({ timeout: 20_000 });
     await page.evaluate(() => document.body.classList.add("styled-export-printing"));
     await page.pdf({ path: testInfo.outputPath("large-image-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await trial.evaluate((style) => { style.textContent = ""; });
+    await page.pdf({ path: testInfo.outputPath("large-image-styled-original.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await trial.evaluate((style) => { style.textContent = "@media print { .print-mdPreview img, .styled-export-markdown img { max-height: 245mm !important; width: auto !important; height: auto !important; } }"; });
+    await page.pdf({ path: testInfo.outputPath("large-image-styled-scaled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
   });
+
+  for (const [width, height, orientation] of [[400, 300, "landscape"], [300, 400, "portrait"]] as const) {
+    test(`preserves ${orientation} images in Preview, print and Styled HTML`, async ({ page, context }, testInfo) => {
+      const image = `https://fixture.invalid/${orientation}.svg`;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#cde"/><text x="10" y="30">IMAGE TOP</text><text x="10" y="${height - 20}">IMAGE BOTTOM</text></svg>`;
+      await page.route(image, (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", headers: { "access-control-allow-origin": "*" }, body: svg }));
+      await page.goto("/");
+      await createSavedNote(page, `Image ${orientation}`, `![${orientation}](${image})\n\nImage end marker.`);
+      await page.getByRole("button", { name: "Preview", exact: true }).click();
+      const previewImage = page.locator('.mdPreview:not(.print-mdPreview) img').first();
+      await expect.poll(() => previewImage.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(width);
+      const previewSize = await previewImage.evaluate((img: HTMLImageElement) => ({ w: img.getBoundingClientRect().width, h: img.getBoundingClientRect().height }));
+      expect(previewSize.w / previewSize.h).toBeCloseTo(width / height, 2);
+      await page.emulateMedia({ media: "print" });
+      const printImage = page.locator(".print-surface img");
+      const printSize = await printImage.evaluate((img: HTMLImageElement) => ({ w: img.getBoundingClientRect().width, h: img.getBoundingClientRect().height }));
+      expect(printSize.w / printSize.h).toBeCloseTo(width / height, 2);
+      await page.pdf({ path: testInfo.outputPath(`${orientation}-simple.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
+      await page.emulateMedia({ media: "screen" });
+      await page.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+      await page.getByRole("button", { name: "Load HTTPS images" }).click();
+      await expect(page.getByRole("button", { name: "Download HTML" })).toBeEnabled();
+      const downloadPromise = page.waitForEvent("download");
+      await page.getByRole("button", { name: "Download HTML" }).click();
+      const download = await downloadPromise;
+      const destination = testInfo.outputPath(`${orientation}.html`);
+      await download.saveAs(destination);
+      const exported = await context.newPage();
+      const external: string[] = [];
+      exported.on("request", (request) => { if (/^https?:/i.test(request.url())) external.push(request.url()); });
+      await exported.goto(new URL(`file:///${destination.replace(/\\/g, "/")}`).href);
+      await expect.poll(() => exported.locator("img").evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(width);
+      expect(external).toEqual([]);
+      await exported.close();
+      await page.evaluate(() => document.body.classList.add("styled-export-printing"));
+      await page.emulateMedia({ media: "print" });
+      const styledImage = page.locator(".styled-export-preview-wrap img");
+      const styledSize = await styledImage.evaluate((img: HTMLImageElement) => ({ w: img.getBoundingClientRect().width, h: img.getBoundingClientRect().height }));
+      expect(styledSize.w / styledSize.h).toBeCloseTo(width / height, 2);
+      await page.pdf({ path: testInfo.outputPath(`${orientation}-styled.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
+    });
+  }
 
   for (const [height, fallback] of [[1200, false], [1800, true]] as const) {
     test(`checks print geometry for a 1200 by ${height} Mermaid SVG`, async ({ page }, testInfo) => {

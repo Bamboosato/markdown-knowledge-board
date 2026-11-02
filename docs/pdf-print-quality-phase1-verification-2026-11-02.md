@@ -39,3 +39,16 @@
 - 追加試験の初回は9,000行のエディター入力でタイムアウト。51,200文字超の少数行fixtureへ変更し再現性を確保した。別のE2E初回ページ読み込みtimeoutは単独再実行で成功した。いずれも製品の印刷失敗と断定しない。
 - 依存監査はproduction 0件、全依存low 2件/moderate 19件で失敗。lockfile・依存は今回変更しておらず、既存開発依存の問題として別途扱う。
 - 縦長画像の空白ページ、未検証の実機・印刷ダイアログ、印刷境界の追加確認、依存監査が残るため、Phase 1の完了判定は保留。
+
+## 縦長画像の追加調査
+
+- 再現: 100×3,000pxの合成SVG、後続本文、Windows Chromium・A4。実画像取得はPlaywrightで固定応答を返し、外部送信しない。既存CSSでは簡易5ページ、Styled 6ページとなり、それぞれ先頭付近に大きな空白が生じた。
+- 画像に `break-inside: auto` を適用してもページ数・空白は変わらなかった。画像の比率を維持して `max-height: 245mm` とした場合は簡易2ページ・Styled 3ページになったが、先頭の空白は残り、画像幅は約31 CSS pxとなって文字が読みにくい。両案とも試験用の一時CSSであり製品CSSには適用していない。
+- 400×300pxと300×400pxの合成SVGでは通常Preview、簡易・Styled印刷、保存したStyled HTMLで縦横比を確認。Styled HTMLの再表示時の外部HTTP/HTTPS要求は0件。
+- 等倍に近い複数ページ出力、ページ内縮小、画像を可読な大きさでページごとに切り分ける方法には可読性と実装・HTML互換性の差がある。方針の決定まではAC-03を保留する。比較PDFはローカルの `output/pdf-review/image-trials/` にある。
+
+## GitHub送信前の自動プレビュー確認（未適用）
+
+- 接続先はGitHub `Bamboosato/markdown-knowledge-board`、Vercelプロジェクト `markdown-knowledge-board`。ローカルoriginには旧名 `set3-markdown-knowledge-board` が設定され、GitHub APIは現在のリポジトリへ移転応答を返す。既存の非mainブランチからのVercel Preview生成履歴がある。現在取得できたプロジェクト情報ではVercel認証が `all_except_custom_domains` で有効。今回のブランチやPRはリモート検索で見つからなかった。リポジトリ内workflow・package・設定の文字列検索では別のデプロイ処理は見つからなかったが、外部連携をすべて網羅した証明ではない。
+- 既存 `vercel.json` に `git.deploymentEnabled` はない。[Vercel公式Git設定](https://vercel.com/docs/project-configuration/git-configuration)では未指定ブランチはデフォルト有効で、pushによる自動デプロイをブランチ単位で無効化できる。取得した情報だけでは他のプロジェクト側ルールすべてを確定できないため、実際の生成有無はpush後に確認が必要。
+- 対象ブランチのプレビューを抑止する案は、既存JSONのルートに `"git": { "deploymentEnabled": { "feat/pdf-print-quality-phase1": false } }` を追加すること。これは設定変更を含む案であり、**未適用**。別案はプレビュー生成を追加承認して既存設定のままpushすること。どちらもマージ・本番デプロイを意味しない。
