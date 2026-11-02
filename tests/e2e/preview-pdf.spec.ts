@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { readBodyEditorValue } from "./body-editor";
 
 /**
@@ -19,6 +20,8 @@ declare global {
     __allowMermaid?: boolean;
     __pendingMermaid?: Promise<string>;
     __resolveMermaid?: (svg: string) => void;
+    __savedPrintCanvases?: HTMLCanvasElement[];
+    __printExceptionCalled?: boolean;
   }
 }
 
@@ -103,6 +106,25 @@ test.describe("Preview Print / PDF", () => {
     await expect(page.getByRole("menuitem", { name: "Print / PDF" })).toBeEnabled();
   });
 
+  test("cancels preparation when the unsaved draft changes", async ({ page }) => {
+    await stubBrowserPrint(page);
+    await page.goto("/");
+    await createSavedNote(page, "Changing draft", "Original content");
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await page.evaluate(() => {
+      const pending = new Promise<FontFaceSet>((resolve) => { window.__releaseFonts = () => resolve(document.fonts); });
+      Object.defineProperty(document.fonts, "ready", { configurable: true, get: () => pending });
+    });
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await page.getByRole("textbox", { name: "Body" }).fill("Changed while preparing");
+    await page.evaluate(() => window.__releaseFonts?.());
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Print / PDF" })).toBeEnabled();
+    expect(await page.evaluate(() => window.__printCalls ?? 0)).toBe(0);
+    await expect(page.getByText("Status: Unsaved")).toBeVisible();
+  });
+
   test("recovers when the browser does not emit afterprint", async ({ page }) => {
     await page.goto("/");
     await createSavedNote(page, "No afterprint", "Content");
@@ -123,9 +145,10 @@ test.describe("Preview Print / PDF", () => {
     await createSavedNote(page, "Large Mermaid", `\`\`\`mermaid\n${code}\`\`\``);
     const block = page.locator('.print-surface [data-mermaid-status="too-large"]');
     await expect(block.locator("pre code")).toContainText("A-->B");
-    await page.evaluate(() => { window.print = () => { throw new Error("simulated print failure"); }; });
+    await page.evaluate(() => { window.print = () => { window.__printExceptionCalled = true; throw new Error("simulated print failure"); }; });
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printExceptionCalled ?? false)).toBe(true);
     await page.getByRole("button", { name: "More actions" }).click();
     await expect(page.getByRole("menuitem", { name: "Print / PDF" })).toBeEnabled();
     await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; window.dispatchEvent(new Event("afterprint")); }; });
@@ -214,6 +237,269 @@ test.describe("Preview Print / PDF", () => {
     await trial.evaluate((style) => { style.textContent = "@media print { .print-mdPreview img, .styled-export-markdown img { max-height: 245mm !important; width: auto !important; height: auto !important; } }"; });
     await page.pdf({ path: testInfo.outputPath("large-image-styled-scaled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
   });
+
+  test("splits a tall image for both print paths without extra requests", async ({ page }, testInfo) => {
+    const image = "https://fixture.invalid/slices.svg";
+    const markers = [30, 690, 750, 1410, 1470, 2130, 2190, 2850, 2910, 2980];
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="3000" viewBox="0 0 100 3000"><rect width="100" height="3000" fill="#cde"/>${markers.map((y) => `<text x="2" y="${y}">Y${y}</text>`).join("")}</svg>`;
+    let requests = 0;
+    await page.route(image, (route) => { requests++; return route.fulfill({ status: 200, contentType: "image/svg+xml", headers: { "access-control-allow-origin": "*", "cache-control": "no-store" }, body: svg }); });
+    await page.goto("/");
+    await createSavedNote(page, "Split image", `![tall](${image})\n\nImage end marker.`);
+    await expect.poll(() => page.locator(".print-surface img").first().evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(3000);
+    await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
+    const beforeSimple = requests;
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
+    expect(requests).toBe(beforeSimple);
+    await expect(page.locator(".print-surface .print-image-slice")).toHaveCount(5);
+    await page.evaluate(() => { window.__savedPrintCanvases = Array.from(document.querySelectorAll('.print-surface .print-image-slice canvas')); });
+    await page.pdf({ path: testInfo.outputPath("split-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+    await expect(page.locator(".print-surface .print-image-slice")).toHaveCount(0);
+    expect(await page.evaluate(() => window.__savedPrintCanvases?.every((canvas) => canvas.width === 0 && canvas.height === 0))).toBe(true);
+    await page.evaluate(() => { window.print = () => { window.__printExceptionCalled = true; throw new Error("simulated print failure"); }; });
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printExceptionCalled ?? false)).toBe(true);
+    await expect(page.locator(".print-surface .print-image-slice")).toHaveCount(0);
+    await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await page.getByRole("button", { name: "Load HTTPS images" }).click();
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+    const originalStyledSource = await page.locator(".styled-export-preview-wrap img").getAttribute("src");
+    const beforeStyled = requests;
+    await page.getByRole("button", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(2);
+    expect(requests).toBe(beforeStyled);
+    await expect(page.locator(".styled-export-preview-wrap .print-image-slice")).toHaveCount(5);
+    await page.evaluate(() => { window.__savedPrintCanvases = Array.from(document.querySelectorAll('.styled-export-preview-wrap .print-image-slice canvas')); });
+    await page.emulateMedia({ media: "print" });
+    await expect(page.locator(".styled-export-preview-wrap img")).toBeHidden();
+    await page.pdf({ path: testInfo.outputPath("split-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await page.emulateMedia({ media: "screen" });
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+    await expect(page.locator(".styled-export-preview-wrap .print-image-slice")).toHaveCount(0);
+    await expect(page.locator(".styled-export-preview-wrap img")).toBeVisible();
+    await expect(page.locator(".styled-export-preview-wrap img")).toHaveAttribute("src", originalStyledSource!);
+    expect(await page.evaluate(() => window.__savedPrintCanvases?.every((canvas) => canvas.width === 0 && canvas.height === 0))).toBe(true);
+    await page.getByRole("button", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(3);
+    await page.evaluate(() => { window.__savedPrintCanvases = Array.from(document.querySelectorAll('.styled-export-preview-wrap .print-image-slice canvas')); });
+    await page.getByRole("button", { name: "Back to Preview" }).click();
+    expect(await page.evaluate(() => window.__savedPrintCanvases?.every((canvas) => canvas.width === 0 && canvas.height === 0))).toBe(true);
+    expect(await page.evaluate(() => document.body.classList.contains("styled-export-printing"))).toBe(false);
+  });
+
+  test("keeps split images inside table cells and quotes in both paths", async ({ page }, testInfo) => {
+    const image = "https://fixture.invalid/wide-tall.svg";
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="8000" viewBox="0 0 1000 8000"><rect width="1000" height="8000" fill="#cde"/><text x="10" y="30">TOP LEFT</text><text x="800" y="7980">BOTTOM RIGHT</text></svg>';
+    await page.route(image, (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", headers: { "access-control-allow-origin": "*" }, body: svg }));
+    await page.goto("/");
+    await createSavedNote(page, "Narrow containers", `| First | Second |\n| --- | --- |\n| ![table](${image}) | other column |\n\n> ![quote](${image})\n\nFollowing marker.`);
+    await expect.poll(() => page.locator(".print-surface img").count()).toBe(2);
+    await expect.poll(() => page.locator(".print-surface img").first().evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(8000);
+    await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
+    await page.emulateMedia({ media: "print" });
+    for (const parent of [".print-surface td", ".print-surface blockquote"]) {
+      const bounds = await page.locator(parent).first().evaluate((container) => {
+        const child = container.querySelector(".print-image-slice")!.getBoundingClientRect();
+        const outer = container.getBoundingClientRect();
+        return { childLeft: child.left, childRight: child.right, left: outer.left, right: outer.right };
+      });
+      expect(bounds.childLeft).toBeGreaterThanOrEqual(bounds.left - 0.5);
+      expect(bounds.childRight).toBeLessThanOrEqual(bounds.right + 0.5);
+    }
+    await page.pdf({ path: testInfo.outputPath("narrow-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await page.emulateMedia({ media: "screen" });
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await page.getByRole("button", { name: "Load HTTPS images" }).click();
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled({ timeout: 20_000 });
+    await page.getByRole("button", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(2);
+    await page.emulateMedia({ media: "print" });
+    for (const parent of [".styled-export-preview-wrap td", ".styled-export-preview-wrap blockquote"]) {
+      const bounds = await page.locator(parent).first().evaluate((container) => {
+        const child = container.querySelector(".print-image-slice")!.getBoundingClientRect();
+        const outer = container.getBoundingClientRect();
+        return { childLeft: child.left, childRight: child.right, left: outer.left, right: outer.right };
+      });
+      expect(bounds.childLeft).toBeGreaterThanOrEqual(bounds.left - 0.5);
+      expect(bounds.childRight).toBeLessThanOrEqual(bounds.right + 0.5);
+    }
+    await page.pdf({ path: testInfo.outputPath("narrow-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await page.emulateMedia({ media: "screen" });
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+  });
+
+  test("keeps ordinary high-resolution and fitting table images as original images", async ({ page }, testInfo) => {
+    const photo = "https://fixture.invalid/photo.jpg", cell = "https://fixture.invalid/fitting-cell.svg";
+    const svg = (width: number, height: number) => `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" fill="#cde"/><text x="20" y="50">IMAGE TOP</text><text x="20" y="${height - 30}">IMAGE BOTTOM</text></svg>`;
+    const photoData = Buffer.from(await page.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 2000; canvas.height = 3000;
+      const ctx = canvas.getContext("2d")!; ctx.fillStyle = "#cde"; ctx.fillRect(0, 0, 2000, 3000);
+      ctx.fillStyle = "#000"; ctx.font = "40px sans-serif"; ctx.fillText("PHOTO TOP", 20, 60); ctx.fillText("PHOTO BOTTOM", 20, 2960);
+      return canvas.toDataURL("image/jpeg", 0.9).split(",")[1];
+    }), "base64");
+    await page.route(photo, (route) => route.fulfill({ contentType: "image/jpeg", headers: { "access-control-allow-origin": "*" }, body: photoData }));
+    await page.route(cell, (route) => route.fulfill({ contentType: "image/svg+xml", headers: { "access-control-allow-origin": "*" }, body: svg(1000, 2500) }));
+    await page.goto("/");
+    await createSavedNote(page, "Ordinary images", `![photo](${photo})\n\n| First | Second |\n| --- | --- |\n| ![cell](${cell}) | other column |\n\nFollowing marker.`);
+    await expect.poll(() => page.locator(".print-surface img").count()).toBe(2);
+    await expect.poll(() => page.locator(".print-surface img").first().evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(2000);
+    await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
+    await expect(page.locator(".print-surface .print-image-slice")).toHaveCount(0);
+    await page.emulateMedia({ media: "print" });
+    await expect(page.locator(".print-surface img")).toHaveCount(2);
+    await expect(page.locator(".print-surface img").first()).toBeVisible();
+    await page.pdf({ path: testInfo.outputPath("ordinary-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    if (process.env.PDF_COMPARE_PARENT === "1") {
+      const oldCss = execFileSync("git", ["show", "f708207:src/App.css"], { encoding: "utf8" });
+      const sheet = page.locator('style[data-vite-dev-id*="App.css"]');
+      const currentCss = await sheet.textContent();
+      await sheet.evaluate((element, css) => { element.textContent = css; }, oldCss);
+      await page.pdf({ path: testInfo.outputPath("ordinary-simple-parent-css.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+      await sheet.evaluate((element, css) => { element.textContent = css; }, currentCss);
+    }
+    await page.emulateMedia({ media: "screen" });
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await page.getByRole("button", { name: "Load HTTPS images" }).click();
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+    await page.getByRole("button", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(2);
+    await expect(page.locator(".styled-export-preview-wrap .print-image-slice")).toHaveCount(0);
+    await page.emulateMedia({ media: "print" });
+    await expect(page.locator(".styled-export-preview-wrap img")).toHaveCount(2);
+    await expect(page.locator(".styled-export-preview-wrap img").first()).toBeVisible();
+    await page.pdf({ path: testInfo.outputPath("ordinary-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    if (process.env.PDF_COMPARE_PARENT === "1") {
+      const appCss = execFileSync("git", ["show", "f708207:src/App.css"], { encoding: "utf8" });
+      const styledCss = execFileSync("git", ["show", "f708207:src/lib/styledExport/document.css"], { encoding: "utf8" });
+      const appSheet = page.locator('style[data-vite-dev-id*="App.css"]');
+      const styledSheet = page.locator(".styled-export-view > style");
+      const currentAppCss = await appSheet.textContent(), currentStyledCss = await styledSheet.textContent();
+      await appSheet.evaluate((element, css) => { element.textContent = css; }, appCss);
+      await styledSheet.evaluate((element, css) => { element.textContent = css; }, styledCss);
+      await page.pdf({ path: testInfo.outputPath("ordinary-styled-parent-css.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+      await appSheet.evaluate((element, css) => { element.textContent = css; }, currentAppCss);
+      await styledSheet.evaluate((element, css) => { element.textContent = css; }, currentStyledCss);
+    }
+    await page.emulateMedia({ media: "screen" });
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+  });
+
+  for (const viewportWidth of [390, 1280]) {
+    test(`matches Website print geometry at viewport ${viewportWidth}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width: viewportWidth, height: 900 });
+      const image = "https://fixture.invalid/website.svg";
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="3300" viewBox="0 0 1000 3300"><rect width="1000" height="3300" fill="#cde"/><text x="20" y="50">WEBSITE TOP</text><text x="20" y="3250">WEBSITE BOTTOM</text></svg>';
+      await page.route(image, (route) => route.fulfill({ contentType: "image/svg+xml", headers: { "access-control-allow-origin": "*" }, body: svg }));
+      await page.goto("/");
+      await createSavedNote(page, `Website ${viewportWidth}`, `![website](${image})\n\nWebsite end marker.`);
+      await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
+      await page.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+      await page.getByRole("button", { name: "Load HTTPS images" }).click();
+      await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+      await page.getByLabel("Design").selectOption("website");
+      await page.getByRole("button", { name: "Print / PDF" }).click();
+      await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
+      await expect(page.locator(".styled-export-preview-wrap .print-image-slice")).toHaveCount(0);
+      await page.pdf({ path: testInfo.outputPath(`website-${viewportWidth}.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
+      await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+    });
+  }
+
+  for (const format of ["png", "jpeg", "svg"] as const) {
+    test(`preserves every pixel at slice boundaries for ${format} in both paths`, async ({ page }) => {
+      const mime = format === "svg" ? "image/svg+xml" : `image/${format}`;
+      const bars = [0, 719, 720, 721, 1439, 1440, 1441, 2159, 2160, 2161, 2600];
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="2601"><rect width="100" height="2601" fill="#eeeeee"/>${bars.map((y, i) => `<rect x="0" y="${y}" width="100" height="1" fill="${i % 2 ? "#ff0000" : "#0000ff"}"/>`).join("")}</svg>`;
+      const data = format === "svg" ? Buffer.from(svg) : Buffer.from((await page.evaluate(({ mime, bars }) => {
+        const canvas = document.createElement("canvas"); canvas.width = 100; canvas.height = 2601;
+        const ctx = canvas.getContext("2d")!; ctx.fillStyle = "#eeeeee"; ctx.fillRect(0, 0, 100, 2601);
+        bars.forEach((y, i) => { ctx.fillStyle = i % 2 ? "#ff0000" : "#0000ff"; ctx.fillRect(0, y, 100, 1); });
+        return canvas.toDataURL(mime, 1).split(",")[1];
+      }, { mime, bars })), "base64");
+      const url = `/fixture-slices-${format}`;
+      await page.route(`**${url}`, (route) => route.fulfill({ status: 200, contentType: mime, body: data }));
+      await page.goto("/");
+      await createSavedNote(page, `Pixels ${format}`, `![fixture](${url})\n\nImage end marker.`);
+      await expect.poll(() => page.locator(".print-surface img").first().evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(2601);
+      await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
+      const verifyPixels = async (scope: string) => {
+        const result = await page.locator(scope).evaluate((root) => {
+          const image = root.querySelector("img")!;
+          const canvases = Array.from(root.querySelectorAll<HTMLCanvasElement>(".print-image-slice canvas"));
+          const reference = document.createElement("canvas"); reference.width = image.naturalWidth; reference.height = image.naturalHeight;
+          const ctx = reference.getContext("2d")!; ctx.drawImage(image, 0, 0);
+          const expected = ctx.getImageData(0, 0, reference.width, reference.height).data;
+          let offset = 0, mismatches = 0;
+          for (const canvas of canvases) {
+            const actual = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+            for (let i = 0; i < actual.length; i++) if (actual[i] !== expected[offset + i]) mismatches++;
+            offset += actual.length;
+          }
+          window.__savedPrintCanvases = canvases;
+          return { count: canvases.length, actual: offset, expected: expected.length, mismatches };
+        });
+        expect(result).toEqual({ count: 4, actual: 100 * 2601 * 4, expected: 100 * 2601 * 4, mismatches: 0 });
+      };
+      await page.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+      await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
+      await verifyPixels(".print-surface");
+      await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+      expect(await page.evaluate(() => window.__savedPrintCanvases?.every((canvas) => canvas.width === 0 && canvas.height === 0))).toBe(true);
+      await page.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+      await page.locator('.styled-export-issues input[type="file"]').setInputFiles({ name: `fixture.${format}`, mimeType: mime, buffer: data });
+      await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+      await page.getByRole("button", { name: "Print / PDF" }).click();
+      await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(2);
+      await verifyPixels(".styled-export-preview-wrap");
+      await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+      expect(await page.evaluate(() => window.__savedPrintCanvases?.every((canvas) => canvas.width === 0 && canvas.height === 0))).toBe(true);
+    });
+  }
+
+  for (const [height, expected] of [[1971, 0], [1972, 0], [1973, 3]] as const) {
+    test(`uses image slicing threshold correctly at ${height}px in both paths`, async ({ page }) => {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="${height}"><rect width="100" height="${height}" fill="#cde"/></svg>`;
+      const data = Buffer.from(svg);
+      const url = `/threshold-${height}.svg`;
+      await page.route(`**${url}`, (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", body: data }));
+      await page.goto("/");
+      await createSavedNote(page, `Threshold ${height}`, `![threshold](${url})\n\nAfter image.`);
+      await expect.poll(() => page.locator(".print-surface img").first().evaluate((img: HTMLImageElement) => img.naturalHeight)).toBe(height);
+      await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
+      await page.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+      await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
+      await expect(page.locator(".print-surface .print-image-slice")).toHaveCount(expected);
+      await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+      await page.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+      await page.locator('.styled-export-issues input[type="file"]').setInputFiles({ name: `threshold-${height}.svg`, mimeType: "image/svg+xml", buffer: data });
+      await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+      await page.getByRole("button", { name: "Print / PDF" }).click();
+      await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(2);
+      await expect(page.locator(".styled-export-preview-wrap .print-image-slice")).toHaveCount(expected);
+      await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+    });
+  }
 
   for (const [width, height, orientation] of [[400, 300, "landscape"], [300, 400, "portrait"]] as const) {
     test(`preserves ${orientation} images in Preview, print and Styled HTML`, async ({ page, context }, testInfo) => {

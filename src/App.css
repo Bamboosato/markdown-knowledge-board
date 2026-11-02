@@ -946,6 +946,10 @@
   display: none;
 }
 
+.print-image-slices {
+  display: none;
+}
+
 .mermaid-block-header {
   display: flex;
   align-items: center;
@@ -3638,6 +3642,28 @@
 }
 
 @media print {
+  .print-image-source {
+    display: none !important;
+  }
+  .print-image-slices {
+    display: block;
+  }
+  .print-image-slice {
+    display: block;
+    position: relative;
+    overflow: hidden;
+    max-width: 100%;
+    break-inside: avoid;
+  }
+  .print-image-slice canvas {
+    display: block;
+    position: absolute;
+    left: 0;
+    top: 0;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0;
+  }
   @page {
     size: A4 portrait;
     margin: 18mm 16mm;

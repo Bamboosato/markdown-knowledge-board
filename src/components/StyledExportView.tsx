@@ -7,6 +7,7 @@ import { StyledDocument } from "./StyledDocument";
 import { getThemeVariables } from "../lib/styledExport/theme";
 import { renderMermaidSvg } from "../lib/mermaidRenderer";
 import { waitForPrintReadiness } from "../lib/printReadiness";
+import { createPrintImageSlices } from "../lib/printImageSlices";
 import {
   fileToSafeDataUrl,
   resolveDirectImage,
@@ -143,6 +144,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
   const otherIssues = analysis.issues.filter((issue) => issue.kind === "unsafe-link");
 
   const changeOption = <K extends keyof StyledExportOptions>(key: K, value: StyledExportOptions[K]) => {
+    if (isPrintingRef.current) return;
     setOptions((current) => ({ ...current, [key]: value }));
   };
 
@@ -203,6 +205,9 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
   );
 
   const isReady = !isPreparingDocument && !preparationError && unresolvedImages.length === 0 && (localLinkIssues.length === 0 || allowLocalLinks);
+  const previewDocument = useMemo(() => (
+    <StyledDocument title={snapshot.title} tags={snapshot.tags} markdown={snapshot.body} options={options} analysis={analysis} assets={assets} mermaidSvgs={mermaidSvgs} allowLocalLinks={allowLocalLinks} />
+  ), [snapshot, options, analysis, assets, mermaidSvgs, allowLocalLinks]);
 
   const downloadHtml = () => {
     if (!isReady) {
@@ -243,10 +248,12 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
     pageTitleStyle.textContent = `@page{@top-center{content:${toCssString(printTitle)}}}`;
     document.head.appendChild(pageTitleStyle);
     let cleanupTimer: number | null = null;
+    let cleanupImages = () => {};
     const cleanup = () => {
       if (printCleanupRef.current !== cleanup) return;
       printCleanupRef.current = null;
       if (cleanupTimer !== null) window.clearTimeout(cleanupTimer);
+      cleanupImages();
       document.title = previousTitle;
       pageTitleStyle.remove();
       document.body.classList.remove("styled-export-printing");
@@ -262,6 +269,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       if (result.status === "failed" || result.status === "timeout") throw new Error(result.reason);
       if (result.status === "fallback") window.alert(result.reason);
       if (requestId !== printRequestRef.current) return;
+      cleanupImages = createPrintImageSlices(surface);
       window.addEventListener("afterprint", cleanup);
       cleanupTimer = window.setTimeout(cleanup, 60_000);
       window.print();
@@ -325,7 +333,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
               <div className="styled-export-local-summary" role="status" aria-live="polite">
                 <span>{localLinkIssues.length} local {localLinkIssues.length === 1 ? "link" : "links"} will be omitted from the output.</span>
                 <button type="button" className="styled-export-review-link" aria-expanded="false" onClick={() => setShowLocalLinkDetails(true)}>Review</button>
-                <label className="styled-export-continue"><input type="checkbox" checked onChange={() => { setAllowLocalLinks(false); setShowLocalLinkDetails(true); }} /> Continue without local links</label>
+                <label className="styled-export-continue"><input type="checkbox" checked disabled={isPrinting} onChange={() => { setAllowLocalLinks(false); setShowLocalLinkDetails(true); }} /> Continue without local links</label>
               </div>
             ) : (
               <div className="styled-export-issues styled-export-local-issues">
@@ -334,13 +342,13 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
                   {allowLocalLinks ? <button type="button" className="styled-export-review-link" aria-expanded="true" onClick={() => setShowLocalLinkDetails(false)}>Hide details</button> : null}
                 </div>
                 <ul>{localLinkIssues.map((issue) => <li key={getIssueKey(issue)}><div><strong>Line {issue.position.line}: {issue.reference}</strong><span>{issue.reason}</span></div></li>)}</ul>
-                <label className="styled-export-continue"><input type="checkbox" checked={allowLocalLinks} onChange={(event) => { setAllowLocalLinks(event.target.checked); setShowLocalLinkDetails(!event.target.checked); }} /> Continue without local links</label>
+                <label className="styled-export-continue"><input type="checkbox" checked={allowLocalLinks} disabled={isPrinting} onChange={(event) => { setAllowLocalLinks(event.target.checked); setShowLocalLinkDetails(!event.target.checked); }} /> Continue without local links</label>
               </div>
             )}
           </section>
         ) : null}
         <div className="styled-export-preview-wrap" aria-label="Styled export preview" style={getThemeVariables(options)}>
-          <StyledDocument title={snapshot.title} tags={snapshot.tags} markdown={snapshot.body} options={options} analysis={analysis} assets={assets} mermaidSvgs={mermaidSvgs} allowLocalLinks={allowLocalLinks} />
+          {previewDocument}
         </div>
       </section>
     </>
