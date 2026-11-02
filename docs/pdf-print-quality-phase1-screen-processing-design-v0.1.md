@@ -64,3 +64,12 @@ Styled画面mount → snapshot固定 → Mermaid/画像等の初期化 → ready
 - ページ末尾に見出しを配置し、直後に本文を続けるfixture。見出しだけの最終ページと区別する。
 - 簡易印刷の準備中にノート切替、Styledの準備中にノート切替（snapshot維持）、Styled初期化でMermaid Promiseが未解決のままになるfixture。
 - PDFの行頭・行末およびページ境界は目視判定項目を記録。ブラウザ差異の例外はOS/版/再現条件/許容判断を文書化する。
+
+## 実装・検証メモ（Phase 1 作業中）
+- PDF-03: 印刷待機を `src/lib/printReadiness.ts` に分離し、フォント、画像decode、Mermaid、期限、キャンセルを判定する。簡易印刷はノート切替で待機を中断し、Styledは固定snapshotを維持する。Styled初期化にも期限と再試行を追加した。
+- PDF-01/02: 両経路の印刷時に日本語の改行、長URL、コードの折り返しと長大要素の分割を指定。表ヘッダーの反復を指定した。
+- 対応テスト: `tests/unit/printReadiness.test.ts` は正常・失敗・fallback・期限・キャンセルを確認。`tests/e2e/preview-pdf.spec.ts` は画像失敗、ノート切替、Styled初期化タイムアウトと再試行、snapshot維持、draftとPDF出力を確認する。
+- WindowsのChromiumで固定fixtureから両経路のA4 PDFを生成し、先頭、長いコード、最終ページを目視した。長URLとコードの折り返し、最終行、表ヘッダー反復を確認。これは全ページの禁則・欠落確認や変更前後の比較の代替ではない。
+- `afterprint` 欠落時のbusy解除はChromiumで印刷関数と時計を代替して確認した。OSの印刷ダイアログのキャンセルは未確認。
+- 2026-11-02の依存監査: production 0件、全依存 low 2件 / moderate 19件。既存例外を超える検出により厳格監査は失敗。今回の変更では依存関係・lockfileを変更していない。
+- 未完了: 全ページの禁則・ページ境界の目視判定、巨大Mermaid・画像のページ境界、OS印刷ダイアログのキャンセル、オフライン、Safari/iOS/Android実機、変更前後のPDF比較。実施・結果を記録するまでPhase 1の完了判定は保留する。

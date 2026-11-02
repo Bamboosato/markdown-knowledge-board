@@ -271,6 +271,21 @@
 }
 
 @media print {
+  .styled-export-markdown {
+    line-break: strict;
+    overflow-wrap: anywhere;
+  }
+  .styled-export-markdown pre {
+    white-space: pre-wrap;
+    overflow: visible;
+    overflow-wrap: anywhere;
+  }
+  .styled-export-markdown table {
+    table-layout: fixed;
+  }
+  .styled-export-markdown thead {
+    display: table-header-group;
+  }
   .styled-export-document {
     width: auto;
     max-width: none;

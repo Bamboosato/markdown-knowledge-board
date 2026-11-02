@@ -3714,6 +3714,8 @@
     overflow: visible;
     font-size: 10.5pt;
     line-height: 1.6;
+    line-break: strict;
+    overflow-wrap: anywhere;
   }
 
   .print-mdPreview > * {
@@ -3731,7 +3733,18 @@
   .print-mdPreview table,
   .print-mdPreview blockquote,
   .print-mdPreview .mermaid-block {
-    break-inside: avoid;
+    break-inside: auto;
+  }
+
+  .print-mdPreview pre {
+    white-space: pre-wrap;
+    overflow: visible;
+    overflow-wrap: anywhere;
+  }
+
+  .print-mdPreview table {
+    table-layout: fixed;
+    width: 100%;
   }
 
   .print-mdPreview thead {

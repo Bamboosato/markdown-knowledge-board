@@ -6,6 +6,7 @@ import styledExportDocumentCss from "../lib/styledExport/document.css?inline";
 import { StyledDocument } from "./StyledDocument";
 import { getThemeVariables } from "../lib/styledExport/theme";
 import { renderMermaidSvg } from "../lib/mermaidRenderer";
+import { waitForPrintReadiness } from "../lib/printReadiness";
 import {
   fileToSafeDataUrl,
   resolveDirectImage,
@@ -63,6 +64,8 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
   const [mermaidSvgs, setMermaidSvgs] = useState<Record<string, string>>({});
   const [mermaidErrors, setMermaidErrors] = useState<string[]>([]);
   const [isPreparingDocument, setIsPreparingDocument] = useState(true);
+  const [preparationError, setPreparationError] = useState("");
+  const [preparationAttempt, setPreparationAttempt] = useState(0);
   const [isLoadingRemote, setIsLoadingRemote] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
   const [allowLocalLinks, setAllowLocalLinks] = useState(false);
@@ -81,6 +84,14 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
   useEffect(() => {
     backButtonRef.current?.focus();
     let active = true;
+    setIsPreparingDocument(true);
+    setPreparationError("");
+    const timeout = window.setTimeout(() => {
+      if (!active) return;
+      active = false;
+      setIsPreparingDocument(false);
+      setPreparationError("Preparing diagrams and images timed out. Please try again.");
+    }, 10_000);
     const init = async () => {
       const initialAssets: StyledAssetMap = {};
       const initialErrors: Record<string, string> = {};
@@ -103,6 +114,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
         }
       }));
       if (active) {
+        window.clearTimeout(timeout);
         setAssets(initialAssets);
         setAssetErrors(initialErrors);
         setMermaidSvgs(rendered);
@@ -110,9 +122,14 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
         setIsPreparingDocument(false);
       }
     };
-    void init();
-    return () => { active = false; };
-  }, [analysis]);
+    void init().catch(() => {
+      if (!active) return;
+      window.clearTimeout(timeout);
+      setIsPreparingDocument(false);
+      setPreparationError("Preparing diagrams and images failed. Please try again.");
+    });
+    return () => { active = false; window.clearTimeout(timeout); };
+  }, [analysis, preparationAttempt]);
 
   useEffect(() => () => {
     remoteAbortRef.current?.abort();
@@ -185,7 +202,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
     />
   );
 
-  const isReady = !isPreparingDocument && unresolvedImages.length === 0 && (localLinkIssues.length === 0 || allowLocalLinks);
+  const isReady = !isPreparingDocument && !preparationError && unresolvedImages.length === 0 && (localLinkIssues.length === 0 || allowLocalLinks);
 
   const downloadHtml = () => {
     if (!isReady) {
@@ -239,15 +256,10 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
     };
     printCleanupRef.current = cleanup;
     try {
-      await Promise.race([
-        Promise.all([
-          document.fonts.ready,
-          ...Array.from(document.querySelectorAll<HTMLImageElement>(".styled-export-preview-wrap img"))
-            .map((image) => image.decode()),
-        ]),
-        new Promise((_, reject) => window.setTimeout(() => reject(new Error("Print content did not finish loading.")), 10_000)),
-      ]);
-      await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+      const surface = document.querySelector<HTMLElement>(".styled-export-preview-wrap");
+      if (!surface) throw new Error("Print preview is unavailable.");
+      const result = await waitForPrintReadiness(surface);
+      if (result.status === "failed" || result.status === "timeout") throw new Error(result.reason);
       if (requestId !== printRequestRef.current) return;
       window.addEventListener("afterprint", cleanup);
       cleanupTimer = window.setTimeout(cleanup, 60_000);
@@ -295,6 +307,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
           <label className="styled-export-tags-toggle"><input type="checkbox" checked={options.showTags} onChange={(event) => changeOption("showTags", event.target.checked)} /> Show tags</label>
         </div>
         <p className="styled-export-status" role="status" aria-live="polite">{statusMessage}</p>
+        {preparationError ? <div role="alert"><p>{preparationError}</p><button type="button" className="secondary-button" onClick={() => { setIsPreparingDocument(true); setPreparationError(""); setPreparationAttempt((attempt) => attempt + 1); }}>Retry preparation</button></div> : null}
         {issues.length ? (
           <section className="styled-export-issues" aria-label="Export checks">
             <div className="styled-export-issues-heading">

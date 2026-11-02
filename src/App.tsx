@@ -50,6 +50,7 @@ import {
 } from "lucide-react";
 
 import "./App.css";
+import { waitForPrintReadiness } from "./lib/printReadiness";
 import {
   MarkdownToolbarMenu,
   type MarkdownToolbarMenuItem,
@@ -398,36 +399,6 @@ function downloadBlob(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
-const PRINT_READY_TIMEOUT_MS = 10_000;
-
-async function waitForPrintableContent(element: HTMLElement): Promise<boolean> {
-  await Promise.race([
-    document.fonts?.ready.catch(() => undefined) ?? Promise.resolve(),
-    new Promise<void>((resolve) => window.setTimeout(resolve, 1_000)),
-  ]);
-
-  const startedAt = performance.now();
-  return new Promise((resolve) => {
-    const check = () => {
-      const pendingMermaid = element.querySelector(
-        '[data-mermaid-status="loading"]'
-      );
-      const imagesReady = Array.from(element.querySelectorAll("img")).every(
-        (image) => image.complete
-      );
-      const timedOut = performance.now() - startedAt >= PRINT_READY_TIMEOUT_MS;
-
-      if ((!pendingMermaid && imagesReady) || timedOut) {
-        resolve(!timedOut);
-        return;
-      }
-      window.requestAnimationFrame(check);
-    };
-
-    window.requestAnimationFrame(check);
-  });
-}
-
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
@@ -542,7 +513,11 @@ function App() {
   const [notes, setNotes] = useState<Note[]>([]);
   const importInteractionRevisionRef = useRef(0);
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
+  const printSelectionRevisionRef = useRef(0);
+  const printPreparationAbortRef = useRef<AbortController | null>(null);
   const setSelectedId = useCallback((id: string | null) => {
+    printSelectionRevisionRef.current += 1;
+    printPreparationAbortRef.current?.abort();
     importInteractionRevisionRef.current += 1;
     setSelectedIdState(id);
   }, []);
@@ -595,6 +570,7 @@ function App() {
   }, []);
   const [lastSaveError, setLastSaveError] = useState<string | null>(null);
   const [isPrintPreparing, setIsPrintPreparing] = useState(false);
+  const isPrintPreparingRef = useRef(false);
   const [styledExportSnapshot, setStyledExportSnapshot] = useState<{
     title: string;
     body: string;
@@ -3689,7 +3665,7 @@ function App() {
   }
 
   const handlePrint = async () => {
-    if ((!selectedNote && !isDraftNote) || isPrintPreparing) {
+    if ((!selectedNote && !isDraftNote) || isPrintPreparingRef.current) {
       return;
     }
 
@@ -3698,12 +3674,26 @@ function App() {
       return;
     }
 
+    isPrintPreparingRef.current = true;
     setIsPrintPreparing(true);
-    await waitForPrintableContent(printSurface);
+    const revision = printSelectionRevisionRef.current;
+    const controller = new AbortController();
+    printPreparationAbortRef.current = controller;
+    const result = await waitForPrintReadiness(printSurface, 10_000, controller.signal);
+    if (printPreparationAbortRef.current === controller) printPreparationAbortRef.current = null;
+    if (revision !== printSelectionRevisionRef.current || result.status === "failed" || result.status === "timeout") {
+      isPrintPreparingRef.current = false;
+      setIsPrintPreparing(false);
+      if (revision === printSelectionRevisionRef.current && (result.status === "failed" || result.status === "timeout")) window.alert(`${result.reason} Please try again.`);
+      return;
+    }
 
     const previousTitle = document.title;
+    const cleanupTimer = window.setTimeout(() => restoreAfterPrint(), 60_000);
     const restoreAfterPrint = () => {
+      window.clearTimeout(cleanupTimer);
       document.title = previousTitle;
+      isPrintPreparingRef.current = false;
       setIsPrintPreparing(false);
       window.removeEventListener("afterprint", restoreAfterPrint);
     };

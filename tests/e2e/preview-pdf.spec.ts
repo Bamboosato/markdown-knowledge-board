@@ -15,6 +15,8 @@ declare global {
   interface Window {
     __printCalls?: number;
     __printTitle?: string;
+    __releaseFonts?: () => void;
+    __allowMermaid?: boolean;
   }
 }
 
@@ -46,6 +48,93 @@ async function stubBrowserPrint(page: import("@playwright/test").Page) {
 }
 
 test.describe("Preview Print / PDF", () => {
+  test("rejects a failed image and leaves printing available for retry", async ({ page }) => {
+    await stubBrowserPrint(page);
+    await page.goto("/");
+    await createSavedNote(page, "Broken image", "![missing](/missing-print-image.png)");
+    let message = "";
+    page.once("dialog", async (dialog) => { message = dialog.message(); await dialog.accept(); });
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    expect(message).toContain("image");
+    expect(await page.evaluate(() => window.__printCalls ?? 0)).toBe(0);
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Print / PDF" })).toBeEnabled();
+  });
+
+  test("discards an old print attempt when the selected note changes", async ({ page }) => {
+    await stubBrowserPrint(page);
+    await page.goto("/");
+    await createSavedNote(page, "First print note", "First content");
+    await page.getByRole("button", { name: "Notes", exact: true }).click();
+    await createSavedNote(page, "Second print note", "Second content");
+    await page.getByRole("button", { name: "Notes", exact: true }).click();
+    await page.getByRole("button", { name: "Open note: First print note" }).click();
+    await page.evaluate(() => {
+      const pending = new Promise<FontFaceSet>((resolve) => { window.__releaseFonts = () => resolve(document.fonts); });
+      Object.defineProperty(document.fonts, "ready", { configurable: true, get: () => pending });
+    });
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await page.getByRole("button", { name: "Notes", exact: true }).click();
+    await page.getByRole("button", { name: "Open note: Second print note" }).click();
+    await page.evaluate(() => window.__releaseFonts?.());
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Print / PDF" })).toBeEnabled();
+    expect(await page.evaluate(() => window.__printCalls ?? 0)).toBe(0);
+  });
+
+  test("recovers when the browser does not emit afterprint", async ({ page }) => {
+    await page.goto("/");
+    await createSavedNote(page, "No afterprint", "Content");
+    await page.clock.install();
+    await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
+    await page.clock.fastForward(60_000);
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Print / PDF" })).toBeEnabled();
+  });
+
+  test("Styled initialization times out and retries an unresolved Mermaid render", async ({ page }) => {
+    await page.route("**/src/lib/mermaidRenderer.ts", (route) => route.fulfill({
+      contentType: "text/javascript",
+      body: `export const MERMAID_CODE_SIZE_LIMIT_BYTES = 51200;
+        export function renderMermaidSvg(code, id) {
+          if (id.startsWith('styled-export') && !window.__allowMermaid) return new Promise(() => {});
+          return Promise.resolve('<svg xmlns="http://www.w3.org/2000/svg"><text x="0" y="10">ok</text></svg>');
+        }`,
+    }));
+    await page.goto("/");
+    await createSavedNote(page, "Styled timeout", "```mermaid\ngraph TD\n A --> B\n```");
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await expect(page.getByRole("alert")).toContainText("timed out", { timeout: 15_000 });
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeDisabled();
+    await page.evaluate(() => { window.__allowMermaid = true; });
+    await page.getByRole("button", { name: "Retry preparation" }).click();
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+    await expect(page.getByRole("heading", { name: "Export Styled HTML / PDF" })).toBeVisible();
+  });
+
+  test("Styled export retains its snapshot after another note is selected", async ({ page }) => {
+    await page.goto("/");
+    await createSavedNote(page, "Snapshot original", "Original snapshot content");
+    await page.getByRole("button", { name: "Notes", exact: true }).click();
+    await createSavedNote(page, "Snapshot other", "Different note content");
+    await page.getByRole("button", { name: "Notes", exact: true }).click();
+    await page.getByRole("button", { name: "Open note: Snapshot original" }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+    await page.getByRole("button", { name: "Notes", exact: true }).click();
+    await page.getByRole("button", { name: "Open note: Snapshot other" }).click();
+    await expect(page.locator(".styled-export-preview-wrap")).toContainText("Original snapshot content");
+    await expect(page.locator(".styled-export-preview-wrap")).not.toContainText("Different note content");
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+  });
+
   test("prints the complete rendered Preview document without application chrome", { tag: '@ci-smoke' }, async ({
     page,
   }) => {
@@ -179,5 +268,28 @@ test.describe("Preview Print / PDF", () => {
 
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
     expect(pdf.byteLength).toBeGreaterThan(1_000);
+  });
+
+  test("generates a Japanese and long-content fixture for visual PDF review", async ({ page, browserName }, testInfo) => {
+    test.skip(browserName !== "chromium", "page.pdf is Chromium-only");
+    await page.goto("/");
+    const fence = "`".repeat(3);
+    const body = [
+      "# 日本語の組版（確認）",
+      ...Array.from({ length: 35 }, (_, i) => `${i + 1} 行目。「句読点、括弧」と英数字ABCを含む文章です。長いURL https://example.com/${"abcdef".repeat(18)} を確認します。`),
+      "## ページ境界の見出し", "後続の本文が見出しと一緒に表示されます。",
+      [fence, ...Array.from({ length: 100 }, (_, i) => `line ${i + 1}: ${"long-code ".repeat(20)}`), fence].join("\n"),
+      ["| 列A | 列B |", "| --- | --- |", ...Array.from({ length: 100 }, (_, i) => `| 表の行 ${i + 1} | 内容 |`)].join("\n"),
+      "\n終端の確認文字列 END-OF-FIXTURE",
+    ].join("\n\n");
+    await createSavedNote(page, "日本語PDFの確認", body);
+    const pdf = await page.pdf({ path: testInfo.outputPath("japanese-print.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    expect(pdf.byteLength).toBeGreaterThan(1_000);
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+    await page.evaluate(() => document.body.classList.add("styled-export-printing"));
+    const styledPdf = await page.pdf({ path: testInfo.outputPath("japanese-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    expect(styledPdf.byteLength).toBeGreaterThan(1_000);
   });
 });
