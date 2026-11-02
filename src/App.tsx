@@ -3687,6 +3687,7 @@ function App() {
       if (revision === printSelectionRevisionRef.current && (result.status === "failed" || result.status === "timeout")) window.alert(`${result.reason} Please try again.`);
       return;
     }
+    if (result.status === "fallback") window.alert(result.reason);
 
     const previousTitle = document.title;
     const cleanupTimer = window.setTimeout(() => restoreAfterPrint(), 60_000);

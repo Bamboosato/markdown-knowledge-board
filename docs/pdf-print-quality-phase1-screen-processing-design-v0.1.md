@@ -72,4 +72,4 @@ Styled画面mount → snapshot固定 → Mermaid/画像等の初期化 → ready
 - WindowsのChromiumで固定fixtureから両経路のA4 PDFを生成し、先頭、長いコード、最終ページを目視した。長URLとコードの折り返し、最終行、表ヘッダー反復を確認。これは全ページの禁則・欠落確認や変更前後の比較の代替ではない。
 - `afterprint` 欠落時のbusy解除はChromiumで印刷関数と時計を代替して確認した。OSの印刷ダイアログのキャンセルは未確認。
 - 2026-11-02の依存監査: production 0件、全依存 low 2件 / moderate 19件。既存例外を超える検出により厳格監査は失敗。今回の変更では依存関係・lockfileを変更していない。
-- 未完了: 全ページの禁則・ページ境界の目視判定、巨大Mermaid・画像のページ境界、OS印刷ダイアログのキャンセル、オフライン、Safari/iOS/Android実機、変更前後のPDF比較。実施・結果を記録するまでPhase 1の完了判定は保留する。
+- 追加検証と未完了事項は[ローカル検証記録](./pdf-print-quality-phase1-verification-2026-11-02.md)を参照。縦長画像の空白ページや実機・印刷ダイアログなどが残るため、Phase 1の完了判定は保留する。

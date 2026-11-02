@@ -17,6 +17,8 @@ declare global {
     __printTitle?: string;
     __releaseFonts?: () => void;
     __allowMermaid?: boolean;
+    __pendingMermaid?: Promise<string>;
+    __resolveMermaid?: (svg: string) => void;
   }
 }
 
@@ -84,6 +86,23 @@ test.describe("Preview Print / PDF", () => {
     expect(await page.evaluate(() => window.__printCalls ?? 0)).toBe(0);
   });
 
+  test("does not print when fonts time out and allows another attempt", async ({ page }) => {
+    await stubBrowserPrint(page);
+    await page.goto("/");
+    await createSavedNote(page, "Font timeout", "Content");
+    await page.clock.install();
+    await page.evaluate(() => Object.defineProperty(document.fonts, "ready", { configurable: true, get: () => new Promise(() => {}) }));
+    let message = "";
+    page.once("dialog", async (dialog) => { message = dialog.message(); await dialog.accept(); });
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await page.clock.fastForward(10_000);
+    await expect.poll(() => message).toContain("timed out");
+    expect(await page.evaluate(() => window.__printCalls ?? 0)).toBe(0);
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Print / PDF" })).toBeEnabled();
+  });
+
   test("recovers when the browser does not emit afterprint", async ({ page }) => {
     await page.goto("/");
     await createSavedNote(page, "No afterprint", "Content");
@@ -96,6 +115,121 @@ test.describe("Preview Print / PDF", () => {
     await page.getByRole("button", { name: "More actions" }).click();
     await expect(page.getByRole("menuitem", { name: "Print / PDF" })).toBeEnabled();
   });
+
+  test("prints an oversized Mermaid block as code and permits retry after print throws", async ({ page }) => {
+    await stubBrowserPrint(page);
+    await page.goto("/");
+    const code = `graph TD\nA-->B\n%%${"x".repeat(51200)}`;
+    await createSavedNote(page, "Large Mermaid", `\`\`\`mermaid\n${code}\`\`\``);
+    const block = page.locator('.print-surface [data-mermaid-status="too-large"]');
+    await expect(block.locator("pre code")).toContainText("A-->B");
+    await page.evaluate(() => { window.print = () => { throw new Error("simulated print failure"); }; });
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Print / PDF" })).toBeEnabled();
+    await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; window.dispatchEvent(new Event("afterprint")); }; });
+    await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
+  });
+
+  test("offline Styled HTML keeps content and makes no external requests", async ({ page, context }, testInfo) => {
+    await page.goto("/");
+    await createSavedNote(page, "Offline styled", "# Offline heading\n\nLocal content remains in the exported file.");
+    await context.setOffline(true);
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    const exportButton = page.getByRole("button", { name: "Download HTML" });
+    await expect(exportButton).toBeEnabled();
+    const downloadPromise = page.waitForEvent("download");
+    await exportButton.click();
+    const download = await downloadPromise;
+    const destination = testInfo.outputPath("offline-styled.html");
+    await download.saveAs(destination);
+    await context.setOffline(false);
+    const rendered = await context.newPage();
+    const externalRequests: string[] = [];
+    rendered.on("request", (request) => { if (/^https?:/i.test(request.url())) externalRequests.push(request.url()); });
+    await rendered.goto(new URL(`file:///${destination.replace(/\\/g, "/")}`).href);
+    await expect(rendered.locator("body")).toContainText("Local content remains in the exported file.");
+    await rendered.waitForLoadState("networkidle");
+    expect(externalRequests).toEqual([]);
+    await rendered.close();
+  });
+
+  test("exports a tall rendered Mermaid as source without overlapping following content", async ({ page }, testInfo) => {
+    await page.goto("/");
+    const graph = ["graph TD", ...Array.from({ length: 60 }, (_, i) => `N${i}[NODE${i}]${i < 59 ? ` --> N${i + 1}` : ""}`)].join("\n");
+    await createSavedNote(page, "Tall Mermaid", `\`\`\`mermaid\n${graph}\n\`\`\`\n\nDiagram end marker.`);
+    await expect(page.locator('.print-surface [data-mermaid-status="rendered"]')).toHaveCount(1, { timeout: 20_000 });
+    await expect(page.locator('.print-surface [data-print-fallback="oversized"]')).toHaveCount(1);
+    await page.emulateMedia({ media: "print" });
+    await expect(page.locator(".print-surface .mermaid-print-fallback")).toBeVisible();
+    await expect(page.locator(".print-surface .mermaid-diagram-panel")).toBeHidden();
+    await expect(page.locator(".print-surface .mermaid-print-fallback pre")).toHaveCSS("max-height", "none");
+    const simple = await page.pdf({ path: testInfo.outputPath("large-diagram-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    expect(simple.byteLength).toBeGreaterThan(1000);
+    await page.emulateMedia({ media: "screen" });
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled({ timeout: 20_000 });
+    await expect(page.locator('.styled-export-preview-wrap [data-print-fallback="oversized"]')).toHaveCount(1);
+    await page.evaluate(() => document.body.classList.add("styled-export-printing"));
+    await page.emulateMedia({ media: "print" });
+    await expect(page.locator(".styled-export-preview-wrap .mermaid-print-fallback")).toBeVisible();
+    await expect(page.locator('.styled-export-preview-wrap [role="img"]')).toBeHidden();
+    const styled = await page.pdf({ path: testInfo.outputPath("large-diagram-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    expect(styled.byteLength).toBeGreaterThan(1000);
+    await page.emulateMedia({ media: "screen" });
+    await page.evaluate(() => { document.body.classList.remove("styled-export-printing"); window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; window.dispatchEvent(new Event("afterprint")); }; });
+    let warning = "";
+    page.once("dialog", async (dialog) => { warning = dialog.message(); await dialog.accept(); });
+    await page.getByRole("button", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
+    expect(warning).toContain("Mermaid");
+  });
+
+  test("generates a tall-image PDF for visual review", async ({ page }, testInfo) => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="3000" viewBox="0 0 100 3000"><rect width="100" height="3000" fill="#cde"/><text x="2" y="30">TOP</text><text x="2" y="2980">BOTTOM</text></svg>';
+    const image = "https://fixture.invalid/tall.svg";
+    await page.route(image, (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", headers: { "access-control-allow-origin": "*" }, body: svg }));
+    await page.goto("/");
+    await createSavedNote(page, "Tall image", `![tall](${image})\n\nImage end marker.`);
+    await expect(page.locator(".print-surface img")).toHaveCount(1);
+    await expect.poll(() => page.locator(".print-surface img").evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
+    await page.pdf({ path: testInfo.outputPath("large-image-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await page.getByRole("button", { name: "Load HTTPS images" }).click();
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled({ timeout: 20_000 });
+    await page.evaluate(() => document.body.classList.add("styled-export-printing"));
+    await page.pdf({ path: testInfo.outputPath("large-image-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+  });
+
+  for (const [height, fallback] of [[1200, false], [1800, true]] as const) {
+    test(`checks print geometry for a 1200 by ${height} Mermaid SVG`, async ({ page }, testInfo) => {
+      await page.route("**/src/lib/mermaidRenderer.ts", (route) => route.fulfill({
+        contentType: "text/javascript",
+        body: `export const MERMAID_CODE_SIZE_LIMIT_BYTES = 51200;
+          export async function renderMermaidSvg() { return '<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 1200 ${height}" style="max-width: 1200px"><rect width="1200" height="${height}" fill="#eef"/><text x="20" y="80">SVG TOP</text><text x="20" y="${height - 50}">SVG BOTTOM</text></svg>'; }`,
+      }));
+      await page.goto("/");
+      await createSavedNote(page, `Boundary ${height}`, "```mermaid\ngraph TD\n A --> B\n```\n\nBoundary end marker.");
+      const simple = page.locator('.print-surface [data-mermaid-status="rendered"]');
+      await expect(simple).toHaveCount(1, { timeout: 20_000 });
+      if (fallback) await expect(simple).toHaveAttribute("data-print-fallback", "oversized");
+      else await expect(simple).not.toHaveAttribute("data-print-fallback", "oversized");
+      await page.pdf({ path: testInfo.outputPath(`boundary-${height}-simple.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
+      await page.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+      await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+      const styled = page.locator(".styled-export-mermaid");
+      if (fallback) await expect(styled).toHaveAttribute("data-print-fallback", "oversized");
+      else await expect(styled).not.toHaveAttribute("data-print-fallback", "oversized");
+      await page.evaluate(() => document.body.classList.add("styled-export-printing"));
+      await page.pdf({ path: testInfo.outputPath(`boundary-${height}-styled.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
+    });
+  }
 
   test("Styled initialization times out and retries an unresolved Mermaid render", async ({ page }) => {
     await page.route("**/src/lib/mermaidRenderer.ts", (route) => route.fulfill({
@@ -133,6 +267,30 @@ test.describe("Preview Print / PDF", () => {
     await expect(page.locator(".styled-export-preview-wrap")).toContainText("Original snapshot content");
     await expect(page.locator(".styled-export-preview-wrap")).not.toContainText("Different note content");
     await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+  });
+
+  test("Styled initialization retains its snapshot during a note switch", async ({ page }) => {
+    await page.addInitScript(() => { window.__pendingMermaid = new Promise((resolve) => { window.__resolveMermaid = resolve; }); });
+    await page.route("**/src/lib/mermaidRenderer.ts", (route) => route.fulfill({
+      contentType: "text/javascript",
+      body: `export const MERMAID_CODE_SIZE_LIMIT_BYTES = 51200;
+        export function renderMermaidSvg(code, id) { return id.startsWith('styled-export') ? window.__pendingMermaid : Promise.resolve('<svg viewBox="0 0 100 100"></svg>'); }`,
+    }));
+    await page.goto("/");
+    await createSavedNote(page, "Pending original", "Original pending snapshot\n\n```mermaid\ngraph TD\nA-->B\n```");
+    await page.getByRole("button", { name: "Notes", exact: true }).click();
+    await createSavedNote(page, "Pending other", "Other content");
+    await page.getByRole("button", { name: "Notes", exact: true }).click();
+    await page.getByRole("button", { name: "Open note: Pending original" }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeDisabled();
+    await page.getByRole("button", { name: "Notes", exact: true }).click();
+    await page.getByRole("button", { name: "Open note: Pending other" }).click();
+    await page.evaluate(() => window.__resolveMermaid?.('<svg viewBox="0 0 100 100"></svg>'));
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+    await expect(page.locator(".styled-export-preview-wrap")).toContainText("Original pending snapshot");
+    await expect(page.locator(".styled-export-preview-wrap")).not.toContainText("Other content");
   });
 
   test("prints the complete rendered Preview document without application chrome", { tag: '@ci-smoke' }, async ({
@@ -291,5 +449,19 @@ test.describe("Preview Print / PDF", () => {
     await page.evaluate(() => document.body.classList.add("styled-export-printing"));
     const styledPdf = await page.pdf({ path: testInfo.outputPath("japanese-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
     expect(styledPdf.byteLength).toBeGreaterThan(1_000);
+  });
+
+  test("generates Japanese line and page-boundary fixtures for both print paths", async ({ page, browserName }, testInfo) => {
+    test.skip(browserName !== "chromium", "page.pdf is Chromium-only");
+    await page.goto("/");
+    const phrase = "日本語の文章は、括弧（かっこ）と句読点。「開き括弧」と『閉じ括弧』を含みます。ABC123と日本語を混ぜて、自然な改行を確認します。";
+    const body = Array.from({ length: 12 }, (_, i) => `## 境界見出し${i + 1}\n\n直後本文${i + 1}。${phrase.repeat(5)}\n\n${phrase.repeat(5)}`).join("\n\n");
+    await createSavedNote(page, "禁則と見出し", body);
+    await page.pdf({ path: testInfo.outputPath("kinsoku-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+    await page.evaluate(() => document.body.classList.add("styled-export-printing"));
+    await page.pdf({ path: testInfo.outputPath("kinsoku-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
   });
 });

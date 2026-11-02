@@ -942,6 +942,10 @@
   background: #ffffff;
 }
 
+.mermaid-print-fallback {
+  display: none;
+}
+
 .mermaid-block-header {
   display: flex;
   align-items: center;
@@ -3742,6 +3746,15 @@
     overflow-wrap: anywhere;
   }
 
+  .print-mdPreview .mermaid-code {
+    max-height: none;
+  }
+
+  .print-mdPreview .mermaid-code code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   .print-mdPreview table {
     table-layout: fixed;
     width: 100%;
@@ -3767,6 +3780,18 @@
 
   .print-mdPreview .mermaid-block-header {
     display: none;
+  }
+
+  .print-mdPreview .mermaid-block[data-print-fallback="oversized"] .mermaid-diagram-panel {
+    display: none;
+  }
+
+  .print-mdPreview .mermaid-block[data-print-fallback="oversized"] {
+    overflow: visible;
+  }
+
+  .print-mdPreview .mermaid-block[data-print-fallback="oversized"] .mermaid-print-fallback {
+    display: block;
   }
 
   .print-mdPreview .mermaid-diagram-panel,

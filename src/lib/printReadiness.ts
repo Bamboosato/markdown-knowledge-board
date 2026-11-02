@@ -27,7 +27,7 @@ export async function waitForPrintReadiness(
       };
       check();
     });
-    const brokenDiagrams = Array.from(element.querySelectorAll('[data-mermaid-status="error"], [data-mermaid-status="too-large"]'));
+    const brokenDiagrams = Array.from(element.querySelectorAll('[data-mermaid-status="error"], [data-mermaid-status="too-large"], [data-print-fallback="oversized"]'));
     if (brokenDiagrams.some((diagram) => !diagram.querySelector("pre code"))) {
       return { status: "failed", reason: "A Mermaid diagram could not be rendered." };
     }

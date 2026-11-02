@@ -260,6 +260,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       if (!surface) throw new Error("Print preview is unavailable.");
       const result = await waitForPrintReadiness(surface);
       if (result.status === "failed" || result.status === "timeout") throw new Error(result.reason);
+      if (result.status === "fallback") window.alert(result.reason);
       if (requestId !== printRequestRef.current) return;
       window.addEventListener("afterprint", cleanup);
       cleanupTimer = window.setTimeout(cleanup, 60_000);
