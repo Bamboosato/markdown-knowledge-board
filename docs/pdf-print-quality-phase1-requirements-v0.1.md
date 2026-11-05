@@ -25,7 +25,7 @@
 - PWAオフライン、未保存draft、390px画面、キーボード操作を維持する。
 
 ## テスト観点
-AC-01 日本語禁則・長いURL、AC-02 長大表/コード、AC-03 巨大Mermaid/画像、AC-04 timeoutで印刷抑止、AC-05 fallback/失敗表示、AC-06 未保存draftと保存状態不変、AC-07 cancel/例外/afterprint欠落、AC-08 Styled単一HTMLの外部資産要求0、AC-09 オフライン、AC-10 Chromium E2EおよびSafari/iPhone/Android実機差異記録。
+AC-01 日本語禁則・長いURL、AC-02 長大表/コード、AC-03 巨大Mermaid/画像、AC-04 timeoutで印刷抑止、AC-05 fallback/失敗表示、AC-06 未保存draftと保存状態不変、AC-07 cancel/例外/afterprint欠落、AC-08 Styled単一HTMLの外部資産要求0、AC-09 オフライン、AC-10 Chromium E2EおよびAndroid実機の差異記録。Safari／iPhone実機の差異確認はPhase 1の対象外とする（2026-11-05、ユーザー指定）。
 
 ## 対象外
 表紙、目次、複数ノート結合、ページ番号、デザイン追加、PDF直接生成、Vivliostyle導入（Phase 2/3）。

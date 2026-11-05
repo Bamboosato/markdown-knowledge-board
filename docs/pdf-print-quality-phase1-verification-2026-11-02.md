@@ -15,14 +15,14 @@
 | --- | --- | --- |
 | AC-01 | 人手確認待ち | Windows Chromiumの固定fixtureでは日本語禁則と長URLを全ページ画像・テキストで確認し、検出対象の行頭/行末禁則は0。別OS/ブラウザと文字種を変えた確認は未実施。 |
 | AC-02 | 人手確認待ち | 両経路の100行コード・100行表と末尾を抽出確認し、全ページ画像を確認。表見出しの反復を確認。12組の見出しと後続本文は同ページ。ページ末尾に見出しを強制配置するfixture、長大引用の境界確認は未実施。 |
-| AC-03 | 人手確認待ち | 60ノードの縦長Mermaidは警告付きソースfallbackで全ノードと後続本文を確認。100×3000の縦長SVG画像は印刷用の分割後、両経路の4ページで先頭・境界・末尾・後続本文を画像確認。Windows Chromium以外と実機印刷は未確認。SVGの印刷用分割は元画像の自然ピクセル寸法でcanvasに描画するため、PDF内ではベクターを維持しない。 |
+| AC-03 | 人手確認待ち | 60ノードの縦長Mermaidは警告付きソースfallbackで全ノードと後続本文を確認。100×3000の縦長SVG画像は印刷用の分割後、両経路の4ページで先頭・境界・末尾・後続本文を画像確認。後記の通りPixel実機の縦長画像PDFも確認済み。SVGの印刷用分割は元画像の自然ピクセル寸法でcanvasに描画するため、PDF内ではベクターを維持しない。 |
 | AC-04 | 合格（対象ケース） | フォントPromiseを未完了にし、10秒で簡易印刷を抑止、理由表示、再試行可能をChromiumで確認。Styled初期化の未完了Mermaidでもtimeout・再試行を確認。 |
 | AC-05 | 合格（対象ケース） | 読み込み失敗画像の印刷抑止、サイズ超過Mermaidのコードfallback、縦長SVG fallbackの警告と印刷を確認。すべての画像・フォント障害の組合せは未実施。 |
 | AC-06 | 合格（対象ケース） | 保存済みノートを編集後、未保存draftを印刷し、画面上の未保存状態と入力値を確認。IndexedDB全体や全バックアップ経路の比較は未実施。 |
-| AC-07 | 合格（対象ケース） | `window.print` の例外と`afterprint`欠落を代替し、busy解除・再試行をChromiumで確認。Windows Chromeの簡易印刷ではユーザーがPDF保存とキャンセル後の本文保持・再印刷を確認。Styled、他OSと全状態の組合せは未確認。 |
+| AC-07 | 合格（対象ケース） | `window.print` の例外と`afterprint`欠落を代替し、busy解除・再試行をChromiumで確認。Windows Chromeではユーザーが簡易印刷・Styled出力のキャンセル後復帰を確認。すべてのOSと状態の組合せは未確認。 |
 | AC-08 | 合格（対象ケース） | オフライン状態でテキストのみのStyled HTMLを出力し、ローカルファイルを開いたときHTTP/HTTPS要求0件。画像・Mermaidを埋め込んだ組合せは未実施。 |
 | AC-09 | 合格（対象ケース） | PWAの保存済みノートを伴うオフライン再起動1件と、オフラインでのStyled HTML出力をChromiumで確認。全オフライン操作を保証しない。 |
-| AC-10 | 未実施 | Windows Chromiumの対象E2E・PDFを確認。Safari/iPhone/Android実機およびFirefox/WebKitのPDF差異は未確認。 |
+| AC-10 | 合格（対象ケース） | Chromium E2Eと、Pixel 10a / Android 17 / Chromeの簡易・Styled出力を確認。Safari／iPhone実機はユーザー指定によりPhase 1対象外。Firefox・WebKitのPDF差異や他のAndroid実機は未確認。 |
 | AC-11 | 合格（対象ケース） | 簡易印刷のフォント待機中にノートを切替えて旧試行が印刷されないことを確認。 |
 | AC-12 | 合格（対象ケース） | StyledのMermaid初期化を未完了にしてノートを切替え、初期化完了後も元のsnapshotを表示することを確認。 |
 | AC-13 | 合格（対象ケース） | Styled初期化の未完了Promiseで期限切れと理由を表示し、再試行で復帰することを確認。 |
@@ -58,13 +58,13 @@
 
 - 対象は `ebf2950537ed3b12e39463f6bd30ac61e007aef4` のVercel Preview。`body` 直下の `vercel-live-feedback` を印刷時のみ非表示にする。画面表示は維持する。Vercel設定や依存関係は変更していない。
 - Pixel 10a / Android 17 / Chrome 156: Vercelの円形表示が通常画面にあることを確認。日本語・表の簡易印刷はA4・1ページ、画像付きStyled出力は200×6000pxの合成PNGを埋め込んだ文書でA4・10ページ。両PDFの全ページで円形表示がないことと末尾を確認。Styledは画像の先頭・途中・末尾と後続本文を確認。簡易印刷は保存後に再印刷を開いてキャンセルし、本文への復帰を確認。PDFは `output/pdf-review/pixel-ebf2950-simple.pdf` と `output/pdf-review/pixel-ebf2950-styled.pdf`（ローカル検証データ）。
-- Windows / Chrome 156: ユーザー操作で同じ日本語・表の簡易印刷と画像付きStyled出力をそれぞれPDFに保存。簡易1ページ、Styled 10ページの全ページ画像で円形表示がなく、本文・表・末尾を確認。Styledは画像の先頭・途中・末尾と後続本文も確認。PDFは `output/pdf-review/windows-ebf2950-simple.pdf` と `output/pdf-review/windows-ebf2950-styled.pdf`（ローカル検証データ）。通常画面にVercelの丸いツールバーは表示されていなかったとユーザーが確認したため、Windowsで実際のツールバーを非表示にできるかは未確認。今回の両経路のキャンセル後の復帰は確認待ち。
+- Windows / Chrome 156: ユーザー操作で同じ日本語・表の簡易印刷と画像付きStyled出力をそれぞれPDFに保存。簡易1ページ、Styled 10ページの全ページ画像で円形表示がなく、本文・表・末尾を確認。Styledは画像の先頭・途中・末尾と後続本文も確認。PDFは `output/pdf-review/windows-ebf2950-simple.pdf` と `output/pdf-review/windows-ebf2950-styled.pdf`（ローカル検証データ）。通常画面にVercelの丸いツールバーは表示されていなかったとユーザーが確認したため、Windowsで実際のツールバーを非表示にできるかは未確認。簡易・Styled両経路のキャンセル後の復帰はユーザーが確認済み。
 - 回帰テストは模擬された閉じたshadow root付きのVercel要素を使い、通常画面で表示され、簡易・Styled双方の印刷時に非表示となり、通常画面に戻ることをChromium・Firefox・WebKitで確認（3件成功）。単体テスト260件、lint、ローカルbuildも成功。全E2E、iOS/Safari実機、実プリンターは今回未実施。
 
 - `npm ci --no-audit`、`npm run test:unit`（260件成功）、lint、型チェック付きbuild、印刷対象Chromium E2E（32件成功）、PWAオフライン再起動の対象1ケース（成功）を実行。印刷以外の全E2Eや他ブラウザーのPDF生成は対象外。
 - 追加試験の初回は9,000行のエディター入力でタイムアウト。51,200文字超の少数行fixtureへ変更し再現性を確保した。別のE2E初回ページ読み込みtimeoutは単独再実行で成功した。いずれも製品の印刷失敗と断定しない。
 - 依存監査はproduction 0件、全依存low 2件/moderate 19件で失敗。lockfile・依存は今回変更しておらず、既存開発依存の問題として別途扱う。
-- 未検証の実機・印刷ダイアログ、印刷境界の追加確認、依存監査が残るため、Phase 1の完了判定は保留。
+- 印刷境界の追加確認と依存監査が残るため、Phase 1の完了判定は保留。Safari／iPhone実機確認はユーザー指定でPhase 1対象外。
 
 ## 縦長画像の追加調査
 
