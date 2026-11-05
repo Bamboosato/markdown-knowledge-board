@@ -54,6 +54,13 @@
 - Windows Chrome 156の対象プレビューでは、ユーザー提供の印刷ダイアログ画像（`output/pdf-review/windows-vercel-preview-bdfece5.png`）で、送信先「PDFに保存」、1ページ、「TEST」の見出しと本文を確認。ユーザーが保存したPDF（`output/pdf-review/windows-vercel-bdfece5.pdf`）はA4・1ページで、レンダリング画像に同じ内容を確認。Pixelで見られた円形表示はこの画像とPDFには見当たらない。画像を含まない短文のため、画像付きStyled出力への一般化はできない。再印刷を開いてキャンセル後、本文が残り再印刷できることはユーザーが確認した。
 - 今回のPixel結果だけでは他端末、他設定、Mermaidタイムアウト後の実機再試行を保証しない。
 
+### Vercel表示要素の印刷抑止（2026-11-05）
+
+- 対象は `ebf2950537ed3b12e39463f6bd30ac61e007aef4` のVercel Preview。`body` 直下の `vercel-live-feedback` を印刷時のみ非表示にする。画面表示は維持する。Vercel設定や依存関係は変更していない。
+- Pixel 10a / Android 17 / Chrome 156: Vercelの円形表示が通常画面にあることを確認。日本語・表の簡易印刷はA4・1ページ、画像付きStyled出力は200×6000pxの合成PNGを埋め込んだ文書でA4・10ページ。両PDFの全ページで円形表示がないことと末尾を確認。Styledは画像の先頭・途中・末尾と後続本文を確認。簡易印刷は保存後に再印刷を開いてキャンセルし、本文への復帰を確認。PDFは `output/pdf-review/pixel-ebf2950-simple.pdf` と `output/pdf-review/pixel-ebf2950-styled.pdf`（ローカル検証データ）。
+- Windows / Chrome 156: ユーザー操作で同じ日本語・表の簡易印刷と画像付きStyled出力をそれぞれPDFに保存。簡易1ページ、Styled 10ページの全ページ画像で円形表示がなく、本文・表・末尾を確認。Styledは画像の先頭・途中・末尾と後続本文も確認。PDFは `output/pdf-review/windows-ebf2950-simple.pdf` と `output/pdf-review/windows-ebf2950-styled.pdf`（ローカル検証データ）。通常画面でのVercel表示の有無と、今回の両経路のキャンセル後の復帰は確認待ち。
+- 回帰テストは模擬された閉じたshadow root付きのVercel要素を使い、通常画面で表示され、簡易・Styled双方の印刷時に非表示となり、通常画面に戻ることをChromium・Firefox・WebKitで確認（3件成功）。単体テスト260件、lint、ローカルbuildも成功。全E2E、iOS/Safari実機、実プリンターは今回未実施。
+
 - `npm ci --no-audit`、`npm run test:unit`（260件成功）、lint、型チェック付きbuild、印刷対象Chromium E2E（32件成功）、PWAオフライン再起動の対象1ケース（成功）を実行。印刷以外の全E2Eや他ブラウザーのPDF生成は対象外。
 - 追加試験の初回は9,000行のエディター入力でタイムアウト。51,200文字超の少数行fixtureへ変更し再現性を確保した。別のE2E初回ページ読み込みtimeoutは単独再実行で成功した。いずれも製品の印刷失敗と断定しない。
 - 依存監査はproduction 0件、全依存low 2件/moderate 19件で失敗。lockfile・依存は今回変更しておらず、既存開発依存の問題として別途扱う。
