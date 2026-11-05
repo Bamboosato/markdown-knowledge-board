@@ -2,6 +2,8 @@
 // retain the browser's existing layout, including ordinary portrait photos.
 export const PRINT_IMAGE_MAX_HEIGHT = Math.floor((297 - 2 * 18) * 96 / 25.4) * 2;
 const SLICE_HEIGHT = 720;
+// A shorter leading piece can share the page with the document heading.
+const FIRST_SLICE_HEIGHT = 240;
 const PRINT_WIDTH = (210 - 2 * 16) * 96 / 25.4;
 const MAX_SLICES = 100;
 const MAX_CANVAS_PIXELS = 16_000_000;
@@ -14,11 +16,12 @@ export function planPrintImageSlices(width: number, height: number, printWidth =
   if (printHeight <= PRINT_IMAGE_MAX_HEIGHT) return null;
   const scale = printWidth / width;
   const sourceSliceHeight = Math.max(1, Math.floor(SLICE_HEIGHT / scale));
-  const count = Math.ceil(height / sourceSliceHeight);
+  const firstSourceHeight = Math.min(height, Math.max(1, Math.floor(FIRST_SLICE_HEIGHT / scale)));
+  const count = 1 + Math.ceil((height - firstSourceHeight) / sourceSliceHeight);
   if (count > MAX_SLICES) throw new Error("Image is too tall to prepare for printing.");
   return { width: printWidth, height: printHeight, slices: Array.from({ length: count }, (_, i) => {
-    const sourceOffset = i * sourceSliceHeight;
-    const sourceHeight = Math.min(sourceSliceHeight, height - sourceOffset);
+    const sourceOffset = i === 0 ? 0 : firstSourceHeight + (i - 1) * sourceSliceHeight;
+    const sourceHeight = i === 0 ? firstSourceHeight : Math.min(sourceSliceHeight, height - sourceOffset);
     return { offset: sourceOffset * scale, height: sourceHeight * scale, sourceOffset, sourceHeight };
   }) };
 }

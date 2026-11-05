@@ -455,7 +455,7 @@ test.describe("Preview Print / PDF", () => {
           window.__savedPrintCanvases = canvases;
           return { count: canvases.length, actual: offset, expected: expected.length, mismatches };
         });
-        expect(result).toEqual({ count: 4, actual: 100 * 2601 * 4, expected: 100 * 2601 * 4, mismatches: 0 });
+        expect(result).toEqual({ count: 5, actual: 100 * 2601 * 4, expected: 100 * 2601 * 4, mismatches: 0 });
       };
       await page.getByRole("button", { name: "More actions" }).click();
       await page.getByRole("menuitem", { name: "Print / PDF" }).click();
@@ -475,7 +475,7 @@ test.describe("Preview Print / PDF", () => {
     });
   }
 
-  for (const [height, expected] of [[1971, 0], [1972, 0], [1973, 3]] as const) {
+  for (const [height, expected] of [[1971, 0], [1972, 0], [1973, 4]] as const) {
     test(`uses image slicing threshold correctly at ${height}px in both paths`, async ({ page }) => {
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="${height}"><rect width="100" height="${height}" fill="#cde"/></svg>`;
       const data = Buffer.from(svg);
