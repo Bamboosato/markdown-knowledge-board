@@ -70,24 +70,33 @@ export function evaluateAudits({ production, full, lock, exceptions = [], now = 
     }
   }
   for (const name of Object.keys(production.vulnerabilities)) blocked.push(`production: ${name}`)
-  function allowed(name, exception, seen = new Set()) {
+  // Each advisory must be covered independently along every dependency path.
+  // A propagated package can contain causes with different severities.
+  function allowed(name, candidates, seen = new Set()) {
     const item = full.vulnerabilities[name]
-    if (!item || seen.has(name) || item.severity === 'critical' ||
-        (exception.severity !== undefined && item.severity !== exception.severity) ||
-        now.getTime() >= Date.parse(exception.expires) ||
-        !Object.hasOwn(exception.packages, name) ||
-        Object.hasOwn(production.vulnerabilities, name)) return false
-    const paths = exception.packages[name]
-    if (!item.nodes.every((path) => Object.hasOwn(paths, path) &&
-        lock.packages[path].dev === true && lock.packages[path].version === paths[path])) return false
+    if (!item || seen.has(name) || item.severity === 'critical' || Object.hasOwn(production.vulnerabilities, name)) return false
+    const applicable = candidates.filter((exception) => {
+      if (now.getTime() >= Date.parse(exception.expires) || !Object.hasOwn(exception.packages, name)) return false
+      const paths = exception.packages[name]
+      return item.nodes.every((path) => Object.hasOwn(paths, path) &&
+        lock.packages[path].dev === true && lock.packages[path].version === paths[path])
+    })
+    if (!applicable.length) return false
     const visited = new Set(seen).add(name)
+    const causeSeverity = item.via.map((cause) => typeof cause === 'string'
+      ? full.vulnerabilities[cause]?.severity : cause.severity)
+    // Reject inconsistent package severities. Unknown graph links also fail
+    // closed rather than hiding an escalated or misreported cause.
+    if (causeSeverity.some((severity) => !severities.includes(severity)) ||
+        severities.indexOf(item.severity) !== Math.max(...causeSeverity.map((severity) => severities.indexOf(severity)))) return false
     return item.via.every((cause) => typeof cause === 'string'
-      ? allowed(cause, exception, visited)
-      : cause.url === exception.advisory && cause.severity !== 'critical' &&
-        (exception.severity === undefined || cause.severity === exception.severity))
+      ? allowed(cause, applicable, visited)
+      : cause.severity !== 'critical' && applicable.some((exception) =>
+        cause.url === exception.advisory &&
+        (exception.severity === undefined || cause.severity === exception.severity)))
   }
   for (const name of Object.keys(full.vulnerabilities)) {
-    if (exceptions.some((exception) => allowed(name, exception))) excepted.push(name)
+    if (allowed(name, exceptions)) excepted.push(name)
     else blocked.push(`full: ${name}`)
   }
   return { ok: blocked.length === 0, blocked, excepted }
