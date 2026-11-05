@@ -6,6 +6,8 @@ import styledExportDocumentCss from "../lib/styledExport/document.css?inline";
 import { StyledDocument } from "./StyledDocument";
 import { getThemeVariables } from "../lib/styledExport/theme";
 import { renderMermaidSvg } from "../lib/mermaidRenderer";
+import { waitForPrintReadiness } from "../lib/printReadiness";
+import { createPrintImageSlices } from "../lib/printImageSlices";
 import {
   fileToSafeDataUrl,
   resolveDirectImage,
@@ -58,11 +60,12 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
   const [options, setOptions] = useState<StyledExportOptions>(() => ({
     ...DEFAULT_STYLED_EXPORT_OPTIONS,
   }));
-  const [assets, setAssets] = useState<StyledAssetMap>({});
-  const [assetErrors, setAssetErrors] = useState<Record<string, string>>({});
+  const [{ assets, assetErrors }, setImageState] = useState<{ assets: StyledAssetMap; assetErrors: Record<string, string> }>({ assets: {}, assetErrors: {} });
   const [mermaidSvgs, setMermaidSvgs] = useState<Record<string, string>>({});
   const [mermaidErrors, setMermaidErrors] = useState<string[]>([]);
   const [isPreparingDocument, setIsPreparingDocument] = useState(true);
+  const [preparationError, setPreparationError] = useState("");
+  const [preparationAttempt, setPreparationAttempt] = useState(0);
   const [isLoadingRemote, setIsLoadingRemote] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
   const [allowLocalLinks, setAllowLocalLinks] = useState(false);
@@ -81,6 +84,14 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
   useEffect(() => {
     backButtonRef.current?.focus();
     let active = true;
+    setIsPreparingDocument(true);
+    setPreparationError("");
+    const timeout = window.setTimeout(() => {
+      if (!active) return;
+      active = false;
+      setIsPreparingDocument(false);
+      setPreparationError("Preparing diagrams and images timed out. Please try again.");
+    }, 10_000);
     const init = async () => {
       const initialAssets: StyledAssetMap = {};
       const initialErrors: Record<string, string> = {};
@@ -103,16 +114,35 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
         }
       }));
       if (active) {
-        setAssets(initialAssets);
-        setAssetErrors(initialErrors);
+        window.clearTimeout(timeout);
+        setImageState((current) => {
+          let nextAssets = { ...current.assets };
+          const nextErrors = { ...initialErrors, ...current.assetErrors };
+          for (const image of analysis.images) {
+            if (nextAssets[image.id]) { if (!current.assetErrors[image.id]) delete nextErrors[image.id]; continue; }
+            if (!initialAssets[image.id]) continue;
+            try {
+              nextAssets = setAsset(nextAssets, image, initialAssets[image.id]);
+              delete nextErrors[image.id];
+            } catch (error) {
+              nextErrors[image.id] = getErrorMessage(error);
+            }
+          }
+          return { assets: nextAssets, assetErrors: nextErrors };
+        });
         setMermaidSvgs(rendered);
         setMermaidErrors(failures);
         setIsPreparingDocument(false);
       }
     };
-    void init();
-    return () => { active = false; };
-  }, [analysis]);
+    void init().catch(() => {
+      if (!active) return;
+      window.clearTimeout(timeout);
+      setIsPreparingDocument(false);
+      setPreparationError("Preparing diagrams and images failed. Please try again.");
+    });
+    return () => { active = false; window.clearTimeout(timeout); };
+  }, [analysis, preparationAttempt]);
 
   useEffect(() => () => {
     remoteAbortRef.current?.abort();
@@ -126,6 +156,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
   const otherIssues = analysis.issues.filter((issue) => issue.kind === "unsafe-link");
 
   const changeOption = <K extends keyof StyledExportOptions>(key: K, value: StyledExportOptions[K]) => {
+    if (isPrintingRef.current) return;
     setOptions((current) => ({ ...current, [key]: value }));
   };
 
@@ -149,8 +180,21 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       }
     }
     if (controller.signal.aborted) return;
-    setAssets(nextAssets);
-    setAssetErrors(errors);
+    setImageState((current) => {
+      let merged = { ...current.assets };
+      const mergedErrors = { ...current.assetErrors };
+      for (const image of remoteImages) {
+        // Do not replace an image or error changed while the request was in flight.
+        if (current.assets[image.id] !== assets[image.id] || current.assetErrors[image.id] !== assetErrors[image.id]) continue;
+        if (!errors[image.id] && nextAssets[image.id]) {
+          try {
+            merged = setAsset(merged, image, nextAssets[image.id]);
+            delete mergedErrors[image.id];
+          } catch (error) { mergedErrors[image.id] = getErrorMessage(error); }
+        } else if (errors[image.id]) mergedErrors[image.id] = errors[image.id];
+      }
+      return { assets: merged, assetErrors: mergedErrors };
+    });
     setIsLoadingRemote(false);
     remoteAbortRef.current = null;
     setStatusMessage("External image check complete. Review any unresolved images below.");
@@ -160,14 +204,18 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
     if (!file) return;
     try {
       const dataUrl = await fileToSafeDataUrl(file);
-      setAssets(setAsset(assets, image, dataUrl));
-      setAssetErrors((current) => {
-        const next = { ...current };
-        delete next[image.id];
-        return next;
+      setImageState((current) => {
+        try {
+          const nextAssets = setAsset(current.assets, image, dataUrl);
+          const nextErrors = { ...current.assetErrors };
+          delete nextErrors[image.id];
+          return { assets: nextAssets, assetErrors: nextErrors };
+        } catch (error) {
+          return { ...current, assetErrors: { ...current.assetErrors, [image.id]: getErrorMessage(error) } };
+        }
       });
     } catch (error) {
-      setAssetErrors((current) => ({ ...current, [image.id]: getErrorMessage(error) }));
+      setImageState((current) => ({ ...current, assetErrors: { ...current.assetErrors, [image.id]: getErrorMessage(error) } }));
     }
   };
 
@@ -185,7 +233,10 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
     />
   );
 
-  const isReady = !isPreparingDocument && unresolvedImages.length === 0 && (localLinkIssues.length === 0 || allowLocalLinks);
+  const isReady = !isPreparingDocument && !preparationError && unresolvedImages.length === 0 && (localLinkIssues.length === 0 || allowLocalLinks);
+  const previewDocument = useMemo(() => (
+    <StyledDocument title={snapshot.title} tags={snapshot.tags} markdown={snapshot.body} options={options} analysis={analysis} assets={assets} mermaidSvgs={mermaidSvgs} allowLocalLinks={allowLocalLinks} />
+  ), [snapshot, options, analysis, assets, mermaidSvgs, allowLocalLinks]);
 
   const downloadHtml = () => {
     if (!isReady) {
@@ -226,10 +277,12 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
     pageTitleStyle.textContent = `@page{@top-center{content:${toCssString(printTitle)}}}`;
     document.head.appendChild(pageTitleStyle);
     let cleanupTimer: number | null = null;
+    let cleanupImages = () => {};
     const cleanup = () => {
       if (printCleanupRef.current !== cleanup) return;
       printCleanupRef.current = null;
       if (cleanupTimer !== null) window.clearTimeout(cleanupTimer);
+      cleanupImages();
       document.title = previousTitle;
       pageTitleStyle.remove();
       document.body.classList.remove("styled-export-printing");
@@ -239,16 +292,13 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
     };
     printCleanupRef.current = cleanup;
     try {
-      await Promise.race([
-        Promise.all([
-          document.fonts.ready,
-          ...Array.from(document.querySelectorAll<HTMLImageElement>(".styled-export-preview-wrap img"))
-            .map((image) => image.decode()),
-        ]),
-        new Promise((_, reject) => window.setTimeout(() => reject(new Error("Print content did not finish loading.")), 10_000)),
-      ]);
-      await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+      const surface = document.querySelector<HTMLElement>(".styled-export-preview-wrap");
+      if (!surface) throw new Error("Print preview is unavailable.");
+      const result = await waitForPrintReadiness(surface);
+      if (result.status === "failed" || result.status === "timeout") throw new Error(result.reason);
+      if (result.status === "fallback") window.alert(result.reason);
       if (requestId !== printRequestRef.current) return;
+      cleanupImages = createPrintImageSlices(surface);
       window.addEventListener("afterprint", cleanup);
       cleanupTimer = window.setTimeout(cleanup, 60_000);
       window.print();
@@ -295,6 +345,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
           <label className="styled-export-tags-toggle"><input type="checkbox" checked={options.showTags} onChange={(event) => changeOption("showTags", event.target.checked)} /> Show tags</label>
         </div>
         <p className="styled-export-status" role="status" aria-live="polite">{statusMessage}</p>
+        {preparationError ? <div role="alert"><p>{preparationError}</p><button type="button" className="secondary-button" onClick={() => { setIsPreparingDocument(true); setPreparationError(""); setPreparationAttempt((attempt) => attempt + 1); }}>Retry preparation</button></div> : null}
         {issues.length ? (
           <section className="styled-export-issues" aria-label="Export checks">
             <div className="styled-export-issues-heading">
@@ -311,7 +362,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
               <div className="styled-export-local-summary" role="status" aria-live="polite">
                 <span>{localLinkIssues.length} local {localLinkIssues.length === 1 ? "link" : "links"} will be omitted from the output.</span>
                 <button type="button" className="styled-export-review-link" aria-expanded="false" onClick={() => setShowLocalLinkDetails(true)}>Review</button>
-                <label className="styled-export-continue"><input type="checkbox" checked onChange={() => { setAllowLocalLinks(false); setShowLocalLinkDetails(true); }} /> Continue without local links</label>
+                <label className="styled-export-continue"><input type="checkbox" checked disabled={isPrinting} onChange={() => { setAllowLocalLinks(false); setShowLocalLinkDetails(true); }} /> Continue without local links</label>
               </div>
             ) : (
               <div className="styled-export-issues styled-export-local-issues">
@@ -320,13 +371,13 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
                   {allowLocalLinks ? <button type="button" className="styled-export-review-link" aria-expanded="true" onClick={() => setShowLocalLinkDetails(false)}>Hide details</button> : null}
                 </div>
                 <ul>{localLinkIssues.map((issue) => <li key={getIssueKey(issue)}><div><strong>Line {issue.position.line}: {issue.reference}</strong><span>{issue.reason}</span></div></li>)}</ul>
-                <label className="styled-export-continue"><input type="checkbox" checked={allowLocalLinks} onChange={(event) => { setAllowLocalLinks(event.target.checked); setShowLocalLinkDetails(!event.target.checked); }} /> Continue without local links</label>
+                <label className="styled-export-continue"><input type="checkbox" checked={allowLocalLinks} disabled={isPrinting} onChange={(event) => { setAllowLocalLinks(event.target.checked); setShowLocalLinkDetails(!event.target.checked); }} /> Continue without local links</label>
               </div>
             )}
           </section>
         ) : null}
         <div className="styled-export-preview-wrap" aria-label="Styled export preview" style={getThemeVariables(options)}>
-          <StyledDocument title={snapshot.title} tags={snapshot.tags} markdown={snapshot.body} options={options} analysis={analysis} assets={assets} mermaidSvgs={mermaidSvgs} allowLocalLinks={allowLocalLinks} />
+          {previewDocument}
         </div>
       </section>
     </>

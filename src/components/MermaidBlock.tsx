@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { MERMAID_CODE_SIZE_LIMIT_BYTES, renderMermaidSvg } from "../lib/mermaidRenderer";
+import { requiresMermaidPrintFallback } from "../lib/mermaidPrint";
 
 const MERMAID_RENDER_DEBOUNCE_MS = 300;
 type MermaidView = "diagram" | "code";
@@ -103,9 +104,10 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
   }, [code, instanceId, precheckedState]);
 
   const showDiagram = view === "diagram";
+  const printFallback = showDiagram && renderState.status === "rendered" && requiresMermaidPrintFallback(renderState.svg);
 
   return (
-    <figure className="mermaid-block" data-mermaid-status={renderState.status}>
+    <figure className="mermaid-block" data-mermaid-status={renderState.status} data-print-fallback={printFallback ? "oversized" : undefined}>
       <div className="mermaid-block-header">
         <figcaption>Mermaid</figcaption>
         <div className="mermaid-view-toggle" aria-label="Mermaid display mode">
@@ -129,6 +131,7 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
           </button>
         </div>
       </div>
+      {printFallback ? <div className="mermaid-print-fallback"><p>Diagram may not fit a printed page; Mermaid source follows.</p><CodeView code={code} /></div> : null}
       {showDiagram ? (
         <div className="mermaid-diagram-panel">
           {renderState.status === "loading" ? (

@@ -13,6 +13,7 @@ import type {
   MarkdownPosition,
 } from "../lib/styledExport/types";
 import { getThemeVariables } from "../lib/styledExport/theme";
+import { requiresMermaidPrintFallback } from "../lib/mermaidPrint";
 
 type MarkdownNode = {
   position?: { start?: { line?: number; column?: number } };
@@ -106,7 +107,7 @@ export function StyledDocument({
                     const source = String(code.props.children ?? "").replace(/\n$/, "");
                     const svg = mermaidSvgs[source];
                     return svg
-                      ? <div className="styled-export-mermaid" role="img" dangerouslySetInnerHTML={{ __html: svg }} />
+                      ? <div className="styled-export-mermaid" data-print-fallback={requiresMermaidPrintFallback(svg) ? "oversized" : undefined}><div role="img" dangerouslySetInnerHTML={{ __html: svg }} /><div className="mermaid-print-fallback"><p>Diagram may not fit a printed page; Mermaid source follows.</p><pre><code>{source}</code></pre></div></div>
                       : <pre><code>{source}</code></pre>;
                   }
                 }

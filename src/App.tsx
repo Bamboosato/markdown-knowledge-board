@@ -50,6 +50,8 @@ import {
 } from "lucide-react";
 
 import "./App.css";
+import { waitForPrintReadiness } from "./lib/printReadiness";
+import { createPrintImageSlices } from "./lib/printImageSlices";
 import {
   MarkdownToolbarMenu,
   type MarkdownToolbarMenuItem,
@@ -398,36 +400,6 @@ function downloadBlob(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
-const PRINT_READY_TIMEOUT_MS = 10_000;
-
-async function waitForPrintableContent(element: HTMLElement): Promise<boolean> {
-  await Promise.race([
-    document.fonts?.ready.catch(() => undefined) ?? Promise.resolve(),
-    new Promise<void>((resolve) => window.setTimeout(resolve, 1_000)),
-  ]);
-
-  const startedAt = performance.now();
-  return new Promise((resolve) => {
-    const check = () => {
-      const pendingMermaid = element.querySelector(
-        '[data-mermaid-status="loading"]'
-      );
-      const imagesReady = Array.from(element.querySelectorAll("img")).every(
-        (image) => image.complete
-      );
-      const timedOut = performance.now() - startedAt >= PRINT_READY_TIMEOUT_MS;
-
-      if ((!pendingMermaid && imagesReady) || timedOut) {
-        resolve(!timedOut);
-        return;
-      }
-      window.requestAnimationFrame(check);
-    };
-
-    window.requestAnimationFrame(check);
-  });
-}
-
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
@@ -542,12 +514,21 @@ function App() {
   const [notes, setNotes] = useState<Note[]>([]);
   const importInteractionRevisionRef = useRef(0);
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
+  const printInputRevisionRef = useRef(0);
+  const printPreparationAbortRef = useRef<AbortController | null>(null);
+  const invalidatePrintPreparation = useCallback(() => {
+    printInputRevisionRef.current += 1;
+    printPreparationAbortRef.current?.abort();
+  }, []);
   const setSelectedId = useCallback((id: string | null) => {
+    invalidatePrintPreparation();
     importInteractionRevisionRef.current += 1;
     setSelectedIdState(id);
-  }, []);
-  const [draftTitle, setDraftTitle] = useState("");
-  const [draftTags, setDraftTags] = useState<string[]>([]);
+  }, [invalidatePrintPreparation]);
+  const [draftTitle, setDraftTitleState] = useState("");
+  const setDraftTitle = useCallback((value: SetStateAction<string>) => { invalidatePrintPreparation(); setDraftTitleState(value); }, [invalidatePrintPreparation]);
+  const [draftTags, setDraftTagsState] = useState<string[]>([]);
+  const setDraftTags = useCallback((value: SetStateAction<string[]>) => { invalidatePrintPreparation(); setDraftTagsState(value); }, [invalidatePrintPreparation]);
   const [tagInput, setTagInputState] = useState("");
   const tagInputRef = useRef("");
   const setTagInput = useCallback((value: string) => {
@@ -555,7 +536,9 @@ function App() {
     tagInputRef.current = value;
     setTagInputState(value);
   }, []);
-  const [draftBody, setDraftBody] = useState("");
+  const [draftBody, setDraftBodyState] = useState("");
+  const setDraftBody = useCallback((value: SetStateAction<string>) => { invalidatePrintPreparation(); setDraftBodyState(value); }, [invalidatePrintPreparation]);
+  const printPreview = useMemo(() => <MarkdownPreview markdown={draftBody} mode="print" className="mdPreview print-mdPreview" />, [draftBody]);
   const [bodyEditorResetKey, setBodyEditorResetKey] = useState(0);
   const [draftMarpEnabled, setDraftMarpEnabled] = useState(
     DEFAULT_MARP_SETTINGS.enabled
@@ -595,6 +578,7 @@ function App() {
   }, []);
   const [lastSaveError, setLastSaveError] = useState<string | null>(null);
   const [isPrintPreparing, setIsPrintPreparing] = useState(false);
+  const isPrintPreparingRef = useRef(false);
   const [styledExportSnapshot, setStyledExportSnapshot] = useState<{
     title: string;
     body: string;
@@ -3689,7 +3673,7 @@ function App() {
   }
 
   const handlePrint = async () => {
-    if ((!selectedNote && !isDraftNote) || isPrintPreparing) {
+    if ((!selectedNote && !isDraftNote) || isPrintPreparingRef.current) {
       return;
     }
 
@@ -3698,12 +3682,48 @@ function App() {
       return;
     }
 
+    isPrintPreparingRef.current = true;
     setIsPrintPreparing(true);
-    await waitForPrintableContent(printSurface);
+    const revision = printInputRevisionRef.current;
+    const controller = new AbortController();
+    printPreparationAbortRef.current = controller;
+    const result = await waitForPrintReadiness(printSurface, 10_000, controller.signal);
+    if (revision !== printInputRevisionRef.current || result.status === "failed" || result.status === "timeout") {
+      if (printPreparationAbortRef.current === controller) printPreparationAbortRef.current = null;
+      isPrintPreparingRef.current = false;
+      setIsPrintPreparing(false);
+      if (revision === printInputRevisionRef.current && (result.status === "failed" || result.status === "timeout")) window.alert(`${result.reason} Please try again.`);
+      return;
+    }
+    if (result.status === "fallback") window.alert(result.reason);
+
+    let cleanupImages = () => {};
+    try {
+      cleanupImages = createPrintImageSlices(printSurface);
+      if (revision !== printInputRevisionRef.current) {
+        if (printPreparationAbortRef.current === controller) printPreparationAbortRef.current = null;
+        cleanupImages();
+        isPrintPreparingRef.current = false;
+        setIsPrintPreparing(false);
+        return;
+      }
+    } catch (error) {
+      cleanupImages();
+      if (printPreparationAbortRef.current === controller) printPreparationAbortRef.current = null;
+      isPrintPreparingRef.current = false;
+      setIsPrintPreparing(false);
+      window.alert(error instanceof Error ? error.message : "Unable to prepare images for printing.");
+      return;
+    }
+    if (printPreparationAbortRef.current === controller) printPreparationAbortRef.current = null;
 
     const previousTitle = document.title;
+    const cleanupTimer = window.setTimeout(() => restoreAfterPrint(), 60_000);
     const restoreAfterPrint = () => {
+      window.clearTimeout(cleanupTimer);
+      cleanupImages();
       document.title = previousTitle;
+      isPrintPreparingRef.current = false;
       setIsPrintPreparing(false);
       window.removeEventListener("afterprint", restoreAfterPrint);
     };
@@ -4967,11 +4987,7 @@ function App() {
           {draftBody.trim().length === 0 ? (
             <p className="print-empty">Nothing to preview.</p>
           ) : (
-            <MarkdownPreview
-              markdown={draftBody}
-              mode="print"
-              className="mdPreview print-mdPreview"
-            />
+            printPreview
           )}
         </article>
       </div>

@@ -40,7 +40,7 @@ flowchart TD
 実際の変更ファイルはCodexが現行mainを確認して確定する。
 
 ## テストデータ
-日本語句読点・括弧・長URL、2ページ超のコード/表、巨大Mermaid、画像失敗、フォント待機超過、空本文、未保存draft、オフライン、印刷キャンセル。Chromiumで自動検証し、Safari・iOS・Androidの手動検証を別ゲートにする。PDFの文字欠落、ページ数、可読性、UI混入を検査する。
+日本語句読点・括弧・長URL、2ページ超のコード/表、巨大Mermaid、画像失敗、フォント待機超過、空本文、未保存draft、オフライン、印刷キャンセル。Chromiumで自動検証し、Android実機の手動検証を行う。Safari／iPhone実機の差異確認はPhase 1の対象外とする（2026-11-05、ユーザー指定）。PDFの文字欠落、ページ数、可読性、UI混入を検査する。
 
 ## Phase 1 完了条件
 要件ID→テストIDの対応表、変更前後の比較結果、ブラウザ別既知制約、未検証事項をPRに記載。CI失敗を黙認しない。
@@ -64,3 +64,12 @@ Styled画面mount → snapshot固定 → Mermaid/画像等の初期化 → ready
 - ページ末尾に見出しを配置し、直後に本文を続けるfixture。見出しだけの最終ページと区別する。
 - 簡易印刷の準備中にノート切替、Styledの準備中にノート切替（snapshot維持）、Styled初期化でMermaid Promiseが未解決のままになるfixture。
 - PDFの行頭・行末およびページ境界は目視判定項目を記録。ブラウザ差異の例外はOS/版/再現条件/許容判断を文書化する。
+
+## 実装・検証メモ（Phase 1 作業中）
+- PDF-03: 印刷待機を `src/lib/printReadiness.ts` に分離し、フォント、画像decode、Mermaid、期限、キャンセルを判定する。簡易印刷はノート切替で待機を中断し、Styledは固定snapshotを維持する。Styled初期化にも期限と再試行を追加した。
+- PDF-01/02: 両経路の印刷時に日本語の改行、長URL、コードの折り返しと長大要素の分割を指定。表ヘッダーの反復を指定した。
+- 対応テスト: `tests/unit/printReadiness.test.ts` は正常・失敗・fallback・期限・キャンセルを確認。`tests/e2e/preview-pdf.spec.ts` は画像失敗、ノート切替、Styled初期化タイムアウトと再試行、snapshot維持、draftとPDF出力を確認する。
+- WindowsのChromiumで固定fixtureから両経路のA4 PDFを生成し、先頭、長いコード、最終ページを目視した。長URLとコードの折り返し、最終行、表ヘッダー反復を確認。これは全ページの禁則・欠落確認や変更前後の比較の代替ではない。
+- `afterprint` 欠落時のbusy解除はChromiumで印刷関数と時計を代替して確認した。OSの印刷ダイアログのキャンセルは未確認。
+- 2026-11-02の依存監査: production 0件、全依存 low 2件 / moderate 19件。既存例外を超える検出により厳格監査は失敗。今回の変更では依存関係・lockfileを変更していない。
+- 追加検証と未完了事項は[ローカル検証記録](./pdf-print-quality-phase1-verification-2026-11-02.md)を参照。縦長画像の空白ページや実機・印刷ダイアログなどが残るため、Phase 1の完了判定は保留する。

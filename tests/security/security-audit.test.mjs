@@ -94,6 +94,42 @@ test('error: cyclic or missing advisory references never qualify for exceptions'
   assert.equal(evaluateAudits(f).ok, false)
   f.full.vulnerabilities.leaf.via = ['missing']; assert.equal(evaluateAudits(f).ok, false)
 })
+
+// Multiple advisories can share a parent. Each path must be independently
+// authorized, and all causes must remain covered without severity escalation.
+function combinedFixture() {
+  const other = 'https://github.com/advisories/GHSA-4444-5555-6666'
+  const exceptions = [
+    { advisory: url, severity: 'low', owner: 'Maintainers', reason: 'Scoped low', expires: '2026-10-07T00:00:00.000Z',
+      packages: { low: { 'node_modules/low': '1.0.0' }, parent: { 'node_modules/parent': '1.0.0' } } },
+    { advisory: other, severity: 'moderate', owner: 'Maintainers', reason: 'Scoped moderate', expires: '2026-10-07T00:00:00.000Z',
+      packages: { moderate: { 'node_modules/moderate': '1.0.0' }, parent: { 'node_modules/parent': '1.0.0' } } },
+  ]
+  return { production: report(), now, exceptions,
+    full: report({ low: finding('low', 'low', [{ url, severity: 'low' }]),
+      moderate: finding('moderate', 'moderate', [{ url: other, severity: 'moderate' }]),
+      parent: finding('parent', 'moderate', ['low', 'moderate']) }),
+    lock: { lockfileVersion: 3, packages: { '': {}, ...Object.fromEntries(['low', 'moderate', 'parent'].map(name => [`node_modules/${name}`, { version: '1.0.0', dev: true }])) } },
+  }
+}
+test('independently scoped low and moderate causes can share a parent', () => {
+  assert.deepEqual(evaluateAudits(combinedFixture()), { ok: true, blocked: [], excepted: ['low', 'moderate', 'parent'] })
+})
+for (const [label, mutate] of Object.entries({
+  'one exception expires': (f) => { f.exceptions[0].expires = '2026-10-06T00:00:00.000Z' },
+  'one path is absent': (f) => { delete f.exceptions[0].packages.parent },
+  'ancestor version changes': (f) => { f.lock.packages['node_modules/parent'].version = '1.0.1' },
+  'ancestor becomes production': (f) => { delete f.lock.packages['node_modules/parent'].dev },
+  'new unapproved advisory': (f) => { f.full.vulnerabilities.low.via.push({ url: url + '-new', severity: 'low' }) },
+  'parent severity escalates': (f) => { f.full.vulnerabilities.parent.severity = 'high'; f.full = report(f.full.vulnerabilities) },
+  'parent severity understates cause': (f) => { f.full.vulnerabilities.parent.severity = 'low'; f.full = report(f.full.vulnerabilities) },
+  'leaf severity escalates': (f) => { f.full.vulnerabilities.low.via[0].severity = 'moderate' },
+  'critical cause': (f) => { f.full.vulnerabilities.low.via[0].severity = 'critical' },
+  'cycle across causes': (f) => { f.full.vulnerabilities.low.via.push('parent') },
+})) test(`combined advisories fail closed: ${label}`, () => {
+  const f = combinedFixture(); mutate(f)
+  assert.ok(evaluateAudits(f).blocked.includes('full: parent'))
+})
 test('normal: exit codes 0 and 1 parse clean and finding responses respectively', () => {
   assert.deepEqual(parseAuditProcess({ status: 0, stdout: JSON.stringify(report()) }), report())
   assert.deepEqual(parseAuditProcess({ status: 1, stdout: JSON.stringify(fixture().full) }), fixture().full)
@@ -150,8 +186,9 @@ for (const mode of ['clean', 'findings', 'network', 'invalid-json']) {
 
 // Exercise the real, approved exception without relying on live registry data.
 function deepmergeExceptionFixture() {
-  const exceptions = JSON.parse(readFileSync(new URL('../../security-audit-exceptions.json', import.meta.url), 'utf8'))
+  const configured = JSON.parse(readFileSync(new URL('../../security-audit-exceptions.json', import.meta.url), 'utf8'))
   const advisory = 'https://github.com/advisories/GHSA-gcqx-w48m-w2h4'
+  const exceptions = configured.filter((entry) => entry.advisory === advisory)
   assert.equal(exceptions.length, 1)
   assert.equal(exceptions[0].advisory, advisory)
   assert.equal(exceptions[0].expires, '2026-11-12T00:00:00.000Z')
@@ -179,6 +216,38 @@ test('configured deepmerge exception allows exactly the four development finding
   assert.deepEqual(result, { ok: true, blocked: [], excepted: [
     'deepmerge', '@rollup/plugin-node-resolve', 'workbox-build', 'vite-plugin-pwa',
   ] })
+})
+
+test('configured exceptions cover the exact overlapping audit graph without granting unrelated findings', () => {
+  const exceptions = JSON.parse(readFileSync(new URL('../../security-audit-exceptions.json', import.meta.url), 'utf8'))
+  const lock = JSON.parse(readFileSync(new URL('../../package-lock.json', import.meta.url), 'utf8'))
+  const deepmerge = 'https://github.com/advisories/GHSA-gcqx-w48m-w2h4'
+  const minimatch = 'https://github.com/advisories/GHSA-g3hv-75wg-m249'
+  const glob = 'https://github.com/advisories/GHSA-3g3m-2fjr-6pw4'
+  const nodes = (name) => [...new Set(exceptions.flatMap((entry) => Object.keys(entry.packages[name] ?? {})))]
+  const item = (name, severity, via) => ({ name, severity, via, nodes: nodes(name) })
+  const graph = {
+    deepmerge: item('deepmerge', 'low', [{ url: deepmerge, severity: 'low' }]),
+    '@rollup/plugin-node-resolve': item('@rollup/plugin-node-resolve', 'low', ['deepmerge']),
+    minimatch: item('minimatch', 'moderate', [{ url: minimatch, severity: 'moderate' }]),
+    glob: item('glob', 'moderate', [{ url: glob, severity: 'moderate' }, 'minimatch']),
+    'workbox-build': item('workbox-build', 'moderate', ['@rollup/plugin-node-resolve', 'glob']),
+    'vite-plugin-pwa': item('vite-plugin-pwa', 'moderate', ['workbox-build']),
+    '@typescript-eslint/typescript-estree': item('@typescript-eslint/typescript-estree', 'moderate', ['minimatch']),
+    '@typescript-eslint/parser': item('@typescript-eslint/parser', 'moderate', ['@typescript-eslint/typescript-estree']),
+    '@typescript-eslint/utils': item('@typescript-eslint/utils', 'moderate', ['@typescript-eslint/typescript-estree']),
+    '@typescript-eslint/type-utils': item('@typescript-eslint/type-utils', 'moderate', ['@typescript-eslint/typescript-estree', '@typescript-eslint/utils']),
+    '@typescript-eslint/eslint-plugin': item('@typescript-eslint/eslint-plugin', 'moderate', ['@typescript-eslint/parser', '@typescript-eslint/type-utils', '@typescript-eslint/utils']),
+    'typescript-eslint': item('typescript-eslint', 'moderate', ['@typescript-eslint/eslint-plugin', '@typescript-eslint/parser', '@typescript-eslint/typescript-estree', '@typescript-eslint/utils']),
+  }
+  const f = { production: report(), full: report(graph), exceptions, lock, now: new Date('2026-11-05T00:00:00.000Z') }
+  assert.equal(evaluateAudits(f).ok, true)
+  for (const advisory of [deepmerge, minimatch, glob]) {
+    const missing = { ...f, exceptions: exceptions.filter(entry => entry.advisory !== advisory) }
+    assert.equal(evaluateAudits(missing).ok, false)
+    assert.ok(evaluateAudits(missing).blocked.includes('full: workbox-build'))
+  }
+  assert.equal(evaluateAudits({ ...f, now: new Date('2026-11-12T00:00:00.000Z') }).ok, false)
 })
 for (const [date, ok] of [
   ['2026-11-11T23:59:59.999Z', true],

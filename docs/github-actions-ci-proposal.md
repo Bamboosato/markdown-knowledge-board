@@ -206,3 +206,12 @@ PR #55 の監査で、本番依存0件、全依存low 4パッケージを確認�
 監査のseverity閾値とworkflowは変更しない。既存例外schemaに任意の`severity`一致条件を追加し、この例外は`low`に限定する。既存のseverity未指定例外の挙動は維持する。本番依存、別advisory、対象外package/path/version、devでなくなった依存、critical、期限切れ、監査取得失敗は引き続きブロックする。同じadvisoryでもmoderate/high/criticalへの引き上げは例外対象外とする。実設定を読み込む回帰テストで4パッケージだけの許容、期限境界、別advisory、本番移行、version/path変更、criticalを確認する。
 
 ローカル確認（Linux、Node 24.22.1／npm 11.6.2）：`npm ci`、lint、unit 249件、監査policy/CLI 64件、型チェック付きbuild、PWA build/verifierが成功。本番監査0件、全依存low 4件は上記の明示的な例外として成功（検出0件になったわけではない）。Chromium配布ZIPが不完全でローカルbrowser installに失敗したため、Browser smoke 14件とPWA E2E 11件はPRの正確なcommitに対するGitHub Actionsで別途確認する。実機・実OAuth・OSネイティブPDFは今回の検証範囲外。
+
+## 10. 監査ジョブの分離と期限付き開発依存例外（2026-11-05）
+
+- `Verify` はlint・単体・securityテスト・build、独立した `Dependency audit` はproductionと全依存の監査・証跡保存を担当する。監査ジョブはlockfileを直接監査し、依存パッケージのインストールやライフサイクルスクリプトの実行を必要としない。`PWA` と `Browser smoke` は引き続き `Verify` に依存する。監査取得失敗は成功扱いにしない。
+- 本番0件、全依存low 2件・moderate 10件（2026-11-05）のうち、既存のdeepmergeに加え、[minimatch GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) と [glob GHSA-3g3m-2fjr-6pw4](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4) を別々に期限付きで許容する。moderate 10件は波及先を含むパッケージ数であり、独立した10件の脆弱性ではない。
+- 修正済みバージョンはそれぞれminimatch 11.0.1以上、glob 14.0.2以上。調査時のtypescript-estree 8.72.1はminimatch `^10.2.2`、workbox-build 7.4.1はglob `^11.0.1` を要求する。範囲外のメジャー更新やoverrideは今回採用せず、親依存側の対応を待つ。期限は既存deepmerge例外と同じ2026-11-12 00:00 UTC、自動延長しない。
+- minimatchは攻撃者が複雑なglobパターンを与えるとCPU・メモリーを過剰に消費し得る。現在のESLint・PWAのパターンはリポジトリで管理され、typescript-estreeの当該利用はproject serviceの `allowDefaultProject` 経由だが、信頼できない設定や入力への拡張・依存元の利用経路変更を安全と保証しない。globは中断後も走査が続く問題で、現行Workboxの `getFileDetails` は同期の `globSync` を使い、AbortSignalによる非同期走査の中断に依存していない。大きなディレクトリや信頼できないビルド入力に由来する負荷は残る。
+- 両例外は指定したadvisory・重大度・dev限定のlockfile上の正確なパスとバージョンに限る。同じ親に複数の原因が波及する場合も、各原因とその全依存経路に、それぞれ有効な例外が必要。新たなadvisory、重大度の不整合・上昇、production混入、パスやバージョン変更、期限切れ、監査結果取得失敗は失敗とする。例外は修正ではなく、残存リスクを期限付きで受け入れるもの。
+- mainの必須チェックに `Dependency audit` を追加し、既存の `Verify`・`Browser smoke`・`PWA` とGitHub Actions発行元の制限を維持する。PRをマージする前に実際のチェック結果とブランチ保護を確認する。

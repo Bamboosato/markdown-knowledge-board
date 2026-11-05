@@ -19,5 +19,39 @@
       }
     },
     "severity": "low"
+  },
+  {
+    "advisory": "https://github.com/advisories/GHSA-g3hv-75wg-m249",
+    "owner": "Bamboosato",
+    "reason": "Temporary development-only acceptance for minimatch glob-pattern amplification. typescript-estree and Workbox glob currently require minimatch 10; the patched 11.x is outside their declared ranges. Repository ESLint and PWA build patterns are maintained in source, but untrusted patterns can cause excessive CPU and memory use during development or CI. Exact locked development paths only; recheck upstream and remove or explicitly reassess before expiry. This does not remediate the vulnerability.",
+    "expires": "2026-11-12T00:00:00.000Z",
+    "severity": "moderate",
+    "packages": {
+      "minimatch": {
+        "node_modules/@typescript-eslint/typescript-estree/node_modules/minimatch": "10.2.5",
+        "node_modules/glob/node_modules/minimatch": "10.2.6"
+      },
+      "glob": { "node_modules/glob": "11.1.0" },
+      "workbox-build": { "node_modules/workbox-build": "7.4.1" },
+      "vite-plugin-pwa": { "node_modules/vite-plugin-pwa": "1.3.0" },
+      "@typescript-eslint/typescript-estree": { "node_modules/@typescript-eslint/typescript-estree": "8.63.0" },
+      "@typescript-eslint/parser": { "node_modules/@typescript-eslint/parser": "8.63.0" },
+      "@typescript-eslint/type-utils": { "node_modules/@typescript-eslint/type-utils": "8.63.0" },
+      "@typescript-eslint/utils": { "node_modules/@typescript-eslint/utils": "8.63.0" },
+      "@typescript-eslint/eslint-plugin": { "node_modules/@typescript-eslint/eslint-plugin": "8.63.0" },
+      "typescript-eslint": { "node_modules/typescript-eslint": "8.63.0" }
+    }
+  },
+  {
+    "advisory": "https://github.com/advisories/GHSA-3g3m-2fjr-6pw4",
+    "owner": "Bamboosato",
+    "reason": "Temporary development-only acceptance for glob AbortSignal cancellation bypass. Workbox 7.4.1 requires glob 11; the patched 14.0.2+ is outside that range. The PWA build uses a repository-controlled asset pattern; unbounded or attacker-influenced trees may still consume CPU and filesystem I/O after cancellation. Exact locked development paths only; recheck upstream and remove or explicitly reassess before expiry. This does not remediate the vulnerability.",
+    "expires": "2026-11-12T00:00:00.000Z",
+    "severity": "moderate",
+    "packages": {
+      "glob": { "node_modules/glob": "11.1.0" },
+      "workbox-build": { "node_modules/workbox-build": "7.4.1" },
+      "vite-plugin-pwa": { "node_modules/vite-plugin-pwa": "1.3.0" }
+    }
   }
 ]
