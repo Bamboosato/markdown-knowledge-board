@@ -57,6 +57,41 @@ async function stubBrowserPrint(page: import("@playwright/test").Page) {
 }
 
 test.describe("Preview Print / PDF", () => {
+  test("hides the injected preview toolbar only during both print layouts", async ({ page }) => {
+    await stubBrowserPrint(page);
+    await page.goto("/");
+    await createSavedNote(page, "Toolbar print", "# Print content\n\nEnd marker.");
+    await page.evaluate(() => {
+      const toolbar = document.createElement("vercel-live-feedback");
+      toolbar.style.cssText = "position:fixed;right:20px;bottom:20px;width:40px;height:40px;background:red;";
+      toolbar.attachShadow({ mode: "closed" }).innerHTML = "<span>Preview toolbar</span>";
+      document.body.append(toolbar);
+    });
+    const toolbar = page.locator("body > vercel-live-feedback");
+    await expect(toolbar).toBeVisible();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
+    await page.emulateMedia({ media: "print" });
+    await expect(toolbar).toBeHidden();
+    await expect(page.locator(".print-surface")).toContainText("End marker.");
+    await page.emulateMedia({ media: "screen" });
+    await expect(toolbar).toBeVisible();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+    await page.evaluate(() => document.body.classList.add("styled-export-printing"));
+    await page.emulateMedia({ media: "print" });
+    await expect(toolbar).toBeHidden();
+    await expect(page.locator(".styled-export-preview-wrap")).toContainText("End marker.");
+    await page.emulateMedia({ media: "screen" });
+    await page.evaluate(() => document.body.classList.remove("styled-export-printing"));
+    await expect(toolbar).toBeVisible();
+    await page.getByRole("button", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(2);
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+  });
+
   test("rejects a failed image and leaves printing available for retry", async ({ page }) => {
     await stubBrowserPrint(page);
     await page.goto("/");

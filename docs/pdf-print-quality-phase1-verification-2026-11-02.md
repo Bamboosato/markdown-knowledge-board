@@ -46,6 +46,14 @@
 
 ## 実行と既知の制限
 
+### 修正後Vercelプレビューでの追加確認（2026-11-05）
+
+- 対象はPR #56の `bdfece56608fdc13dd0de3d375aca29d5f9d75ff` から作成されたVercel Preview、Pixel 10a / Android 17 / Chrome 156。前回と同じ日本語・表・縦長画像のテスト用Markdownを取り込み、200×6000pxの合成PNGをローカル画像として選択。Styled出力、A4、PDF保存。
+- PDFは10ページ。画像の先頭が1ページ目に表示され、画像の途中・末尾、後続本文、表と最終マーカーをページ画像で確認。1ページ目には引き続き余白が残る。保存後に再度印刷画面を開き、キャンセル後にStyled画面に戻り、印刷ボタンが有効なことを確認。
+- **原因を確認、対策未適用**: 出力PDFの各ページに円形表示と影が印刷される。プレビューのDOMでは `vercel-live-feedback` 要素が `body` の直接の子として存在し、アプリ内要素を非表示にする印刷CSSの対象外だった。同じ端末・文書・印刷設定で、ブラウザーに一時的な `@media print { vercel-live-feedback { display: none !important; } }` を追加して再出力すると、円形表示が消えた。両PDFはA4・10ページで、72dpiの各ページ画像の差分は10ページすべて同じ円形表示と影の範囲（x=304–380、y=327–403 px）に限られた。実験後に一時スタイルとデバッグ接続を取り除いた。比較前PDFは `output/pdf-review/pixel-vercel-bdfece5.pdf`、比較後は `output/pdf-review/pixel-vercel-toolbar-hidden.pdf`（リポジトリ外のローカル検証データ）。この比較は対象Pixel・Styled・対象fixtureに限る。
+- Windows Chrome 156の対象プレビューでは、ユーザー提供の印刷ダイアログ画像（`output/pdf-review/windows-vercel-preview-bdfece5.png`）で、送信先「PDFに保存」、1ページ、「TEST」の見出しと本文を確認。ユーザーが保存したPDF（`output/pdf-review/windows-vercel-bdfece5.pdf`）はA4・1ページで、レンダリング画像に同じ内容を確認。Pixelで見られた円形表示はこの画像とPDFには見当たらない。画像を含まない短文のため、画像付きStyled出力への一般化はできない。再印刷を開いてキャンセル後、本文が残り再印刷できることはユーザーが確認した。
+- 今回のPixel結果だけでは他端末、他設定、Mermaidタイムアウト後の実機再試行を保証しない。
+
 - `npm ci --no-audit`、`npm run test:unit`（260件成功）、lint、型チェック付きbuild、印刷対象Chromium E2E（32件成功）、PWAオフライン再起動の対象1ケース（成功）を実行。印刷以外の全E2Eや他ブラウザーのPDF生成は対象外。
 - 追加試験の初回は9,000行のエディター入力でタイムアウト。51,200文字超の少数行fixtureへ変更し再現性を確保した。別のE2E初回ページ読み込みtimeoutは単独再実行で成功した。いずれも製品の印刷失敗と断定しない。
 - 依存監査はproduction 0件、全依存low 2件/moderate 19件で失敗。lockfile・依存は今回変更しておらず、既存開発依存の問題として別途扱う。

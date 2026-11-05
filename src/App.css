@@ -3642,6 +3642,11 @@
 }
 
 @media print {
+  /* The Vercel preview toolbar is injected outside the app root. */
+  body > vercel-live-feedback {
+    display: none !important;
+  }
+
   .print-image-source {
     display: none !important;
   }
