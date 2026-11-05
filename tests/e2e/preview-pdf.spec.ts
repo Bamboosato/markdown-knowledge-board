@@ -2,6 +2,10 @@ import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readBodyEditorValue } from "./body-editor";
 
+async function savePdfIfChromium(page: import("@playwright/test").Page, testInfo: import("@playwright/test").TestInfo, options: Parameters<import("@playwright/test").Page["pdf"]>[0]) {
+  return testInfo.project.name === "chromium" ? page.pdf(options) : null;
+}
+
 /**
  * Test viewpoints before cases:
  * - Functional: Print / PDF opens browser printing for the complete Preview document.
@@ -190,8 +194,8 @@ test.describe("Preview Print / PDF", () => {
     await expect(page.locator(".print-surface .mermaid-print-fallback")).toBeVisible();
     await expect(page.locator(".print-surface .mermaid-diagram-panel")).toBeHidden();
     await expect(page.locator(".print-surface .mermaid-print-fallback pre")).toHaveCSS("max-height", "none");
-    const simple = await page.pdf({ path: testInfo.outputPath("large-diagram-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
-    expect(simple.byteLength).toBeGreaterThan(1000);
+    const simple = await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("large-diagram-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    if (simple) expect(simple.byteLength).toBeGreaterThan(1000);
     await page.emulateMedia({ media: "screen" });
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
@@ -201,8 +205,8 @@ test.describe("Preview Print / PDF", () => {
     await page.emulateMedia({ media: "print" });
     await expect(page.locator(".styled-export-preview-wrap .mermaid-print-fallback")).toBeVisible();
     await expect(page.locator('.styled-export-preview-wrap [role="img"]')).toBeHidden();
-    const styled = await page.pdf({ path: testInfo.outputPath("large-diagram-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
-    expect(styled.byteLength).toBeGreaterThan(1000);
+    const styled = await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("large-diagram-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    if (styled) expect(styled.byteLength).toBeGreaterThan(1000);
     await page.emulateMedia({ media: "screen" });
     await page.evaluate(() => { document.body.classList.remove("styled-export-printing"); window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; window.dispatchEvent(new Event("afterprint")); }; });
     let warning = "";
@@ -220,22 +224,22 @@ test.describe("Preview Print / PDF", () => {
     await createSavedNote(page, "Tall image", `![tall](${image})\n\nImage end marker.`);
     await expect(page.locator(".print-surface img")).toHaveCount(1);
     await expect.poll(() => page.locator(".print-surface img").evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
-    await page.pdf({ path: testInfo.outputPath("large-image-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("large-image-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
     const trial = await page.addStyleTag({ content: "@media print { .print-mdPreview img, .styled-export-markdown img { break-inside: auto !important; } }" });
-    await page.pdf({ path: testInfo.outputPath("large-image-simple-auto.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("large-image-simple-auto.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
     await trial.evaluate((style) => { style.textContent = "@media print { .print-mdPreview img, .styled-export-markdown img { max-height: 245mm !important; width: auto !important; height: auto !important; } }"; });
-    await page.pdf({ path: testInfo.outputPath("large-image-simple-scaled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("large-image-simple-scaled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
     await trial.evaluate((style) => { style.textContent = "@media print { .print-mdPreview img, .styled-export-markdown img { break-inside: auto !important; } }"; });
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
     await page.getByRole("button", { name: "Load HTTPS images" }).click();
     await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled({ timeout: 20_000 });
     await page.evaluate(() => document.body.classList.add("styled-export-printing"));
-    await page.pdf({ path: testInfo.outputPath("large-image-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("large-image-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
     await trial.evaluate((style) => { style.textContent = ""; });
-    await page.pdf({ path: testInfo.outputPath("large-image-styled-original.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("large-image-styled-original.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
     await trial.evaluate((style) => { style.textContent = "@media print { .print-mdPreview img, .styled-export-markdown img { max-height: 245mm !important; width: auto !important; height: auto !important; } }"; });
-    await page.pdf({ path: testInfo.outputPath("large-image-styled-scaled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("large-image-styled-scaled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
   });
 
   test("splits a tall image for both print paths without extra requests", async ({ page }, testInfo) => {
@@ -255,7 +259,7 @@ test.describe("Preview Print / PDF", () => {
     expect(requests).toBe(beforeSimple);
     await expect(page.locator(".print-surface .print-image-slice")).toHaveCount(5);
     await page.evaluate(() => { window.__savedPrintCanvases = Array.from(document.querySelectorAll('.print-surface .print-image-slice canvas')); });
-    await page.pdf({ path: testInfo.outputPath("split-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("split-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
     await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
     await expect(page.locator(".print-surface .print-image-slice")).toHaveCount(0);
     expect(await page.evaluate(() => window.__savedPrintCanvases?.every((canvas) => canvas.width === 0 && canvas.height === 0))).toBe(true);
@@ -278,7 +282,7 @@ test.describe("Preview Print / PDF", () => {
     await page.evaluate(() => { window.__savedPrintCanvases = Array.from(document.querySelectorAll('.styled-export-preview-wrap .print-image-slice canvas')); });
     await page.emulateMedia({ media: "print" });
     await expect(page.locator(".styled-export-preview-wrap img")).toBeHidden();
-    await page.pdf({ path: testInfo.outputPath("split-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("split-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
     await page.emulateMedia({ media: "screen" });
     await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
     await expect(page.locator(".styled-export-preview-wrap .print-image-slice")).toHaveCount(0);
@@ -315,7 +319,7 @@ test.describe("Preview Print / PDF", () => {
       expect(bounds.childLeft).toBeGreaterThanOrEqual(bounds.left - 0.5);
       expect(bounds.childRight).toBeLessThanOrEqual(bounds.right + 0.5);
     }
-    await page.pdf({ path: testInfo.outputPath("narrow-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("narrow-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
     await page.emulateMedia({ media: "screen" });
     await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
     await page.getByRole("button", { name: "More actions" }).click();
@@ -334,7 +338,7 @@ test.describe("Preview Print / PDF", () => {
       expect(bounds.childLeft).toBeGreaterThanOrEqual(bounds.left - 0.5);
       expect(bounds.childRight).toBeLessThanOrEqual(bounds.right + 0.5);
     }
-    await page.pdf({ path: testInfo.outputPath("narrow-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("narrow-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
     await page.emulateMedia({ media: "screen" });
     await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
   });
@@ -362,13 +366,13 @@ test.describe("Preview Print / PDF", () => {
     await page.emulateMedia({ media: "print" });
     await expect(page.locator(".print-surface img")).toHaveCount(2);
     await expect(page.locator(".print-surface img").first()).toBeVisible();
-    await page.pdf({ path: testInfo.outputPath("ordinary-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("ordinary-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
     if (process.env.PDF_COMPARE_PARENT === "1") {
       const oldCss = execFileSync("git", ["show", "f708207:src/App.css"], { encoding: "utf8" });
       const sheet = page.locator('style[data-vite-dev-id*="App.css"]');
       const currentCss = await sheet.textContent();
       await sheet.evaluate((element, css) => { element.textContent = css; }, oldCss);
-      await page.pdf({ path: testInfo.outputPath("ordinary-simple-parent-css.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+      await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("ordinary-simple-parent-css.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
       await sheet.evaluate((element, css) => { element.textContent = css; }, currentCss);
     }
     await page.emulateMedia({ media: "screen" });
@@ -383,7 +387,7 @@ test.describe("Preview Print / PDF", () => {
     await page.emulateMedia({ media: "print" });
     await expect(page.locator(".styled-export-preview-wrap img")).toHaveCount(2);
     await expect(page.locator(".styled-export-preview-wrap img").first()).toBeVisible();
-    await page.pdf({ path: testInfo.outputPath("ordinary-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+    await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("ordinary-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
     if (process.env.PDF_COMPARE_PARENT === "1") {
       const appCss = execFileSync("git", ["show", "f708207:src/App.css"], { encoding: "utf8" });
       const styledCss = execFileSync("git", ["show", "f708207:src/lib/styledExport/document.css"], { encoding: "utf8" });
@@ -392,7 +396,7 @@ test.describe("Preview Print / PDF", () => {
       const currentAppCss = await appSheet.textContent(), currentStyledCss = await styledSheet.textContent();
       await appSheet.evaluate((element, css) => { element.textContent = css; }, appCss);
       await styledSheet.evaluate((element, css) => { element.textContent = css; }, styledCss);
-      await page.pdf({ path: testInfo.outputPath("ordinary-styled-parent-css.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
+      await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("ordinary-styled-parent-css.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
       await appSheet.evaluate((element, css) => { element.textContent = css; }, currentAppCss);
       await styledSheet.evaluate((element, css) => { element.textContent = css; }, currentStyledCss);
     }
@@ -417,7 +421,7 @@ test.describe("Preview Print / PDF", () => {
       await page.getByRole("button", { name: "Print / PDF" }).click();
       await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
       await expect(page.locator(".styled-export-preview-wrap .print-image-slice")).toHaveCount(0);
-      await page.pdf({ path: testInfo.outputPath(`website-${viewportWidth}.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
+      await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath(`website-${viewportWidth}.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
       await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
     });
   }
@@ -517,7 +521,7 @@ test.describe("Preview Print / PDF", () => {
       const printImage = page.locator(".print-surface img");
       const printSize = await printImage.evaluate((img: HTMLImageElement) => ({ w: img.getBoundingClientRect().width, h: img.getBoundingClientRect().height }));
       expect(printSize.w / printSize.h).toBeCloseTo(width / height, 2);
-      await page.pdf({ path: testInfo.outputPath(`${orientation}-simple.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
+      await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath(`${orientation}-simple.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
       await page.emulateMedia({ media: "screen" });
       await page.getByRole("button", { name: "More actions" }).click();
       await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
@@ -540,7 +544,7 @@ test.describe("Preview Print / PDF", () => {
       const styledImage = page.locator(".styled-export-preview-wrap img");
       const styledSize = await styledImage.evaluate((img: HTMLImageElement) => ({ w: img.getBoundingClientRect().width, h: img.getBoundingClientRect().height }));
       expect(styledSize.w / styledSize.h).toBeCloseTo(width / height, 2);
-      await page.pdf({ path: testInfo.outputPath(`${orientation}-styled.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
+      await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath(`${orientation}-styled.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
     });
   }
 
@@ -557,7 +561,7 @@ test.describe("Preview Print / PDF", () => {
       await expect(simple).toHaveCount(1, { timeout: 20_000 });
       if (fallback) await expect(simple).toHaveAttribute("data-print-fallback", "oversized");
       else await expect(simple).not.toHaveAttribute("data-print-fallback", "oversized");
-      await page.pdf({ path: testInfo.outputPath(`boundary-${height}-simple.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
+      await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath(`boundary-${height}-simple.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
       await page.getByRole("button", { name: "More actions" }).click();
       await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
       await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
@@ -565,7 +569,7 @@ test.describe("Preview Print / PDF", () => {
       if (fallback) await expect(styled).toHaveAttribute("data-print-fallback", "oversized");
       else await expect(styled).not.toHaveAttribute("data-print-fallback", "oversized");
       await page.evaluate(() => document.body.classList.add("styled-export-printing"));
-      await page.pdf({ path: testInfo.outputPath(`boundary-${height}-styled.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
+      await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath(`boundary-${height}-styled.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
     });
   }
 
@@ -579,14 +583,23 @@ test.describe("Preview Print / PDF", () => {
         }`,
     }));
     await page.goto("/");
-    await createSavedNote(page, "Styled timeout", "```mermaid\ngraph TD\n A --> B\n```");
+    const inline = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="red"/></svg>').toString("base64")}`;
+    await createSavedNote(page, "Styled timeout", `![local](./fixture.svg)\n\n![inline](${inline})\n\n\`\`\`mermaid\ngraph TD\n A --> B\n\`\`\``);
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
     await expect(page.getByRole("alert")).toContainText("timed out", { timeout: 15_000 });
     await expect(page.getByRole("button", { name: "Print / PDF" })).toBeDisabled();
+    await page.getByLabel("Choose a local image for line 1").setInputFiles({ name: "fixture.svg", mimeType: "image/svg+xml", buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="blue"/></svg>') });
+    const image = page.locator('.styled-export-preview-wrap img[alt="local"]');
+    await expect(image).toHaveCount(1);
+    await expect(image).toHaveAttribute("src", /^data:image\/svg\+xml/);
+    const selectedSource = await image.getAttribute("src");
     await page.evaluate(() => { window.__allowMermaid = true; });
     await page.getByRole("button", { name: "Retry preparation" }).click();
     await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+    await expect(image).toHaveAttribute("src", selectedSource!);
+    await expect(page.locator('.styled-export-preview-wrap img[alt="inline"]')).toHaveAttribute("src", /^data:image\/svg\+xml/);
+    await expect(page.locator('.styled-export-issues input[type="file"]')).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Export Styled HTML / PDF" })).toBeVisible();
   });
 

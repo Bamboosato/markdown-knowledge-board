@@ -60,8 +60,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
   const [options, setOptions] = useState<StyledExportOptions>(() => ({
     ...DEFAULT_STYLED_EXPORT_OPTIONS,
   }));
-  const [assets, setAssets] = useState<StyledAssetMap>({});
-  const [assetErrors, setAssetErrors] = useState<Record<string, string>>({});
+  const [{ assets, assetErrors }, setImageState] = useState<{ assets: StyledAssetMap; assetErrors: Record<string, string> }>({ assets: {}, assetErrors: {} });
   const [mermaidSvgs, setMermaidSvgs] = useState<Record<string, string>>({});
   const [mermaidErrors, setMermaidErrors] = useState<string[]>([]);
   const [isPreparingDocument, setIsPreparingDocument] = useState(true);
@@ -116,8 +115,21 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       }));
       if (active) {
         window.clearTimeout(timeout);
-        setAssets(initialAssets);
-        setAssetErrors(initialErrors);
+        setImageState((current) => {
+          let nextAssets = { ...current.assets };
+          const nextErrors = { ...initialErrors, ...current.assetErrors };
+          for (const image of analysis.images) {
+            if (nextAssets[image.id]) { if (!current.assetErrors[image.id]) delete nextErrors[image.id]; continue; }
+            if (!initialAssets[image.id]) continue;
+            try {
+              nextAssets = setAsset(nextAssets, image, initialAssets[image.id]);
+              delete nextErrors[image.id];
+            } catch (error) {
+              nextErrors[image.id] = getErrorMessage(error);
+            }
+          }
+          return { assets: nextAssets, assetErrors: nextErrors };
+        });
         setMermaidSvgs(rendered);
         setMermaidErrors(failures);
         setIsPreparingDocument(false);
@@ -168,8 +180,21 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       }
     }
     if (controller.signal.aborted) return;
-    setAssets(nextAssets);
-    setAssetErrors(errors);
+    setImageState((current) => {
+      let merged = { ...current.assets };
+      const mergedErrors = { ...current.assetErrors };
+      for (const image of remoteImages) {
+        // Do not replace an image or error changed while the request was in flight.
+        if (current.assets[image.id] !== assets[image.id] || current.assetErrors[image.id] !== assetErrors[image.id]) continue;
+        if (!errors[image.id] && nextAssets[image.id]) {
+          try {
+            merged = setAsset(merged, image, nextAssets[image.id]);
+            delete mergedErrors[image.id];
+          } catch (error) { mergedErrors[image.id] = getErrorMessage(error); }
+        } else if (errors[image.id]) mergedErrors[image.id] = errors[image.id];
+      }
+      return { assets: merged, assetErrors: mergedErrors };
+    });
     setIsLoadingRemote(false);
     remoteAbortRef.current = null;
     setStatusMessage("External image check complete. Review any unresolved images below.");
@@ -179,14 +204,18 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
     if (!file) return;
     try {
       const dataUrl = await fileToSafeDataUrl(file);
-      setAssets(setAsset(assets, image, dataUrl));
-      setAssetErrors((current) => {
-        const next = { ...current };
-        delete next[image.id];
-        return next;
+      setImageState((current) => {
+        try {
+          const nextAssets = setAsset(current.assets, image, dataUrl);
+          const nextErrors = { ...current.assetErrors };
+          delete nextErrors[image.id];
+          return { assets: nextAssets, assetErrors: nextErrors };
+        } catch (error) {
+          return { ...current, assetErrors: { ...current.assetErrors, [image.id]: getErrorMessage(error) } };
+        }
       });
     } catch (error) {
-      setAssetErrors((current) => ({ ...current, [image.id]: getErrorMessage(error) }));
+      setImageState((current) => ({ ...current, assetErrors: { ...current.assetErrors, [image.id]: getErrorMessage(error) } }));
     }
   };
 
