@@ -188,6 +188,8 @@ workflow反映後に`Verify`、`Browser smoke`、`PWA`をmainの必須checkへ�
 
 ## 9. deepmerge の期限付き開発依存例外（2026-10-29）
 
+以下は当時の判断記録。2026-11-12の再評価と現在の期限・解除条件はsection 11を参照。
+
 PR #55 の監査で、本番依存0件、全依存low 4パッケージを確認した。4件は独立した脆弱性ではなく、[GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)が `vite-plugin-pwa → workbox-build → @rollup/plugin-node-resolve → deepmerge` へ波及した結果。2026-10-29時点でdeepmerge最新4.3.1にも修正がなく、公式のpatched versionは未公開。PWA plugin 2.0.0も同じ依存経路を持つため、無関係なmajor更新や旧版へのdowngradeは行わない。
 
 ユーザー承認に基づき、既存の例外機構にこのadvisoryだけを登録する。ownerはBamboosato。期限は **2026-11-12 00:00:00 UTC（日本時間09:00、約14日）**。期限一致以降は監査を失敗させる。自動延長はせず、期限前に公式修正版を再確認し、更新と回帰検証後に例外を削除する。修正版がなければ継続許容を改めて判断する。
@@ -215,3 +217,32 @@ PR #55 の監査で、本番依存0件、全依存low 4パッケージを確認�
 - minimatchは攻撃者が複雑なglobパターンを与えるとCPU・メモリーを過剰に消費し得る。現在のESLint・PWAのパターンはリポジトリで管理され、typescript-estreeの当該利用はproject serviceの `allowDefaultProject` 経由だが、信頼できない設定や入力への拡張・依存元の利用経路変更を安全と保証しない。globは中断後も走査が続く問題で、現行Workboxの `getFileDetails` は同期の `globSync` を使い、AbortSignalによる非同期走査の中断に依存していない。大きなディレクトリや信頼できないビルド入力に由来する負荷は残る。
 - 両例外は指定したadvisory・重大度・dev限定のlockfile上の正確なパスとバージョンに限る。同じ親に複数の原因が波及する場合も、各原因とその全依存経路に、それぞれ有効な例外が必要。新たなadvisory、重大度の不整合・上昇、production混入、パスやバージョン変更、期限切れ、監査結果取得失敗は失敗とする。例外は修正ではなく、残存リスクを期限付きで受け入れるもの。
 - mainの必須チェックに `Dependency audit` を追加し、既存の `Verify`・`Browser smoke`・`PWA` とGitHub Actions発行元の制限を維持する。PRをマージする前に実際のチェック結果とブランチ保護を確認する。
+
+
+## 11. glob/minimatchの限定更新とdeepmerge再評価（2026-11-12）
+
+### 限定更新
+
+- `workbox-build` 配下の `glob` を14.0.5、`@typescript-eslint/typescript-estree` 配下の `minimatch` を11.0.8へ限定overrideする。glob側のminimatchも11.0.8となる。既存の他のoverrideは維持する。上流の宣言するmajor範囲外のため、上流が修正版を正式に許容したらoverrideを外し、同じ回帰検証を行う。
+- glob/minimatchの古い監査例外は削除する。監査のseverity閾値、取得失敗時の扱い、workflow、productionの拒否方針は変更しない。
+- 過去の重複advisoryテストは、2026-11-05時点の例外とlockの対象レコードを固定したfixtureで維持する。fixtureはテスト専用で監査runnerからは読まない。古い許容が新しいlockへ流用できないことも検証する。
+
+### deepmergeの根拠と期限
+
+2026-11-12に一次情報を再確認した。
+
+- [CVE公式レコード](https://github.com/CVEProject/cvelistV5/blob/main/cves/2026/93xxx/CVE-2026-93753.json) はCVE-2026-93753を2026-11-02に **REJECTED** とし、脆弱性を記述していないためと説明している。
+- [GitHub advisory](https://github.com/advisories/GHSA-gcqx-w48m-w2h4) は未撤回の **Low**、対象deepmerge `>=4.2.0, <=4.3.1`、公式patched versionなしのまま。npm auditもこのGHSAとその開発依存への波及を報告している。
+- [upstreamでの説明](https://github.com/TehShrike/deepmerge/issues/273#issuecomment-6584747954) はCNAによる拒否と、global `Object.prototype` の変更や権限境界の突破を示していない点を説明している。CVEの拒否を、任意の入力や別の利用方法まで安全という保証には拡張しない。
+
+この情報源間の不一致に対し、ユーザー承認に基づき **GHSA-gcqx-w48m-w2h4のみ** を再確認期限付きで扱う。ownerはBamboosato。期限は **2026-12-12 09:00 JST（2026-12-12 00:00:00 UTC）**。期限一致以降は自動的に監査を失敗させ、自動延長しない。依存の修正済み・監査検出0件とは扱わない。
+
+対象はsection 9の4つの正確なdev path/version、すなわち `vite-plugin-pwa@1.3.0 → workbox-build@7.4.1 → @rollup/plugin-node-resolve@16.0.3 → deepmerge@4.3.1` に限る。許容severityはlowのみ。本番混入、別GHSA、対象外package/path/version、severity上昇、監査取得失敗・不正応答は引き続き拒否する。
+
+### 解除・再評価条件
+
+1. GitHubがこのadvisoryを撤回・訂正したとき、または上流の変更により該当の依存経路が解消したときは、この例外を削除し、最新のproduction/full npm auditと回帰検証を実行する。
+2. CVE/GHSA/npmの反映に時間差があり警告が残る場合も、別の警告やseverity全体を隠さない。取得した証跡と不一致を示し、必要なら個別に再判断する。
+3. 上記が起きなくても期限までに再確認する。継続には改めて明示的な承認が必要。期限を書き換えるだけの自動更新は行わない。
+
+実設定を使うテストで期限の直前・一致・直後、対象外low、別advisory、runtime移行、path/version変更、親依存version変更、severity上昇を確認する。削除したglob/minimatch警告が再登場した場合は波及するWorkbox/PWAも拒否する。
