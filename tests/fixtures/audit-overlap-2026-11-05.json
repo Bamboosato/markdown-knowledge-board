@@ -1,0 +1,142 @@
+{
+  "sourceCommit": "320a765f9356cfe18cba9d979deac7c59de7d1d9",
+  "exceptions": [
+    {
+      "advisory": "https://github.com/advisories/GHSA-gcqx-w48m-w2h4",
+      "owner": "Bamboosato",
+      "reason": "Temporary, user-approved development/build-only acceptance while no official patched deepmerge release exists (checked 2026-10-29). This is one advisory propagated through the PWA build dependency chain, not a remediation. Untrusted merge inputs can poison returned object prototypes; build-time risk remains. Exact locked versions and paths only; production findings remain blocked. Recheck upstream and remove or explicitly reassess before expiry; do not auto-renew. See docs/github-actions-ci-proposal.md section 9.",
+      "expires": "2026-11-12T00:00:00.000Z",
+      "packages": {
+        "deepmerge": {
+          "node_modules/deepmerge": "4.3.1"
+        },
+        "@rollup/plugin-node-resolve": {
+          "node_modules/@rollup/plugin-node-resolve": "16.0.3"
+        },
+        "workbox-build": {
+          "node_modules/workbox-build": "7.4.1"
+        },
+        "vite-plugin-pwa": {
+          "node_modules/vite-plugin-pwa": "1.3.0"
+        }
+      },
+      "severity": "low"
+    },
+    {
+      "advisory": "https://github.com/advisories/GHSA-g3hv-75wg-m249",
+      "owner": "Bamboosato",
+      "reason": "Temporary development-only acceptance for minimatch glob-pattern amplification. typescript-estree and Workbox glob currently require minimatch 10; the patched 11.x is outside their declared ranges. Repository ESLint and PWA build patterns are maintained in source, but untrusted patterns can cause excessive CPU and memory use during development or CI. Exact locked development paths only; recheck upstream and remove or explicitly reassess before expiry. This does not remediate the vulnerability.",
+      "expires": "2026-11-12T00:00:00.000Z",
+      "severity": "moderate",
+      "packages": {
+        "minimatch": {
+          "node_modules/@typescript-eslint/typescript-estree/node_modules/minimatch": "10.2.5",
+          "node_modules/glob/node_modules/minimatch": "10.2.6"
+        },
+        "glob": {
+          "node_modules/glob": "11.1.0"
+        },
+        "workbox-build": {
+          "node_modules/workbox-build": "7.4.1"
+        },
+        "vite-plugin-pwa": {
+          "node_modules/vite-plugin-pwa": "1.3.0"
+        },
+        "@typescript-eslint/typescript-estree": {
+          "node_modules/@typescript-eslint/typescript-estree": "8.63.0"
+        },
+        "@typescript-eslint/parser": {
+          "node_modules/@typescript-eslint/parser": "8.63.0"
+        },
+        "@typescript-eslint/type-utils": {
+          "node_modules/@typescript-eslint/type-utils": "8.63.0"
+        },
+        "@typescript-eslint/utils": {
+          "node_modules/@typescript-eslint/utils": "8.63.0"
+        },
+        "@typescript-eslint/eslint-plugin": {
+          "node_modules/@typescript-eslint/eslint-plugin": "8.63.0"
+        },
+        "typescript-eslint": {
+          "node_modules/typescript-eslint": "8.63.0"
+        }
+      }
+    },
+    {
+      "advisory": "https://github.com/advisories/GHSA-3g3m-2fjr-6pw4",
+      "owner": "Bamboosato",
+      "reason": "Temporary development-only acceptance for glob AbortSignal cancellation bypass. Workbox 7.4.1 requires glob 11; the patched 14.0.2+ is outside that range. The PWA build uses a repository-controlled asset pattern; unbounded or attacker-influenced trees may still consume CPU and filesystem I/O after cancellation. Exact locked development paths only; recheck upstream and remove or explicitly reassess before expiry. This does not remediate the vulnerability.",
+      "expires": "2026-11-12T00:00:00.000Z",
+      "severity": "moderate",
+      "packages": {
+        "glob": {
+          "node_modules/glob": "11.1.0"
+        },
+        "workbox-build": {
+          "node_modules/workbox-build": "7.4.1"
+        },
+        "vite-plugin-pwa": {
+          "node_modules/vite-plugin-pwa": "1.3.0"
+        }
+      }
+    }
+  ],
+  "lock": {
+    "lockfileVersion": 3,
+    "packages": {
+      "": {},
+      "node_modules/@rollup/plugin-node-resolve": {
+        "version": "16.0.3",
+        "dev": true
+      },
+      "node_modules/@typescript-eslint/eslint-plugin": {
+        "version": "8.63.0",
+        "dev": true
+      },
+      "node_modules/@typescript-eslint/parser": {
+        "version": "8.63.0",
+        "dev": true
+      },
+      "node_modules/@typescript-eslint/type-utils": {
+        "version": "8.63.0",
+        "dev": true
+      },
+      "node_modules/@typescript-eslint/typescript-estree": {
+        "version": "8.63.0",
+        "dev": true
+      },
+      "node_modules/@typescript-eslint/typescript-estree/node_modules/minimatch": {
+        "version": "10.2.5",
+        "dev": true
+      },
+      "node_modules/@typescript-eslint/utils": {
+        "version": "8.63.0",
+        "dev": true
+      },
+      "node_modules/deepmerge": {
+        "version": "4.3.1",
+        "dev": true
+      },
+      "node_modules/glob": {
+        "version": "11.1.0",
+        "dev": true
+      },
+      "node_modules/glob/node_modules/minimatch": {
+        "version": "10.2.6",
+        "dev": true
+      },
+      "node_modules/typescript-eslint": {
+        "version": "8.63.0",
+        "dev": true
+      },
+      "node_modules/vite-plugin-pwa": {
+        "version": "1.3.0",
+        "dev": true
+      },
+      "node_modules/workbox-build": {
+        "version": "7.4.1",
+        "dev": true
+      }
+    }
+  }
+}

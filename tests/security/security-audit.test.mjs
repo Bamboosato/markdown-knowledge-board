@@ -191,7 +191,7 @@ function deepmergeExceptionFixture() {
   const exceptions = configured.filter((entry) => entry.advisory === advisory)
   assert.equal(exceptions.length, 1)
   assert.equal(exceptions[0].advisory, advisory)
-  assert.equal(exceptions[0].expires, '2026-11-12T00:00:00.000Z')
+  assert.equal(exceptions[0].expires, '2026-12-12T00:00:00.000Z')
   assert.equal(exceptions[0].severity, 'low')
   assert.deepEqual(exceptions[0].packages, {
     deepmerge: { 'node_modules/deepmerge': '4.3.1' },
@@ -208,7 +208,7 @@ function deepmergeExceptionFixture() {
       'vite-plugin-pwa': finding('vite-plugin-pwa', 'low', ['workbox-build']),
     }),
     lock: JSON.parse(readFileSync(new URL('../../package-lock.json', import.meta.url), 'utf8')),
-    exceptions, now: new Date('2026-10-29T00:00:00.000Z'),
+    exceptions, now: new Date('2026-11-12T00:00:00.000Z'),
   }
 }
 test('configured deepmerge exception allows exactly the four development findings', () => {
@@ -218,9 +218,10 @@ test('configured deepmerge exception allows exactly the four development finding
   ] })
 })
 
-test('configured exceptions cover the exact overlapping audit graph without granting unrelated findings', () => {
-  const exceptions = JSON.parse(readFileSync(new URL('../../security-audit-exceptions.json', import.meta.url), 'utf8'))
-  const lock = JSON.parse(readFileSync(new URL('../../package-lock.json', import.meta.url), 'utf8'))
+test('historical exceptions cover the exact overlapping audit graph without granting unrelated findings', () => {
+  // Freeze both sides of this historical policy test. Dependency upgrades must
+  // not silently rewrite the old graph or require renewed production exceptions.
+  const { exceptions, lock } = JSON.parse(readFileSync(new URL('../fixtures/audit-overlap-2026-11-05.json', import.meta.url), 'utf8'))
   const deepmerge = 'https://github.com/advisories/GHSA-gcqx-w48m-w2h4'
   const minimatch = 'https://github.com/advisories/GHSA-g3hv-75wg-m249'
   const glob = 'https://github.com/advisories/GHSA-3g3m-2fjr-6pw4'
@@ -242,6 +243,12 @@ test('configured exceptions cover the exact overlapping audit graph without gran
   }
   const f = { production: report(), full: report(graph), exceptions, lock, now: new Date('2026-11-05T00:00:00.000Z') }
   assert.equal(evaluateAudits(f).ok, true)
+  // Old allowances must not approve the same reported graph against new versions.
+  const currentLock = JSON.parse(readFileSync(new URL('../../package-lock.json', import.meta.url), 'utf8'))
+  const current = evaluateAudits({ ...f, lock: currentLock })
+  assert.equal(current.ok, false)
+  assert.ok(current.blocked.includes('full: glob'))
+  assert.ok(current.blocked.includes('full: minimatch'))
   for (const advisory of [deepmerge, minimatch, glob]) {
     const missing = { ...f, exceptions: exceptions.filter(entry => entry.advisory !== advisory) }
     assert.equal(evaluateAudits(missing).ok, false)
@@ -250,9 +257,9 @@ test('configured exceptions cover the exact overlapping audit graph without gran
   assert.equal(evaluateAudits({ ...f, now: new Date('2026-11-12T00:00:00.000Z') }).ok, false)
 })
 for (const [date, ok] of [
-  ['2026-11-11T23:59:59.999Z', true],
-  ['2026-11-12T00:00:00.000Z', false],
-  ['2026-11-12T00:00:00.001Z', false],
+  ['2026-12-11T23:59:59.999Z', true],
+  ['2026-12-12T00:00:00.000Z', false],
+  ['2026-12-12T00:00:00.001Z', false],
 ]) test(`configured deepmerge exception expiry: ${date}`, () => {
   const f = deepmergeExceptionFixture(); f.now = new Date(date)
   assert.equal(evaluateAudits(f).ok, ok)
@@ -302,3 +309,38 @@ test('invalid explicit exception severity fails closed', () => {
   const f = deepmergeExceptionFixture(); f.exceptions[0].severity = 'anything'
   assert.equal(evaluateAudits(f).ok, false)
 })
+
+// The deployed policy must not retain obsolete glob/minimatch allowances.
+test('configured policy only permits the reviewed deepmerge advisory', () => {
+  const exceptions = JSON.parse(readFileSync(new URL('../../security-audit-exceptions.json', import.meta.url), 'utf8'))
+  assert.deepEqual(exceptions.map(entry => entry.advisory), ['https://github.com/advisories/GHSA-gcqx-w48m-w2h4'])
+})
+for (const [name, advisory] of [
+  ['glob', 'https://github.com/advisories/GHSA-3g3m-2fjr-6pw4'],
+  ['minimatch', 'https://github.com/advisories/GHSA-g3hv-75wg-m249'],
+]) test(`configured policy blocks a reintroduced ${name} finding and its parents`, () => {
+  const f = deepmergeExceptionFixture()
+  const historical = JSON.parse(readFileSync(new URL('../fixtures/audit-overlap-2026-11-05.json', import.meta.url), 'utf8'))
+  const entry = historical.exceptions.find(item => item.advisory === advisory)
+  for (const path of Object.keys(entry.packages[name])) {
+    f.lock.packages[path] = historical.lock.packages[path]
+  }
+  const graph = f.full.vulnerabilities
+  graph[name] = { ...finding(name, 'moderate', [{ url: advisory, severity: 'moderate' }]), nodes: Object.keys(entry.packages[name]) }
+  graph['workbox-build'].via.push(name)
+  graph['workbox-build'].severity = 'moderate'
+  graph['vite-plugin-pwa'].severity = 'moderate'
+  f.full = report(graph)
+  const result = evaluateAudits(f)
+  assert.deepEqual(result.blocked, ['full: workbox-build', 'full: vite-plugin-pwa', `full: ${name}`])
+  assert.deepEqual(result.excepted, ['deepmerge', '@rollup/plugin-node-resolve'])
+})
+for (const name of ['@rollup/plugin-node-resolve', 'workbox-build', 'vite-plugin-pwa']) {
+  test(`configured deepmerge exception rejects changed ancestor version: ${name}`, () => {
+    const f = deepmergeExceptionFixture()
+    f.lock.packages[`node_modules/${name}`].version = '99.0.0'
+    const result = evaluateAudits(f)
+    assert.equal(result.ok, false)
+    assert.ok(result.blocked.includes(`full: ${name}`))
+  })
+}
