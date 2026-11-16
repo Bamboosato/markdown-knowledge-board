@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { saveLocalMcpNote } from '../lib/localMcpNote';
+import { LOCAL_MCP_CONNECTION_KEY, parseLocalMcpCode, readLocalMcpConnection, validateLocalMcpConnection } from '../lib/localMcpConnection';
+import type { LocalMcpConnection } from '../lib/localMcpConnection';
 import './LocalMcpPanel.css';
 
 type Session = { token: string; clientId: string; origin: string };
@@ -28,13 +30,21 @@ type Props = {
 export default function LocalMcpPanel({ open, onClose, onConnected, onConnectionChange }: Props) {
   const [address, setAddress] = useState(import.meta.env.DEV && import.meta.env.MODE === 'local-mcp' ? location.origin : '');
   const addressRef = useRef<HTMLInputElement>(null);
+  const codeRef = useRef<HTMLInputElement>(null);
+  const reconnectRef = useRef<HTMLButtonElement>(null);
   const disconnectRef = useRef<HTMLButtonElement>(null);
   const mountedRef = useRef(false);
   const [token, setToken] = useState('');
+  const [code, setCode] = useState('');
+  const [savedConnection, setSavedConnection] = useState(readLocalMcpConnection);
+  const [showSetup, setShowSetup] = useState(!savedConnection);
+  const [remember, setRemember] = useState(Boolean(savedConnection));
+  const [manual, setManual] = useState(false);
+  const [storageWarning, setStorageWarning] = useState('');
   const [session, setSession] = useState<Session | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
-  const [status, setStatus] = useState('Connect to receive new notes in this app on this PC.');
+  const [status, setStatus] = useState('');
 
   useEffect(() => {
     mountedRef.current = true;
@@ -42,8 +52,8 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
   }, []);
 
   useEffect(() => {
-    if (open) (session ? disconnectRef : addressRef).current?.focus();
-  }, [open, session]);
+    if (open) (session ? disconnectRef : manual && showSetup ? addressRef : showSetup ? codeRef : reconnectRef).current?.focus();
+  }, [open, session, showSetup, manual]);
 
   useEffect(() => {
     onConnectionChange(session ? 'connected' : connecting ? 'connecting' : connectionError ? 'error' : 'disconnected');
@@ -90,17 +100,26 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
     };
   }, [session]);
 
-  async function connect() {
+  function forgetConnection() {
+    try {
+      localStorage.removeItem(LOCAL_MCP_CONNECTION_KEY);
+      setSavedConnection(null);
+      setShowSetup(true);
+      setRemember(false);
+      setStorageWarning('');
+    } catch {
+      setStorageWarning('Could not forget this connection. Check browser site settings.');
+    }
+  }
+
+  async function connect(saved?: LocalMcpConnection) {
+    if (connecting) return;
     setConnecting(true);
     setConnectionError(false);
     try {
-      const url = new URL(address.trim());
-      if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port ||
-          url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
-        throw new Error('Use the http://127.0.0.1:port address supplied by the MCP tool.');
-      }
-      if (!/^[a-f0-9]{64}$/.test(token.trim())) throw new Error('Enter the pairing token supplied by the MCP tool.');
-      const next = { token: token.trim(), clientId: crypto.randomUUID(), origin: url.origin };
+      const credentials = saved ? validateLocalMcpConnection(saved.origin, saved.token)
+        : manual ? validateLocalMcpConnection(address, token) : parseLocalMcpCode(code);
+      const next = { ...credentials, clientId: crypto.randomUUID() };
       await request(next, 'connect', {}, AbortSignal.timeout(60000));
       if (!mountedRef.current) {
         await request(next, 'disconnect').catch(() => {});
@@ -108,11 +127,29 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
       }
       setSession(next);
       setToken('');
-      setStatus('Connected. New notes will appear in the list without switching your editor.');
-      onConnected();
+      setCode('');
+      let remembered = true;
+      try {
+        if (remember) {
+          localStorage.setItem(LOCAL_MCP_CONNECTION_KEY, JSON.stringify(credentials));
+          setSavedConnection(credentials);
+          setShowSetup(false);
+        } else {
+          localStorage.removeItem(LOCAL_MCP_CONNECTION_KEY);
+          setSavedConnection(null);
+        }
+        setStorageWarning('');
+      } catch {
+        remembered = false;
+        setStorageWarning('Connected, but could not remember settings. Keep your connection code.');
+      }
+      setStatus('Ready to receive notes.');
+      if (remembered) onConnected();
     } catch (error) {
       setConnectionError(true);
-      setStatus(error instanceof TypeError ? 'Cannot connect. Check that the MCP server is running and allow this app to connect to this PC when the browser asks.' : error instanceof Error ? error.message : 'Connection failed.');
+      if (saved) setShowSetup(true);
+      setStatus(saved ? 'Reconnect failed. Check Codex and other connected tabs, or paste a new code.'
+        : error instanceof TypeError ? 'Cannot connect. Check Codex and browser permissions.' : error instanceof Error ? error.message : 'Connection failed.');
     } finally {
       setConnecting(false);
     }
@@ -122,24 +159,46 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
   return createPortal(<aside id="local-mcp-panel" hidden={!open} className="local-mcp-panel" aria-label="Local MCP" onKeyDown={event => {
     if (event.key === 'Escape') { event.stopPropagation(); onClose(); }
   }}>
-    <button type="button" className="local-mcp-close" onClick={onClose}>閉じる</button>
+    <button type="button" className="local-mcp-close" title="Close panel; stay connected" onClick={onClose}>Close</button>
     <details open>
       <summary>Local MCP — {session ? 'Connected' : 'Disconnected'}</summary>
-      <p>保存先: {location.origin}。パネルを閉じても接続は維持されます。</p>
-      {!session ? <form onSubmit={event => { event.preventDefault(); void connect(); }}>
+      <p>Save to: {location.origin}</p>
+      {savedConnection && <div className="local-mcp-remembered">
+        <p>Server: {savedConnection.origin}</p>
+        {!session && <button ref={reconnectRef} type="button" disabled={connecting} onClick={() => void connect(savedConnection)}>Reconnect</button>}
+        <button type="button" disabled={connecting} onClick={forgetConnection}>Forget connection</button>
+        {!session && <button type="button" disabled={connecting} aria-expanded={showSetup}
+          onClick={() => setShowSetup(value => !value)}>{showSetup ? 'Cancel setup' : 'Use a new code'}</button>}
+      </div>}
+      {!session && (!savedConnection || showSetup) ? <form onSubmit={event => { event.preventDefault(); void connect(); }}>
+        {!manual && <>
+          <label htmlFor="local-mcp-code">Connection code</label>
+          <input ref={codeRef} id="local-mcp-code" type="password" autoComplete="off" placeholder="Paste code from this chat"
+            value={code} onChange={event => setCode(event.target.value)} disabled={connecting} />
+        </>}
+        <button type="button" className="local-mcp-input-toggle" disabled={connecting} aria-expanded={manual}
+          onClick={() => setManual(value => !value)}>{manual ? 'Use connection code' : 'Enter address and token'}</button>
+        {manual && <>
         <label htmlFor="local-mcp-address">Server address</label>
         <input ref={addressRef} id="local-mcp-address" type="url" placeholder="http://127.0.0.1:port"
           autoComplete="off" value={address} onChange={event => setAddress(event.target.value)} disabled={connecting} />
         <label htmlFor="local-mcp-token">Pairing token</label>
         <input id="local-mcp-token" type="password" autoComplete="off" value={token}
           onChange={event => setToken(event.target.value)} disabled={connecting} />
-        <button type="submit" disabled={connecting || !token.trim() || !address.trim()}>Connect local MCP</button>
-      </form> : <button ref={disconnectRef} type="button" onClick={() => {
+        </>}
+        <label className="local-mcp-remember"><input type="checkbox" checked={remember} disabled={connecting}
+          onChange={event => { if (event.target.checked) setRemember(true); else forgetConnection(); }} />
+          Remember in this browser</label>
+        <small>Private devices only. No automatic connection.</small>
+        <button type="submit" disabled={connecting || (manual ? !token.trim() || !address.trim() : !code.trim())}>Connect local MCP</button>
+      </form> : null}
+      {session && <button ref={disconnectRef} type="button" onClick={() => {
         setSession(null);
         setConnectionError(false);
         setStatus('Disconnected.');
       }}>Disconnect local MCP</button>}
-      <p role="status">{status}</p>
+      {storageWarning && <p role="alert">{storageWarning}</p>}
+      {status && <p role="status">{status}</p>}
     </details>
   </aside>, document.body);
 }

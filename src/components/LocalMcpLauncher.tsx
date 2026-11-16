@@ -17,11 +17,11 @@ export default function LocalMcpLauncher() {
     window.addEventListener('open-local-mcp', show);
     return () => window.removeEventListener('open-local-mcp', show);
   }, []);
-  const label = { connected: 'MCP接続中', connecting: 'MCP接続待ち', disconnected: 'MCP未接続', error: 'MCP接続エラー' }[connection];
+  const label = { connected: 'MCP connected', connecting: 'MCP connecting', disconnected: 'MCP disconnected', error: 'MCP connection error' }[connection];
   return activated ? <>
     <button ref={indicatorRef} type="button" className={`local-mcp-indicator local-mcp-${connection}`}
-      aria-label={`${label}：接続設定を開く`} aria-expanded={open} aria-controls="local-mcp-panel"
-      title={`${label}：クリックして接続設定・切断`} onClick={() => setOpen(value => !value)}>
+      aria-label={`${label}: connection settings`} aria-expanded={open} aria-controls="local-mcp-panel"
+      title="Connection settings" onClick={() => setOpen(value => !value)}>
       <span className="local-mcp-dot" aria-hidden="true" />
       <span aria-live="polite">{label}</span>
     </button>

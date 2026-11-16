@@ -35,9 +35,11 @@ if (dev) {
 const mcp = new McpServer({ name: 'mkb-local-prototype', version: '0.2.0' });
 const result = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }], isError: Boolean(value.error) });
 mcp.registerTool('connection_status', {
-  description: 'Check the paired Markdown Knowledge Board PWA. If disconnected, returns the local server address and private one-session pairing token for the app Local MCP panel. Do not publish the token. Check browserOrigin before creating a note.',
+  description: 'Check the paired Markdown Knowledge Board PWA. If disconnected, returns a private pairingCode to paste once in the app Local MCP panel, plus the address and token for manual setup. Share the code only with this user for their app; never publish it. The app can remember the connection for a Reconnect button. Server restart requires a fresh code. Check browserOrigin before creating a note.',
   inputSchema: {}, annotations: { readOnlyHint: true },
-}, async () => result({ ...bridge.status(), ...(!bridge.status().connected ? { pairingToken: bridge.token } : {}) }));
+}, async () => result({ ...bridge.status(), ...(!bridge.status().connected ? {
+  pairingToken: bridge.token, pairingCode: `MKB1|${origin}|${bridge.token}`,
+} : {}) }));
 mcp.registerTool('create_note', {
   description: 'Create a NEW note in the explicitly paired Markdown Knowledge Board PWA on this PC. Returns saved only after IndexedDB commit. Reuse exactly the same request_id and input after uncertain delivery. Never replaces existing notes or switches the active editor.',
   inputSchema: {
