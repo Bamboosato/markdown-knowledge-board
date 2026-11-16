@@ -1,0 +1,34 @@
+name: Windows MCP setup
+
+on:
+  pull_request:
+    paths: ['tools/local-mcp/**', '.github/workflows/windows-mcp-setup.yml']
+  push:
+    branches: [main]
+    paths: ['tools/local-mcp/**', '.github/workflows/windows-mcp-setup.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-setup:
+    name: Windows setup kit
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci --prefix tools/local-mcp --ignore-scripts
+      - run: npm install --global @openai/codex@0.169.0
+      - run: node tools/local-mcp/windows/verify-kit.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MKB-Windows-Setup
+          path: |
+            output/windows-setup/build-*/*.zip
+            output/windows-setup/build-*/*.sha256
+          if-no-files-found: error
+          retention-days: 30
