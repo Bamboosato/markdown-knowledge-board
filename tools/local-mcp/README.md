@@ -2,7 +2,14 @@
 
 ## 現在の状態（2026-11-16）
 
-ローカル試作でMCPからIndexedDBへの保存・再読み込みを確認済み。本番PWA用の受信パネルを追加し、Codex接続の競合を修正した。本番公開・このチャットの専用MCPツールによる実保存は確認中であり、まだ完了扱いにしない。
+Codexの専用MCPツールから、このPCで起動している本番PWAへの新規ノート作成・保存・再読み込み後の保持まで確認済み。本番PWA用の受信パネルを追加し、Codex接続の競合を修正した。
+
+- 配布コミット: `da4f379502032f9c85ff1c0a2a39d43a8a1e05c4`（`codex/local-mcp-pwa`）。本番デプロイ: `dpl_E1bVeJNTzQKnsswAecFVAVUh2kU7`。`mkb.bamboosato.com`への割当てを確認。
+- [CI](https://github.com/Bamboosato/markdown-knowledge-board/actions/runs/43813256917)のVerify、Dependency audit、Browser smoke、PWAがすべて成功。
+- Chromeのインストール済みPWA（standalone表示）を更新し、接続前に既存99件の保持を確認。専用`connection_status`の`browserOrigin`は`https://mkb.bamboosato.com`。
+- 専用`create_note`で「Codex専用MCPからの本番PWA保存確認」を作成。`status: saved`、`reused: false`を受領。ノート数100件、本文・タグ・Saved表示、再読み込み後の保持を画面確認した。手動SDKクライアントは使っていない。
+- request_id: `codex-pwa-native-20261116-01`、note ID: `mcp-e34236e9a3a9a5de8a49db6ecde02314bb8ed6f099ae26199c3f40f62121080d`。
+- 再読み込みの検証後、同じPWAを再接続した。mainへのマージは実施していないため、以後の本番リリース時にはこの変更を含める必要がある。
 
 ## 構成と使い方
 
@@ -23,6 +30,7 @@ enabled = true
 
 3. 専用MCPの`connection_status`を呼ぶ。未接続の場合に返る`origin`と`pairingToken`を使う。トークンは共有・公開しない。
 4. 保存先のPWAでアプリメニュー → **Local MCP** を開き、**Server address** と **Pairing token** を入力して **Connect local MCP**。ChromeがこのPCへの接続許可を求めた場合は利用者が許可する。
+   初回の許可操作中に10秒の接続タイムアウトになった場合は、許可後にもう一度 **Connect local MCP** を押す。今回の実PWAでもこの手順で接続した。
 5. `connection_status`の`browserOrigin`が意図した本番サイトであることを確認してから`create_note`を呼ぶ。
 6. 一覧から作成ノートを開く。パネルを閉じる、切断、再読み込み、MCP終了で接続は終了する。再接続時はそのチャットの最新のアドレス・トークンを使う。
 
@@ -49,6 +57,8 @@ enabled = true
 
 デスクトップ内蔵Codex `0.130.0-alpha.5`の公式app-server APIを隔離設定で使用し、変更前後ともツール一覧の取得に成功している。したがってSDKプロトコル全体の非互換ではない。元のチャット失敗ログ自体にはポート競合の直接証拠がなく、再現した構成上の不具合と、当該チャットでの復旧確認は区別する。npm版CLIは`0.169.0`へ更新済みで、内蔵版は変更していない。
 
+修正後にCodexを完全終了・再起動した結果、この同じチャットへ`mcp__mkb_local_prototype__connection_status`と`mcp__mkb_local_prototype__create_note`が公開され、上記の本番保存に成功した。
+
 以前に`chat-client.mjs`でChromeのlocalhostへ「CodexチャットからのMCP保存確認」を保存し再読み込みを確認したが、これは手動SDKクライアントによる開発Originの検証。専用ツール・本番PWAの成功証拠ではない。診断用`chat-client.mjs`は残してあるが通常運用には使わない。
 
 ## 検証
@@ -63,6 +73,6 @@ npm run build
 
 開発用の通し試験は`node tools/local-mcp/verify.mjs`。隔離Chromiumと架空データを使い、`MKB_MCP_DEV=1`でViteを起動する。実PWA・本番HTTPSの確認とは区別する。前版で11観点（保存、日本語、再送、衝突、未保存編集保護、保存失敗、再読み込み、応答喪失等）を確認済み。
 
-今回、接続・CORS・タイムアウト等のNodeテスト6件、保存関連Vitest7件、2クライアント同時接続と内蔵Codexのツール一覧取得を確認した。lintも成功。本番PWAでのブラウザ権限・実保存・専用ツール公開は別途確認する。
+今回、接続・CORS・タイムアウト等のNodeテスト6件、2クライアント同時接続と内蔵Codexのツール一覧取得を確認した。ローカルの全Vitest275件（保存関連7件を含む）、セキュリティテスト83件、lint、型チェック・buildも成功。CIの全4ジョブに加え、上記の実PWAでブラウザ権限・専用ツール公開・実保存・再読み込みまで確認した。他OS、他ブラウザ、スリープ中の到達、全ノート内容の比較は実施していない。
 
 参考: [CodexのMCP設定](https://learn.chatgpt.com/docs/extend/mcp)、[Chrome Local Network Access](https://developer.chrome.com/docs/modern-web-guidance/guides/security/local-network-access)。
