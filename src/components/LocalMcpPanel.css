@@ -6,25 +6,59 @@
   width: min(380px, calc(100vw - 24px));
   max-height: calc(100dvh - 100px);
   overflow: auto;
-  padding: 12px;
-  border: 1px solid #8a8a8a;
+  padding: 16px;
+  border: 1px solid #d0d0d0;
   border-radius: 8px;
   background: #fff;
   color: #222;
   box-shadow: 0 3px 16px #0002;
   font-size: 14px;
 }
-.local-mcp-panel summary { cursor: pointer; font-weight: 600; }
-.local-mcp-panel form { display: grid; gap: 8px; margin-top: 10px; }
-.local-mcp-panel input { width: 100%; min-width: 0; box-sizing: border-box; }
-.local-mcp-panel button, .local-mcp-panel input { min-height: 44px; }
+.local-mcp-panel form { display: grid; gap: 8px; }
+.local-mcp-panel input { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; }
+.local-mcp-panel input:not([type="checkbox"]) {
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid #b8b8b8;
+  border-radius: 8px;
+  background: #fff;
+  color: #1f1f1f;
+}
+.local-mcp-panel button {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid #b8b8b8;
+  border-radius: 8px;
+  background: #fff;
+  color: #3f3f3f;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.local-mcp-panel button:hover:not(:disabled) { background: #f0f0f0; }
+.local-mcp-panel button:disabled { opacity: 0.5; cursor: not-allowed; }
+.local-mcp-panel :is(button, input):focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.local-mcp-panel .local-mcp-primary { background: #1d1d1d; border-color: #1d1d1d; color: #fff; }
+.local-mcp-panel .local-mcp-primary:hover:not(:disabled) { background: #333; border-color: #333; }
 .local-mcp-panel p { margin: 8px 0 0; overflow-wrap: anywhere; }
-.local-mcp-close { display: block; margin: 0 0 8px auto; }
-.local-mcp-remembered { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.local-mcp-remembered p { flex-basis: 100%; }
+.local-mcp-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.local-mcp-heading h2 { margin: 0; font-size: 1rem; }
+.local-mcp-state { font-weight: 600; }
+.local-mcp-destination, .local-mcp-panel small, .local-mcp-advanced p { color: #666; font-size: 0.82rem; }
+.local-mcp-main-actions { display: grid; margin-top: 16px; }
+.local-mcp-advanced { margin-top: 16px; padding-top: 8px; border-top: 1px solid #e1e1e1; }
+.local-mcp-panel .local-mcp-disclosure { width: 100%; text-align: left; border-color: transparent; padding-inline: 4px; }
+.local-mcp-disclosure span { display: inline-block; width: 14px; }
+.local-mcp-settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.local-mcp-advanced form { margin-top: 12px; }
 .local-mcp-remember { display: flex; align-items: center; gap: 8px; }
-.local-mcp-remember input { width: 20px; flex: 0 0 20px; }
-.local-mcp-input-toggle { font: inherit; }
+.local-mcp-remember input { width: 20px; height: 20px; margin: 0; flex: 0 0 20px; }
+.local-mcp-panel .local-mcp-input-toggle { justify-self: start; padding-inline: 4px; border-color: transparent; font-weight: 400; font-size: 0.82rem; }
+.local-mcp-panel [role="alert"] { color: #8a1f1f; }
+.local-mcp-panel [role="status"] { font-size: 0.82rem; }
+@media (pointer: coarse) {
+  .local-mcp-panel button, .local-mcp-panel input:not([type="checkbox"]), .local-mcp-remember { min-height: 44px; }
+}
 
 .local-mcp-indicator {
   display: inline-flex;

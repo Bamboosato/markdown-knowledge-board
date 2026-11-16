@@ -38,6 +38,7 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
   const [code, setCode] = useState('');
   const [savedConnection, setSavedConnection] = useState(readLocalMcpConnection);
   const [showSetup, setShowSetup] = useState(!savedConnection);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [remember, setRemember] = useState(Boolean(savedConnection));
   const [manual, setManual] = useState(false);
   const [storageWarning, setStorageWarning] = useState('');
@@ -53,7 +54,7 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
 
   useEffect(() => {
     if (open) (session ? disconnectRef : manual && showSetup ? addressRef : showSetup ? codeRef : reconnectRef).current?.focus();
-  }, [open, session, showSetup, manual]);
+  }, [open, session, showSetup, manual, savedConnection]);
 
   useEffect(() => {
     onConnectionChange(session ? 'connected' : connecting ? 'connecting' : connectionError ? 'error' : 'disconnected');
@@ -144,10 +145,11 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
         setStorageWarning('Connected, but could not remember settings. Keep your connection code.');
       }
       setStatus('Ready to receive notes.');
+      setAdvancedOpen(false);
       if (remembered) onConnected();
     } catch (error) {
       setConnectionError(true);
-      if (saved) setShowSetup(true);
+      if (saved) { setShowSetup(true); setAdvancedOpen(true); }
       setStatus(saved ? 'Reconnect failed. Start Codex and close other connected tabs, then retry.'
         : error instanceof TypeError ? 'Cannot connect. Check Codex and browser permissions.' : error instanceof Error ? error.message : 'Connection failed.');
     } finally {
@@ -155,25 +157,10 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
     }
   }
 
-  // Keep this component mounted while hidden: polling and the session outlive the panel UI.
-  return createPortal(<aside id="local-mcp-panel" hidden={!open} className="local-mcp-panel" aria-label="Local MCP" onKeyDown={event => {
-    if (event.key === 'Escape') { event.stopPropagation(); onClose(); }
-  }}>
-    <button type="button" className="local-mcp-close" title="Close panel; stay connected" onClick={onClose}>Close</button>
-    <details open>
-      <summary>Local MCP — {session ? 'Connected' : 'Disconnected'}</summary>
-      <p>Save to: {location.origin}</p>
-      {savedConnection && <div className="local-mcp-remembered">
-        <p>Server: {savedConnection.origin}</p>
-        {!session && <button ref={reconnectRef} type="button" disabled={connecting} onClick={() => void connect(savedConnection)}>Reconnect</button>}
-        <button type="button" disabled={connecting} onClick={forgetConnection}>Forget connection</button>
-        {!session && <button type="button" disabled={connecting} aria-expanded={showSetup}
-          onClick={() => setShowSetup(value => !value)}>{showSetup ? 'Cancel setup' : 'Use a new code'}</button>}
-      </div>}
-      {!session && (!savedConnection || showSetup) ? <form onSubmit={event => { event.preventDefault(); void connect(); }}>
+  const setupForm = <form onSubmit={event => { event.preventDefault(); void connect(); }}>
         {!manual && <>
           <label htmlFor="local-mcp-code">Connection code</label>
-          <input ref={codeRef} id="local-mcp-code" type="password" autoComplete="off" placeholder="Paste code from this chat"
+          <input ref={codeRef} id="local-mcp-code" type="password" autoComplete="off" placeholder="Paste connection code"
             value={code} onChange={event => setCode(event.target.value)} disabled={connecting} />
         </>}
         <button type="button" className="local-mcp-input-toggle" disabled={connecting} aria-expanded={manual}
@@ -190,15 +177,44 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
           onChange={event => { if (event.target.checked) setRemember(true); else forgetConnection(); }} />
           Remember in this browser</label>
         <small>Private devices only. No automatic connection.</small>
-        <button type="submit" disabled={connecting || (manual ? !token.trim() || !address.trim() : !code.trim())}>Connect local MCP</button>
-      </form> : null}
+        <button className="local-mcp-primary" type="submit" disabled={connecting || (manual ? !token.trim() || !address.trim() : !code.trim())}>{connecting ? 'Connecting…' : 'Connect local MCP'}</button>
+      </form>;
+
+  // Keep this component mounted while hidden: polling and the session outlive the panel UI.
+  return createPortal(<aside id="local-mcp-panel" hidden={!open} className="local-mcp-panel" aria-label="Local MCP" onKeyDown={event => {
+    if (event.key === 'Escape') { event.stopPropagation(); onClose(); }
+  }}>
+    <div className="local-mcp-heading">
+      <h2>Local MCP</h2>
+      <button type="button" className="local-mcp-close" title="Close panel; stay connected" onClick={onClose}>Close</button>
+    </div>
+    <p className="local-mcp-state">{session ? 'Connected' : connecting ? 'Connecting…' : 'Disconnected'}</p>
+    <p className="local-mcp-destination">Save to: {location.origin}</p>
+    <div className="local-mcp-main-actions">
+      {!session && savedConnection && <button className="local-mcp-primary" ref={reconnectRef} type="button" disabled={connecting} onClick={() => void connect(savedConnection)}>{connecting ? 'Connecting…' : 'Reconnect'}</button>}
+      {!session && !savedConnection && setupForm}
       {session && <button ref={disconnectRef} type="button" onClick={() => {
         setSession(null);
         setConnectionError(false);
         setStatus('Disconnected.');
       }}>Disconnect local MCP</button>}
-      {storageWarning && <p role="alert">{storageWarning}</p>}
-      {status && <p role="status">{status}</p>}
-    </details>
+    </div>
+    {savedConnection && <div className="local-mcp-advanced">
+      <button type="button" className="local-mcp-disclosure" aria-expanded={advancedOpen} aria-controls="local-mcp-advanced-content"
+        onClick={() => { setAdvancedOpen(value => !value); if (advancedOpen) setShowSetup(false); }}>
+        <span aria-hidden="true">{advancedOpen ? '▾' : '▸'}</span> Advanced settings
+      </button>
+      <div id="local-mcp-advanced-content" hidden={!advancedOpen}>
+        <p>Server: {savedConnection.origin}</p>
+        <div className="local-mcp-settings-actions">
+          {!session && <button type="button" disabled={connecting} aria-expanded={showSetup}
+            onClick={() => setShowSetup(value => !value)}>{showSetup ? 'Cancel setup' : 'Use a new code'}</button>}
+          <button type="button" disabled={connecting} onClick={forgetConnection}>Forget connection</button>
+        </div>
+        {!session && showSetup && setupForm}
+      </div>
+    </div>}
+    {storageWarning && <p role="alert">{storageWarning}</p>}
+    {status && <p role="status">{status}</p>}
   </aside>, document.body);
 }
