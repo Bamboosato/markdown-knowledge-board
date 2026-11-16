@@ -2,6 +2,16 @@
 
 Local-only Markdown knowledge board built with React + Vite + TypeScript.
 
+## Windows向けローカルMCPセットアップ
+
+CodexからMKB PWAへ新規ノートを保存するためのセットアップ一式は、[GitHub Releases：MKB Windows Setup v1.0.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.0.0)から入手できます。Releaseの添付ファイルは30日で自動失効しません。
+
+- [セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.0.0/MKB-Windows-Setup.zip)
+- [SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.0.0/MKB-Windows-Setup.zip.sha256)
+- [導入手順書](./tools/local-mcp/windows/README.md)
+
+導入先でNode.js 24以上、Codex、ChromeのMKB PWAを準備し、ZIPをすべて展開して`Setup.cmd`を実行します。自動MCP登録にはCodex CLIも必要です。手動登録・初回接続・保存確認は導入手順書を参照してください。
+
 ## 起動方法
 
 依存関係のインストール:

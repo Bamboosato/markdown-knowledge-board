@@ -23,7 +23,9 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 
 ### 他のWindows PCへ配布する
 
-導入先の利用者向け手順は [Windowsセットアップ手順](windows/README.md)。Node.js 24以上、Codex、ChromeのMKB PWAを準備し、ZIPを展開して`Setup.cmd`を実行する。依存の取得、MCPの配置・登録、設定ツールの作成を行い、同名の別MCP登録は自動で上書きしない。CLIを使わない登録と既存環境の移行にも対応する。
+通常の配布先は[GitHub Releases：MKB Windows Setup v1.0.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.0.0)。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.0.0/MKB-Windows-Setup.zip)と[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.0.0/MKB-Windows-Setup.zip.sha256)を取得でき、Releaseの添付ファイルは30日で自動失効しない。
+
+導入先の利用者向け手順は [Windowsセットアップ手順](windows/README.md)。Node.js 24以上、Codex、ChromeのMKB PWAを準備し、ダウンロードしたZIPをすべて展開して`Setup.cmd`を実行する。依存の取得、MCPの配置・登録、設定ツールの作成を行い、同名の別MCP登録は自動で上書きしない。自動登録にはCodex CLIが必要。CLIを使わない登録と既存環境の移行にも対応する。
 
 開発者はWindowsで次を実行すると、`output/windows-setup/build-*/`に配布ZIPとSHA-256ファイルを作成できる。明示した16ファイルとハッシュ一覧だけを収録するため、作業フォルダー内のノート・トークン・設定・依存の実体は入らない。依存は導入先でロックファイルから取得する。
 
@@ -32,7 +34,7 @@ node tools/local-mcp/windows/build-kit.mjs
 node tools/local-mcp/windows/verify-kit.mjs
 ```
 
-検証には開発用のMCP依存とCodex CLIも必要。隔離した導入先・デスクトップ・Codex設定・ペアリングを使い、ZIP展開、新規登録、実MCP起動、設定ツールとのペアリング共有、再インストール、改変パッケージの停止、既存登録の衝突を確認する。PWAショートカットは模擬で、別PCでの実PWA保存試験ではない。証跡は`output/windows-setup/test-*/PC セットアップ/result.json`。Windows MCP setupワークフローも同じ試験を実行し、ZIPを30日間のActions artifactとして保存する。
+検証には開発用のMCP依存とCodex CLIも必要。隔離した導入先・デスクトップ・Codex設定・ペアリングを使い、ZIP展開、新規登録、実MCP起動、設定ツールとのペアリング共有、再インストール、改変パッケージの停止、既存登録の衝突を確認する。PWAショートカットは模擬で、別PCでの実PWA保存試験ではない。証跡は`output/windows-setup/test-*/PC セットアップ/result.json`。Windows MCP setupワークフローも同じ試験を実行し、検証用ZIPを30日間のActions artifactとして保存する。この保持期間は、通常の配布先であるGitHub Releasesの添付ファイルには適用されない。
 
 ### PWAとの接続
 

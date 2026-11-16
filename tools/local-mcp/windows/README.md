@@ -3,6 +3,17 @@
 別のWindows PCに、MKBのローカルMCPと **MKB Connection Setup** を導入するセットです。
 このZIPにはアプリのソース・インストーラー・依存のロックファイルだけを含み、接続コード、PC固有の設定、ノート、Codexの認証情報は含みません。管理者権限は不要です。
 
+## セットアップ一式の入手
+
+通常は[GitHub Releases：MKB Windows Setup v1.0.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.0.0)のAssetsから、次のファイルをダウンロードしてください。
+
+- [MKB-Windows-Setup.zip](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.0.0/MKB-Windows-Setup.zip)：セットアップ一式
+- [MKB-Windows-Setup.zip.sha256](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.0.0/MKB-Windows-Setup.zip.sha256)：対応するZIPのSHA-256チェックサム
+
+Releaseの添付ファイルは30日で自動失効しません。GitHub Actionsの検証用Artifactsに設定された30日間の保持期間とは別です。公開中のReleaseから同じリンクで取得できます。
+
+ダウンロードしたセットアップZIPを一度「すべて展開」すると、`MKB-Windows-Setup`フォルダー内に`README.md`と`Setup.cmd`があります。以下の準備・インストール手順に進んでください。今後の更新版は[Releases一覧](https://github.com/Bamboosato/markdown-knowledge-board/releases)で **MKB Windows Setup** を確認します。セットアップ一式とMKB Webアプリのバージョンは別管理です。
+
 ## 1. 導入先PCで準備するもの
 
 - Windowsと **Windows PowerShell 5.1**（Windows標準の `powershell.exe`）。PowerShell 7ではインストーラーを実行しません。
@@ -21,7 +32,7 @@ codex --version
 
 ## 2. インストール
 
-1. ZIPを導入先PCへコピーします。インターネット経由で入手したZIPは、入手元を確認したうえでプロパティの「許可する／ブロックの解除」を行ってから展開してください。
+1. 上記のReleasesから導入先PCへZIPをダウンロードするか、入手済みのZIPをコピーします。インターネット経由で入手したZIPは、入手元を確認したうえでプロパティの「許可する／ブロックの解除」を行ってから展開してください。
 2. **すべて展開**し、展開した `MKB-Windows-Setup` フォルダーを開きます。ZIPの中から直接実行しないでください。
 3. **Setup.cmd** をダブルクリックします。案内・設定ツールの表示は英語です。
 4. `Setup complete.` を確認します。デスクトップに **MKB Connection Setup** が作成され、Codexに `mkb_local_prototype` が登録されます。
