@@ -10,13 +10,13 @@ const MAX_CANVAS_PIXELS = 16_000_000;
 const MAX_CANVAS_EDGE = 8192;
 const MAX_DOCUMENT_PIXELS = 32_000_000;
 
-export function planPrintImageSlices(width: number, height: number, printWidth = width) {
+export function planPrintImageSlices(width: number, height: number, printWidth = width, pageHeight = PRINT_IMAGE_MAX_HEIGHT / 2) {
   if (!(width > 0 && height > 0 && printWidth > 0) || !Number.isFinite(width) || !Number.isFinite(height) || !Number.isFinite(printWidth)) return null;
   const printHeight = height * printWidth / width;
-  if (printHeight <= PRINT_IMAGE_MAX_HEIGHT) return null;
+  if (printHeight <= Math.floor(pageHeight) * 2) return null;
   const scale = printWidth / width;
-  const sourceSliceHeight = Math.max(1, Math.floor(SLICE_HEIGHT / scale));
-  const firstSourceHeight = Math.min(height, Math.max(1, Math.floor(FIRST_SLICE_HEIGHT / scale)));
+  const sourceSliceHeight = Math.max(1, Math.floor(Math.min(SLICE_HEIGHT, pageHeight - 80) / scale));
+  const firstSourceHeight = Math.min(height, Math.max(1, Math.floor(Math.min(FIRST_SLICE_HEIGHT, pageHeight - 80) / scale)));
   const count = 1 + Math.ceil((height - firstSourceHeight) / sourceSliceHeight);
   if (count > MAX_SLICES) throw new Error("Image is too tall to prepare for printing.");
   return { width: printWidth, height: printHeight, slices: Array.from({ length: count }, (_, i) => {
@@ -26,11 +26,11 @@ export function planPrintImageSlices(width: number, height: number, printWidth =
   }) };
 }
 
-export function planPrintDocumentImages(images: ReadonlyArray<{ width: number; height: number; printWidth?: number }>) {
+export function planPrintDocumentImages(images: ReadonlyArray<{ width: number; height: number; printWidth?: number }>, pageHeight?: number) {
   let totalPixels = 0;
   let totalSlices = 0;
   return images.map(({ width, height, printWidth }) => {
-    const plan = planPrintImageSlices(width, height, printWidth);
+    const plan = planPrintImageSlices(width, height, printWidth, pageHeight);
     if (!plan) return null;
     totalPixels += width * height;
     totalSlices += plan.slices.length;
@@ -46,7 +46,7 @@ export function planPrintDocumentImages(images: ReadonlyArray<{ width: number; h
 
 // Measure the same print rules and available A4 width synchronously before
 // printing. The temporary styles are removed before the browser can paint.
-export function measurePrintImageWidths(surface: HTMLElement, images: HTMLImageElement[]): number[] {
+export function measurePrintImageWidths(surface: HTMLElement, images: HTMLImageElement[], printWidth = PRINT_WIDTH): number[] {
   const rules: string[] = [];
   for (const sheet of Array.from(document.styleSheets)) {
     try {
@@ -65,7 +65,7 @@ export function measurePrintImageWidths(surface: HTMLElement, images: HTMLImageE
   const previous = surface.style.cssText;
   try {
     document.body.appendChild(temporary);
-    for (const [property, value] of Object.entries({ display: "block", position: "fixed", visibility: "hidden", width: `${PRINT_WIDTH}px`, "max-width": "none", height: "auto", left: "0", top: "0" })) {
+    for (const [property, value] of Object.entries({ display: "block", position: "fixed", visibility: "hidden", width: `${printWidth}px`, "max-width": "none", height: "auto", left: "0", top: "0" })) {
       surface.style.setProperty(property, value, "important");
     }
     return images.map((image) => {
@@ -80,7 +80,7 @@ export function measurePrintImageWidths(surface: HTMLElement, images: HTMLImageE
 }
 
 // Temporary siblings preserve the original image and are removed after print.
-export function createPrintImageSlices(surface: HTMLElement, measure = measurePrintImageWidths): () => void {
+export function createPrintImageSlices(surface: HTMLElement, measure = measurePrintImageWidths, geometry?: { width: number; height: number }): () => void {
   const created: Array<{ original: HTMLImageElement; container: HTMLElement }> = [];
   const canvases: HTMLCanvasElement[] = [];
   const cleanup = () => {
@@ -92,8 +92,8 @@ export function createPrintImageSlices(surface: HTMLElement, measure = measurePr
   };
   try {
     const images = Array.from(surface.querySelectorAll("img"));
-    const widths = images.length ? measure(surface, images) : [];
-    const plans = planPrintDocumentImages(images.map((image, index) => ({ width: image.naturalWidth, height: image.naturalHeight, printWidth: widths[index] })));
+    const widths = images.length ? measure(surface, images, geometry?.width) : [];
+    const plans = planPrintDocumentImages(images.map((image, index) => ({ width: image.naturalWidth, height: image.naturalHeight, printWidth: widths[index] })), geometry?.height);
     for (const [index, image] of images.entries()) {
       const plan = plans[index];
       if (!plan) continue;

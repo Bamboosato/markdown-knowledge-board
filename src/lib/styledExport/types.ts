@@ -85,6 +85,8 @@ export type StyledMarkdownAnalysis = {
   firstH1Line: number | null;
   headingIds: Map<number, string>;
   headingIdBySlug: Map<string, string>;
+  footnoteIds: Set<string>;
+  tocEntries: Array<{ id: string; level: 2 | 3; label: string; sourceLine: number }>;
   issues: StyledExportIssue[];
 };
 

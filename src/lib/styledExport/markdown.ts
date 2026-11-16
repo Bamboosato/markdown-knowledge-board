@@ -70,7 +70,8 @@ export function analyzeStyledMarkdown(markdown: string): StyledMarkdownAnalysis 
   const issues: StyledExportIssue[] = [];
   const headingIds = new Map<number, string>();
   const headingIdBySlug = new Map<string, string>();
-  const usedIds = new Map<string, number>();
+  const headingNodes: PositionNode[] = [];
+  const usedIds = new Set<string>();
   const mermaidCodes: string[] = [];
   const definitions = new Map<string, string>();
   let firstH1Text = "";
@@ -86,20 +87,54 @@ export function analyzeStyledMarkdown(markdown: string): StyledMarkdownAnalysis 
   }
 
   const collectHeadings = (node: PositionNode) => {
-    const position = getPosition(node);
-    if (node.type === "heading") {
-      const base = slugifyHeading(getText(node)) || `section-${position.line}`;
-      const count = usedIds.get(base) ?? 0;
-      usedIds.set(base, count + 1);
-      const id = count === 0 ? base : `${base}-${count}`;
-      headingIds.set(position.line, id);
-      if (!headingIdBySlug.has(base)) headingIdBySlug.set(base, id);
-      headingIdBySlug.set(id, id);
-    }
+    if (node.type === "heading") headingNodes.push(node);
     node.children?.forEach(collectHeadings);
   };
-
   collectHeadings(tree);
+  const footnoteIds = new Set<string>();
+  const footnoteCounts = new Map<string, number>();
+  const collectFootnotes = (node: PositionNode) => {
+    if (node.type === "footnoteReference" && node.identifier) {
+      footnoteIds.add("footnote-label");
+      const id = node.identifier.toUpperCase().toLowerCase();
+      if (/^[a-z0-9_-]+$/.test(id)) {
+        const count = (footnoteCounts.get(id) ?? 0) + 1;
+        footnoteCounts.set(id, count);
+        footnoteIds.add(`user-content-fn-${id}`);
+        footnoteIds.add(`user-content-fnref-${id}${count > 1 ? `-${count}` : ""}`);
+      }
+    }
+    node.children?.forEach(collectFootnotes);
+  };
+  collectFootnotes(tree);
+  const oldCounts = new Map<string, number>();
+  const oldCandidates = headingNodes.map((node) => {
+    const base = slugifyHeading(getText(node)) || `section-${getPosition(node).line}`;
+    const count = oldCounts.get(base) ?? 0;
+    oldCounts.set(base, count + 1);
+    return { base, candidate: count ? `${base}-${count}` : base };
+  });
+  const candidateCounts = new Map<string, number>();
+  for (const { candidate } of oldCandidates) candidateCounts.set(candidate, (candidateCounts.get(candidate) ?? 0) + 1);
+  const reserved = new Set(oldCandidates.filter(({ candidate }) => candidateCounts.get(candidate) === 1).map(({ candidate }) => candidate));
+  const tocEntries: StyledMarkdownAnalysis["tocEntries"] = [];
+  headingNodes.forEach((node, index) => {
+    const { base, candidate } = oldCandidates[index];
+    const footnoteId = (id: string) => footnoteIds.has(id);
+    let id = candidate;
+    if (usedIds.has(id) || footnoteId(id)) {
+      let suffix = 1;
+      const safeBase = footnoteId(base) ? `heading-${base}` : base;
+      do { id = `${safeBase}-${suffix++}`; } while (usedIds.has(id) || reserved.has(id) || footnoteId(id));
+    }
+    usedIds.add(id);
+    const line = getPosition(node).line;
+    headingIds.set(line, id);
+    if (!headingIdBySlug.has(base)) headingIdBySlug.set(base, id);
+    if (!headingIdBySlug.has(id)) headingIdBySlug.set(id, id);
+    const label = getText(node).trim();
+    if ((node.depth === 2 || node.depth === 3) && label) tocEntries.push({ id, level: node.depth, label, sourceLine: line });
+  });
 
   const collectDefinitions = (node: PositionNode) => {
     if (node.type === "definition" && node.identifier && node.url) {
@@ -180,7 +215,7 @@ export function analyzeStyledMarkdown(markdown: string): StyledMarkdownAnalysis 
   };
 
   visit(tree);
-  return { images, links, mermaidCodes, firstH1Text, firstH1Line, headingIds, headingIdBySlug, issues };
+  return { images, links, mermaidCodes, firstH1Text, firstH1Line, headingIds, headingIdBySlug, footnoteIds, tocEntries, issues };
 }
 
 export function createStyledExportRemarkPlugins() {

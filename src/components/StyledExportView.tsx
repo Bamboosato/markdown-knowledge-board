@@ -28,6 +28,8 @@ import {
   STYLED_EXPORT_TEXT_SCALES,
 } from "../lib/styledExport/types";
 import { sanitizeDownloadName } from "../lib/styledExport/filename";
+import { DEFAULT_PRINT_LAYOUT, getPrintGeometry, printPageCss } from "../lib/styledExport/printLayout";
+import type { Orientation, PaperSize } from "../lib/styledExport/printLayout";
 
 type StyledExportSnapshot = {
   title: string;
@@ -40,17 +42,7 @@ type StyledExportViewProps = {
   onBackToPreview: () => void;
 };
 
-const htmlStyle = (title: string) => `body{margin:0;padding:32px 16px;background:var(--styled-canvas,#eef1f5);color:var(--styled-text,#26303b)}@media(max-width:640px){body{padding:10px 0}}@media print{body{padding:0;background:#fff}}@page{size:A4 portrait;margin:18mm 14mm;@top-center{content:${toCssString(title)}}@bottom-right{content:counter(page) " / " counter(pages)}}`;
-
-function toCssString(value: string) {
-  return `"${Array.from(value, (character) => {
-    const codePoint = character.codePointAt(0)!;
-    if (character === "\\" || character === '"' || codePoint < 0x20 || codePoint === 0x7f || character === "<") {
-      return `\\${codePoint.toString(16)} `;
-    }
-    return character;
-  }).join("")}"`;
-}
+const htmlStyle = (pageCss: string) => `body{margin:0;padding:32px 16px;background:var(--styled-canvas,#eef1f5);color:var(--styled-text,#26303b)}@media(max-width:640px){body{padding:10px 0}}@media print{body{padding:0;background:#fff}}${pageCss}`;
 
 function getIssueKey(issue: StyledExportIssue) {
   return `${issue.id}:${issue.reason}`;
@@ -60,6 +52,8 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
   const [options, setOptions] = useState<StyledExportOptions>(() => ({
     ...DEFAULT_STYLED_EXPORT_OPTIONS,
   }));
+  const [layout, setLayout] = useState(() => ({ ...DEFAULT_PRINT_LAYOUT, coverPage: false, tableOfContents: false, tocDepth: "h2-h3" as "h2" | "h2-h3" }));
+  const [layoutOpen, setLayoutOpen] = useState(() => !window.matchMedia("(max-width: 390px)").matches);
   const [{ assets, assetErrors }, setImageState] = useState<{ assets: StyledAssetMap; assetErrors: Record<string, string> }>({ assets: {}, assetErrors: {} });
   const [mermaidSvgs, setMermaidSvgs] = useState<Record<string, string>>({});
   const [mermaidErrors, setMermaidErrors] = useState<string[]>([]);
@@ -229,14 +223,16 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       assets={assets}
       mermaidSvgs={mermaidSvgs}
       allowLocalLinks={allowLocalLinks}
+      printGeometry={getPrintGeometry(layout, "html")}
+      coverPage={layout.coverPage} tableOfContents={layout.tableOfContents} tocDepth={layout.tocDepth}
       className={printClass}
     />
   );
 
   const isReady = !isPreparingDocument && !preparationError && unresolvedImages.length === 0 && (localLinkIssues.length === 0 || allowLocalLinks);
   const previewDocument = useMemo(() => (
-    <StyledDocument title={snapshot.title} tags={snapshot.tags} markdown={snapshot.body} options={options} analysis={analysis} assets={assets} mermaidSvgs={mermaidSvgs} allowLocalLinks={allowLocalLinks} />
-  ), [snapshot, options, analysis, assets, mermaidSvgs, allowLocalLinks]);
+    <StyledDocument title={snapshot.title} tags={snapshot.tags} markdown={snapshot.body} options={options} analysis={analysis} assets={assets} mermaidSvgs={mermaidSvgs} allowLocalLinks={allowLocalLinks} printGeometry={getPrintGeometry(layout, "app")} coverPage={layout.coverPage} tableOfContents={layout.tableOfContents} tocDepth={layout.tocDepth} />
+  ), [snapshot, options, analysis, assets, mermaidSvgs, allowLocalLinks, layout]);
 
   const downloadHtml = () => {
     if (!isReady) {
@@ -248,7 +244,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
     const bodyStyle = Object.entries(getThemeVariables(options))
       .map(([property, value]) => `${property}:${value}`)
       .join(";");
-    const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title || "Untitled")}</title><style>${htmlStyle(title || "Untitled")}${styledExportDocumentCss}</style></head><body style="${escapeHtml(bodyStyle)}">${body}</body></html>`;
+    const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title || "Untitled")}</title><style>${htmlStyle(printPageCss(layout, "html", title || "Untitled"))}${styledExportDocumentCss}</style></head><body style="${escapeHtml(bodyStyle)}">${body}</body></html>`;
     const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -274,7 +270,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
     const printTitle = snapshot.title.trim() || "Untitled";
     document.title = `${sanitizeDownloadName(printTitle)} - Markdown Knowledge Board`;
     const pageTitleStyle = document.createElement("style");
-    pageTitleStyle.textContent = `@page{@top-center{content:${toCssString(printTitle)}}}`;
+    pageTitleStyle.textContent = printPageCss(layout, "app", printTitle);
     document.head.appendChild(pageTitleStyle);
     let cleanupTimer: number | null = null;
     let cleanupImages = () => {};
@@ -298,7 +294,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       if (result.status === "failed" || result.status === "timeout") throw new Error(result.reason);
       if (result.status === "fallback") window.alert(result.reason);
       if (requestId !== printRequestRef.current) return;
-      cleanupImages = createPrintImageSlices(surface);
+      cleanupImages = createPrintImageSlices(surface, undefined, getPrintGeometry(layout, "app"));
       window.addEventListener("afterprint", cleanup);
       cleanupTimer = window.setTimeout(cleanup, 60_000);
       window.print();
@@ -339,11 +335,23 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       <section className="styled-export-view editor-body" aria-labelledby="styled-export-title">
         <style>{styledExportDocumentCss}</style>
         <div className="styled-export-controls">
-          <label>Color<select value={options.colorId} onChange={(event) => changeOption("colorId", event.target.value as StyledExportOptions["colorId"])}>{STYLED_EXPORT_COLORS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-          <label>Design<select value={options.designId} onChange={(event) => changeOption("designId", event.target.value as StyledExportOptions["designId"])}>{STYLED_EXPORT_DESIGNS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-          <label>Text size<select value={options.textScale} onChange={(event) => changeOption("textScale", Number(event.target.value) as StyledExportOptions["textScale"])}>{STYLED_EXPORT_TEXT_SCALES.map((scale) => <option key={scale} value={scale}>{scale}%</option>)}</select></label>
-          <label className="styled-export-tags-toggle"><input type="checkbox" checked={options.showTags} onChange={(event) => changeOption("showTags", event.target.checked)} /> Show tags</label>
+          <label>Color<select value={options.colorId} disabled={isPrinting} onChange={(event) => changeOption("colorId", event.target.value as StyledExportOptions["colorId"])}>{STYLED_EXPORT_COLORS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+          <label>Design<select value={options.designId} disabled={isPrinting} onChange={(event) => changeOption("designId", event.target.value as StyledExportOptions["designId"])}>{STYLED_EXPORT_DESIGNS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+          <label>Text size<select value={options.textScale} disabled={isPrinting} onChange={(event) => changeOption("textScale", Number(event.target.value) as StyledExportOptions["textScale"])}>{STYLED_EXPORT_TEXT_SCALES.map((scale) => <option key={scale} value={scale}>{scale}%</option>)}</select></label>
+          <label className="styled-export-tags-toggle"><input type="checkbox" checked={options.showTags} disabled={isPrinting} onChange={(event) => changeOption("showTags", event.target.checked)} /> Show tags</label>
         </div>
+        <details className="styled-export-layout" open={layoutOpen} onToggle={(event) => setLayoutOpen(event.currentTarget.open)}>
+          <summary>Document layout · {layout.paperSize === "a4" ? "A4" : "Letter"} / {layout.orientation === "portrait" ? "Portrait" : "Landscape"} · Cover {layout.coverPage ? "On" : "Off"} · TOC {layout.tableOfContents ? "On" : "Off"}</summary>
+          <div className="styled-export-layout-fields">
+            <label>Paper size<select value={layout.paperSize} disabled={isPrinting} onChange={(event) => setLayout((current) => ({ ...current, paperSize: event.target.value as PaperSize }))}><option value="a4">A4</option><option value="letter">Letter</option></select></label>
+            <label>Orientation<select value={layout.orientation} disabled={isPrinting} onChange={(event) => setLayout((current) => ({ ...current, orientation: event.target.value as Orientation }))}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
+            <label><input type="checkbox" checked={layout.coverPage} disabled={isPrinting} onChange={(event) => setLayout((current) => ({ ...current, coverPage: event.target.checked }))} /> Cover page</label>
+            <label><input type="checkbox" checked={layout.tableOfContents} disabled={isPrinting} onChange={(event) => setLayout((current) => ({ ...current, tableOfContents: event.target.checked }))} /> Table of contents</label>
+            <label>TOC depth<select value={layout.tocDepth} disabled={isPrinting || !layout.tableOfContents} onChange={(event) => setLayout((current) => ({ ...current, tocDepth: event.target.value as "h2" | "h2-h3" }))}><option value="h2">H2</option><option value="h2-h3">H2–H3</option></select></label>
+          </div>
+          {layout.tableOfContents && !analysis.tocEntries.some((entry) => layout.tocDepth === "h2-h3" || entry.level === 2) ? <p role="status">No matching headings; a table of contents will not be included.</p> : null}
+          <p>Print dialog settings can override the paper size and orientation. If the preview does not match, select the same size and orientation in the print dialog.</p>
+        </details>
         <p className="styled-export-status" role="status" aria-live="polite">{statusMessage}</p>
         {preparationError ? <div role="alert"><p>{preparationError}</p><button type="button" className="secondary-button" onClick={() => { setIsPreparingDocument(true); setPreparationError(""); setPreparationAttempt((attempt) => attempt + 1); }}>Retry preparation</button></div> : null}
         {issues.length ? (
