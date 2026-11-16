@@ -25,7 +25,7 @@ const bundle = JSON.parse(execFileSync(process.execPath, ['tools/local-mcp/windo
 ps(`Expand-Archive -LiteralPath ${quote(bundle.archive)} -DestinationPath ${quote(work)}`);
 const kit = join(work, 'MKB-Windows-Setup');
 const manifest = JSON.parse(await readFile(join(kit, 'manifest.json'), 'utf8'));
-assert.equal(manifest.files.length, 15);
+assert.equal(manifest.files.length, 16);
 assert.ok(manifest.files.every(f => !/identity\.json|setup-config|node_modules|\.codex|output/.test(f.path)));
 pass('ZIP extracts with only the allowlisted source files and no PC identity or credentials');
 
@@ -37,7 +37,8 @@ const configPath = join(codexDirectory, 'config.toml');
 await writeFile(configPath, '[mcp_servers.unrelated]\ncommand = "node"\nargs = ["unrelated.mjs"]\n');
 const pwaShortcut = join(work, 'Markdown Knowledge Board.lnk');
 // Synthetic shortcut for installation tests only. This test never launches it.
-ps(`$link = (New-Object -ComObject WScript.Shell).CreateShortcut(${quote(pwaShortcut)}); $link.TargetPath = (Get-Command powershell.exe).Source; $link.Save()`);
+const shortcutType = `Add-Type -Path ${quote(join(kit, 'tools/local-mcp/WindowsShortcut.cs'))};`;
+ps(`${shortcutType} [MkbWindowsShortcut]::Write(${quote(pwaShortcut)}, (Get-Command powershell.exe).Source, '', ${quote(work)}, 'Test fixture', '')`);
 const installRoot = join(work, 'Installed');
 const installer = join(kit, 'Install.ps1');
 const install = `& ${quote(installer)} -InstallRoot ${quote(installRoot)} -DesktopDirectory ${quote(desktop)} -MkbShortcut ${quote(pwaShortcut)}`;
@@ -46,7 +47,7 @@ const appConfig = JSON.parse((await readFile(join(installRoot, 'ConnectionSetup'
 assert.equal(appConfig.stateDirectory, env.MKB_MCP_STATE_DIR);
 assert.equal(appConfig.mkbShortcut, pwaShortcut);
 assert.equal((await readFile(join(installRoot, 'ConnectionSetup', 'MKBConnectionSetup.exe'))).subarray(0, 2).toString(), 'MZ');
-const link = JSON.parse(ps(`$link = (New-Object -ComObject WScript.Shell).CreateShortcut(${quote(join(desktop, 'MKB Connection Setup.lnk'))}); @{target=$link.TargetPath; arguments=$link.Arguments} | ConvertTo-Json -Compress`));
+const link = JSON.parse(ps(`${shortcutType} $link = [MkbWindowsShortcut]::Read(${quote(join(desktop, 'MKB Connection Setup.lnk'))}); @{target=$link.TargetPath; arguments=$link.Arguments} | ConvertTo-Json -Compress`));
 assert.equal(link.target, join(installRoot, 'ConnectionSetup', 'MKBConnectionSetup.exe'));
 assert.equal(link.arguments, '');
 const registration = JSON.parse(ps('codex mcp get mkb_local_prototype --json; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }'));

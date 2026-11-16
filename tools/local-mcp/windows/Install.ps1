@@ -16,15 +16,25 @@ $nodeMajor = & $nodePath -p 'process.versions.node.match(/^[0-9]+/)[0]'
 if ($LASTEXITCODE -ne 0 -or [int]$nodeMajor -lt 24) { throw 'Node.js 24 or newer is required.' }
 if (-not (Test-Path -LiteralPath $DesktopDirectory -PathType Container)) { throw 'Desktop folder was not found.' }
 
+# Check the packaged files before loading the shortcut helper or installing anything.
+$manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'manifest.json') -Raw | ConvertFrom-Json
+foreach ($entry in $manifest.files) {
+    $file = Join-Path $PSScriptRoot $entry.path
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try { $hash = [BitConverter]::ToString($hasher.ComputeHash([IO.File]::ReadAllBytes($file))).Replace('-', '').ToLowerInvariant() }
+    finally { $hasher.Dispose() }
+    if ($hash -ne $entry.sha256) { throw ('Package file changed: ' + $entry.path) }
+}
+
 # Validate all prerequisites before installing or changing the Codex registration.
-$shell = New-Object -ComObject WScript.Shell
+Add-Type -Path (Join-Path $source 'WindowsShortcut.cs')
 if (-not $MkbShortcut) {
     $candidates = @(Get-ChildItem -LiteralPath ([Environment]::GetFolderPath('StartMenu')) -Recurse -Filter 'Markdown Knowledge Board.lnk' -ErrorAction SilentlyContinue)
     if ($candidates.Count -ne 1) { throw 'Install the MKB PWA, or specify its shortcut with -MkbShortcut.' }
     $MkbShortcut = $candidates[0].FullName
 }
 $MkbShortcut = (Resolve-Path -LiteralPath $MkbShortcut).Path
-if (-not (Test-Path -LiteralPath ($shell.CreateShortcut($MkbShortcut).TargetPath) -PathType Leaf)) { throw 'MKB PWA launcher was not found.' }
+if (-not (Test-Path -LiteralPath ([MkbWindowsShortcut]::Read($MkbShortcut).TargetPath) -PathType Leaf)) { throw 'MKB PWA launcher was not found.' }
 $launcher = Join-Path $InstallRoot 'start-mcp.mjs'
 $codex = $null
 $existing = $null
@@ -40,17 +50,7 @@ if (-not $SkipMcpRegistration) {
     }
 }
 
-# The kit contains source and lockfiles only. Never copy this PC's pairing or browser data.
-$manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'manifest.json') -Raw | ConvertFrom-Json
-foreach ($entry in $manifest.files) {
-    $file = Join-Path $PSScriptRoot $entry.path
-    $hasher = [Security.Cryptography.SHA256]::Create()
-    try { $hash = [BitConverter]::ToString($hasher.ComputeHash([IO.File]::ReadAllBytes($file))).Replace('-', '').ToLowerInvariant() }
-    finally { $hasher.Dispose() }
-    if ($hash -ne $entry.sha256) {
-        throw ('Package file changed: ' + $entry.path)
-    }
-}
+# Never copy this PC's pairing or browser data into the runtime.
 Push-Location -LiteralPath $source
 try {
     $stateDirectory = & $nodePath --input-type=module -e "import {stateDirectory} from './identity.mjs'; process.stdout.write(stateDirectory());"

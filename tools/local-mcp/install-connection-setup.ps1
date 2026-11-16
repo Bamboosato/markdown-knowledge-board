@@ -12,7 +12,7 @@ if ($PSVersionTable.PSEdition -ne 'Desktop') { throw 'Run this installer with Wi
 $installDirectory = [IO.Path]::GetFullPath($InstallDirectory)
 $desktopShortcut = Join-Path $DesktopDirectory 'MKB Connection Setup.lnk'
 $applicationPath = Join-Path $installDirectory 'MKBConnectionSetup.exe'
-$shell = New-Object -ComObject WScript.Shell
+if (-not ('MkbWindowsShortcut' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'WindowsShortcut.cs') }
 if (-not $MkbShortcut) {
     $candidates = @(Get-ChildItem -LiteralPath ([Environment]::GetFolderPath('StartMenu')) -Recurse -Filter 'Markdown Knowledge Board.lnk' -ErrorAction SilentlyContinue)
     if ($candidates.Count -ne 1) { throw 'Specify the installed MKB PWA shortcut with -MkbShortcut.' }
@@ -20,10 +20,10 @@ if (-not $MkbShortcut) {
 }
 if (-not (Test-Path -LiteralPath $MkbShortcut -PathType Leaf)) { throw 'The MKB PWA shortcut was not found.' }
 $MkbShortcut = (Resolve-Path -LiteralPath $MkbShortcut).Path
-$pwaLink = $shell.CreateShortcut($MkbShortcut)
+$pwaLink = [MkbWindowsShortcut]::Read($MkbShortcut)
 if (-not (Test-Path -LiteralPath $pwaLink.TargetPath -PathType Leaf)) { throw 'The MKB PWA launcher was not found.' }
 if (Test-Path -LiteralPath $desktopShortcut) {
-    $existing = $shell.CreateShortcut($desktopShortcut)
+    $existing = [MkbWindowsShortcut]::Read($desktopShortcut)
     $isPreviousScript = $existing.Arguments.Contains((Join-Path $installDirectory 'connection-setup.ps1'))
     if ($existing.TargetPath -ne $applicationPath -and -not $isPreviousScript) {
         throw 'A different desktop shortcut already uses this name. Nothing was overwritten.'
@@ -48,17 +48,11 @@ Add-Type -Path (Join-Path $PSScriptRoot 'ConnectionSetup.cs') -ReferencedAssembl
 Move-Item -LiteralPath $buildPath -Destination $applicationPath -Force
 @{ nodePath = $nodePath; stateDirectory = $stateDirectory; mkbShortcut = $MkbShortcut } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $installDirectory 'setup-config.json') -Encoding UTF8
-$iconPath = $pwaLink.IconLocation -replace ',[0-9]+$', ''
+$iconPath = $pwaLink.IconLocation
 if ($iconPath -and (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
     Copy-Item -LiteralPath $iconPath -Destination (Join-Path $installDirectory 'mkb.ico') -Force
 }
-$shortcut = $shell.CreateShortcut($desktopShortcut)
-$shortcut.TargetPath = $applicationPath
-$shortcut.Arguments = ''
-$shortcut.WorkingDirectory = $installDirectory
-$shortcut.Description = 'Copy your connection code and open MKB.'
 $installedIcon = Join-Path $installDirectory 'mkb.ico'
-$shortcut.IconLocation = if (Test-Path -LiteralPath $installedIcon) { $installedIcon } else { $applicationPath }
-$shortcut.WindowStyle = 1
-$shortcut.Save()
+$shortcutIcon = if (Test-Path -LiteralPath $installedIcon) { $installedIcon } else { $applicationPath }
+[MkbWindowsShortcut]::Write($desktopShortcut, $applicationPath, '', $installDirectory, 'Copy your connection code and open MKB.', $shortcutIcon)
 Write-Output ('Installed: ' + $desktopShortcut)
