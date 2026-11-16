@@ -538,7 +538,8 @@ function App() {
   }, []);
   const [draftBody, setDraftBodyState] = useState("");
   const setDraftBody = useCallback((value: SetStateAction<string>) => { invalidatePrintPreparation(); setDraftBodyState(value); }, [invalidatePrintPreparation]);
-  const printPreview = useMemo(() => <MarkdownPreview markdown={draftBody} mode="print" className="mdPreview print-mdPreview" />, [draftBody]);
+  const [printMermaidAsCode, setPrintMermaidAsCode] = useState(false);
+  const printPreview = useMemo(() => <MarkdownPreview markdown={draftBody} mode="print" printMermaidAsCode={printMermaidAsCode} className="mdPreview print-mdPreview" />, [draftBody, printMermaidAsCode]);
   const [bodyEditorResetKey, setBodyEditorResetKey] = useState(0);
   const [draftMarpEnabled, setDraftMarpEnabled] = useState(
     DEFAULT_MARP_SETTINGS.enabled
@@ -4253,6 +4254,10 @@ function App() {
                 >
                   <FileDown aria-hidden="true" />
                   {isPrintPreparing ? "Preparing PDF..." : "Print / PDF"}
+                </button>
+                <button className="actions-menu-item" type="button" role="menuitemcheckbox" aria-checked={printMermaidAsCode} disabled={isPrintPreparing} onClick={() => { invalidatePrintPreparation(); setPrintMermaidAsCode((value) => !value); }}>
+                  <span aria-hidden="true">{printMermaidAsCode ? "☑" : "☐"}</span>
+                  Print Mermaid as source
                 </button>
                 <button
                   className="actions-menu-item"

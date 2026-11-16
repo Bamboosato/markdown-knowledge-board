@@ -248,7 +248,7 @@ test.describe("A1 Mermaid preview", () => {
       await expect(errorSvgs).toHaveCount(0);
 
       await page.getByRole("button", { name: "Show Code" }).click();
-      await expect(page.locator(".mermaid-code")).toContainText(
+      await expect(page.locator(".preview-panel .mermaid-code")).toContainText(
         source
       );
       await expect(page.getByText("Status: Saved")).toBeVisible();

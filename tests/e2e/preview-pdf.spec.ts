@@ -362,36 +362,58 @@ test.describe("Preview Print / PDF", () => {
     await rendered.close();
   });
 
-  test("exports a tall rendered Mermaid as source without overlapping following content", async ({ page }, testInfo) => {
+  test("fits a tall Mermaid and only prints source when selected", async ({ page }, testInfo) => {
     await page.goto("/");
     const graph = ["graph TD", ...Array.from({ length: 60 }, (_, i) => `N${i}[NODE${i}]${i < 59 ? ` --> N${i + 1}` : ""}`)].join("\n");
     await createSavedNote(page, "Tall Mermaid", `\`\`\`mermaid\n${graph}\n\`\`\`\n\nDiagram end marker.`);
-    await expect(page.locator('.print-surface [data-mermaid-status="rendered"]')).toHaveCount(1, { timeout: 20_000 });
-    await expect(page.locator('.print-surface [data-print-fallback="oversized"]')).toHaveCount(1);
+    const simple = page.locator('.print-surface [data-mermaid-status="rendered"]');
+    await expect(simple).toHaveCount(1, { timeout: 20_000 });
+    await expect(simple).not.toHaveAttribute("data-print-fallback");
     await page.emulateMedia({ media: "print" });
-    await expect(page.locator(".print-surface .mermaid-print-fallback")).toBeVisible();
-    await expect(page.locator(".print-surface .mermaid-diagram-panel")).toBeHidden();
-    await expect(page.locator(".print-surface .mermaid-print-fallback pre")).toHaveCSS("max-height", "none");
-    const simple = await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("large-diagram-simple.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
-    if (simple) expect(simple.byteLength).toBeGreaterThan(1000);
+    await expect(simple.locator("svg")).toBeVisible();
+    const bounds = await simple.locator("svg").boundingBox();
+    expect(bounds!.height).toBeLessThan(900);
+    await expect(simple).toHaveCSS("break-inside", "avoid");
+    await expect(page.locator('.print-surface .mermaid-print-warning')).toBeHidden();
     await page.emulateMedia({ media: "screen" });
     await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "Print Mermaid as source" }).click();
+    await expect(simple).toHaveAttribute("data-print-fallback", "source");
+    await page.emulateMedia({ media: "print" });
+    await expect(simple.locator("svg")).toBeHidden();
+    await expect(simple.locator(".mermaid-print-fallback pre")).toBeVisible();
+    await page.emulateMedia({ media: "screen" });
     await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
     await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled({ timeout: 20_000 });
-    await expect(page.locator('.styled-export-preview-wrap [data-print-fallback="oversized"]')).toHaveCount(1);
+    const styled = page.locator('.styled-export-mermaid');
+    await expect(styled).not.toHaveAttribute("data-print-fallback");
+    await expect(styled.locator('.mermaid-print-warning')).toBeVisible();
     await page.evaluate(() => document.body.classList.add("styled-export-printing"));
     await page.emulateMedia({ media: "print" });
-    await expect(page.locator(".styled-export-preview-wrap .mermaid-print-fallback")).toBeVisible();
-    await expect(page.locator('.styled-export-preview-wrap [role="img"]')).toBeHidden();
-    const styled = await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath("large-diagram-styled.pdf"), format: "A4", printBackground: true, preferCSSPageSize: true });
-    if (styled) expect(styled.byteLength).toBeGreaterThan(1000);
+    await expect(styled.locator("svg")).toBeVisible();
+    await expect(styled).toHaveCSS("break-inside", "avoid");
     await page.emulateMedia({ media: "screen" });
-    await page.evaluate(() => { document.body.classList.remove("styled-export-printing"); window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; window.dispatchEvent(new Event("afterprint")); }; });
-    let warning = "";
-    page.once("dialog", async (dialog) => { warning = dialog.message(); await dialog.accept(); });
-    await page.getByRole("button", { name: "Print / PDF" }).click();
-    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
-    expect(warning).toContain("Mermaid");
+    await page.evaluate(() => document.body.classList.remove("styled-export-printing"));
+    await page.getByRole("checkbox", { name: "Print Mermaid as source" }).check();
+    await expect(styled).toHaveAttribute("data-print-fallback", "source");
+    await page.evaluate(() => document.body.classList.add("styled-export-printing"));
+    await page.emulateMedia({ media: "print" });
+    await expect(styled.locator("svg")).toBeHidden();
+    await expect(styled.locator(".mermaid-print-fallback pre")).toBeVisible();
+    await page.emulateMedia({ media: "screen" });
+    await page.evaluate(() => document.body.classList.remove("styled-export-printing"));
+    await page.getByRole("checkbox", { name: "Print Mermaid as source" }).uncheck();
+    // The standalone HTML also needs the same page-fit rules, without JavaScript.
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download HTML" }).click();
+    const destination = testInfo.outputPath("fitted-mermaid.html");
+    await (await download).saveAs(destination);
+    const exported = await page.context().newPage();
+    await exported.goto(pathToFileURL(destination).href);
+    await exported.emulateMedia({ media: "print" });
+    await expect(exported.locator('.styled-export-mermaid svg')).toBeVisible();
+    expect((await exported.locator('.styled-export-mermaid svg').boundingBox())!.height).toBeLessThan(900);
+    await exported.close();
   });
 
   test("compares tall-image print pagination and proportional scaling", async ({ page }, testInfo) => {
@@ -726,9 +748,9 @@ test.describe("Preview Print / PDF", () => {
     });
   }
 
-  for (const [height, fallback] of [[1200, false], [1800, true]] as const) {
+  for (const height of [1200, 1800]) {
     test(`checks print geometry for a 1200 by ${height} Mermaid SVG`, async ({ page }, testInfo) => {
-      await page.route("**/src/lib/mermaidRenderer.ts", (route) => route.fulfill({
+      await page.route("**/src/lib/mermaidRenderer.ts*", (route) => route.fulfill({
         contentType: "text/javascript",
         body: `export const MERMAID_CODE_SIZE_LIMIT_BYTES = 51200;
           export async function renderMermaidSvg() { return '<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 1200 ${height}" style="max-width: 1200px"><rect width="1200" height="${height}" fill="#eef"/><text x="20" y="80">SVG TOP</text><text x="20" y="${height - 50}">SVG BOTTOM</text></svg>'; }`,
@@ -737,22 +759,33 @@ test.describe("Preview Print / PDF", () => {
       await createSavedNote(page, `Boundary ${height}`, "```mermaid\ngraph TD\n A --> B\n```\n\nBoundary end marker.");
       const simple = page.locator('.print-surface [data-mermaid-status="rendered"]');
       await expect(simple).toHaveCount(1, { timeout: 20_000 });
-      if (fallback) await expect(simple).toHaveAttribute("data-print-fallback", "oversized");
-      else await expect(simple).not.toHaveAttribute("data-print-fallback", "oversized");
+      await expect(simple).not.toHaveAttribute("data-print-fallback");
+      await page.emulateMedia({ media: "print" });
+      const svgSize = await simple.locator("svg").boundingBox();
+      expect(svgSize!.height).toBeLessThan(900);
+      expect(svgSize!.width / svgSize!.height).toBeCloseTo(1200 / height, 2);
+      await page.emulateMedia({ media: "screen" });
       await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath(`boundary-${height}-simple.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
       await page.getByRole("button", { name: "More actions" }).click();
       await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
       await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
       const styled = page.locator(".styled-export-mermaid");
-      if (fallback) await expect(styled).toHaveAttribute("data-print-fallback", "oversized");
-      else await expect(styled).not.toHaveAttribute("data-print-fallback", "oversized");
-      await page.evaluate(() => document.body.classList.add("styled-export-printing"));
+      await expect(styled).not.toHaveAttribute("data-print-fallback");
+      await page.locator(".styled-export-layout summary").click();
+      await page.getByLabel("Orientation").selectOption("landscape");
+      await page.evaluate(() => { window.print = () => { window.__printCalls = 1; }; });
+      await page.getByRole("button", { name: "Print / PDF", exact: true }).click();
+      await expect.poll(() => page.evaluate(() => window.__printCalls)).toBe(1);
+      await page.emulateMedia({ media: "print" });
+      const landscapeSize = await styled.locator("svg").boundingBox();
+      expect(landscapeSize!.height).toBeLessThan(562);
+      expect(landscapeSize!.width / landscapeSize!.height).toBeCloseTo(1200 / height, 2);
       await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath(`boundary-${height}-styled.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
     });
   }
 
   test("Styled initialization times out and retries an unresolved Mermaid render", async ({ page }) => {
-    await page.route("**/src/lib/mermaidRenderer.ts", (route) => route.fulfill({
+    await page.route("**/src/lib/mermaidRenderer.ts*", (route) => route.fulfill({
       contentType: "text/javascript",
       body: `export const MERMAID_CODE_SIZE_LIMIT_BYTES = 51200;
         export function renderMermaidSvg(code, id) {
@@ -800,7 +833,7 @@ test.describe("Preview Print / PDF", () => {
 
   test("Styled initialization retains its snapshot during a note switch", async ({ page }) => {
     await page.addInitScript(() => { window.__pendingMermaid = new Promise((resolve) => { window.__resolveMermaid = resolve; }); });
-    await page.route("**/src/lib/mermaidRenderer.ts", (route) => route.fulfill({
+    await page.route("**/src/lib/mermaidRenderer.ts*", (route) => route.fulfill({
       contentType: "text/javascript",
       body: `export const MERMAID_CODE_SIZE_LIMIT_BYTES = 51200;
         export function renderMermaidSvg(code, id) { return id.startsWith('styled-export') ? window.__pendingMermaid : Promise.resolve('<svg viewBox="0 0 100 100"></svg>'); }`,

@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { MERMAID_CODE_SIZE_LIMIT_BYTES, renderMermaidSvg } from "../lib/mermaidRenderer";
-import { requiresMermaidPrintFallback } from "../lib/mermaidPrint";
+import { getMermaidPrintLayout } from "../lib/mermaidPrint";
+import type { CSSProperties } from "react";
 
 const MERMAID_RENDER_DEBOUNCE_MS = 300;
 type MermaidView = "diagram" | "code";
@@ -14,6 +15,8 @@ type RenderState =
 
 type MermaidBlockProps = {
   code: string;
+  printAsCode?: boolean;
+  forPrint?: boolean;
 };
 
 function getErrorMessage(error: unknown): string {
@@ -32,7 +35,7 @@ function CodeView({ code }: MermaidBlockProps) {
   );
 }
 
-export function MermaidBlock({ code }: MermaidBlockProps) {
+export function MermaidBlock({ code, printAsCode = false, forPrint = false }: MermaidBlockProps) {
   const reactId = useId();
   const instanceId = useMemo(
     () => reactId.replace(/[^A-Za-z0-9_-]/g, ""),
@@ -76,7 +79,7 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
     const timeoutId = window.setTimeout(async () => {
       try {
         const renderId = `mermaid-${instanceId}-${requestId}`;
-        const sanitizedSvg = await renderMermaidSvg(code, renderId);
+        const sanitizedSvg = await renderMermaidSvg(code, renderId, false, forPrint);
 
         if (isCurrent && renderRequestRef.current === requestId) {
           setAsyncRenderState({
@@ -101,13 +104,15 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
       isCurrent = false;
       window.clearTimeout(timeoutId);
     };
-  }, [code, instanceId, precheckedState]);
+  }, [code, instanceId, precheckedState, forPrint]);
 
   const showDiagram = view === "diagram";
-  const printFallback = showDiagram && renderState.status === "rendered" && requiresMermaidPrintFallback(renderState.svg);
+  const renderedSvg = renderState.status === "rendered" ? renderState.svg : null;
+  const printLayout = useMemo(() => renderedSvg ? getMermaidPrintLayout(renderedSvg) : null, [renderedSvg]);
+  const printFallback = showDiagram && renderState.status === "rendered" && (printAsCode || !printLayout);
 
   return (
-    <figure className="mermaid-block" data-mermaid-status={renderState.status} data-print-fallback={printFallback ? "oversized" : undefined}>
+    <figure className="mermaid-block" data-mermaid-status={renderState.status} data-print-fallback={printFallback ? "source" : undefined} style={printLayout ? { "--mermaid-print-width": `${printLayout.width}px` } as CSSProperties : undefined}>
       <div className="mermaid-block-header">
         <figcaption>Mermaid</figcaption>
         <div className="mermaid-view-toggle" aria-label="Mermaid display mode">
@@ -131,7 +136,8 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
           </button>
         </div>
       </div>
-      {printFallback ? <div className="mermaid-print-fallback"><p>Diagram may not fit a printed page; Mermaid source follows.</p><CodeView code={code} /></div> : null}
+      {showDiagram && printLayout?.smallText && !printAsCode ? <p className="mermaid-print-warning">This diagram will fit on one printed page; text may be small. You can choose “Print Mermaid as source” in More actions.</p> : null}
+      {printFallback ? <div className="mermaid-print-fallback"><CodeView code={code} /></div> : null}
       {showDiagram ? (
         <div className="mermaid-diagram-panel">
           {renderState.status === "loading" ? (
@@ -151,9 +157,12 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
             </div>
           ) : null}
           {renderState.status === "error" ? (
-            <div className="mermaid-message error" role="alert">
-              <strong>Unable to render Mermaid diagram.</strong>
-              <span>{renderState.message}</span>
+            <div>
+              <div className="mermaid-message error" role="alert">
+                <strong>Unable to render Mermaid diagram.</strong>
+                <span>{renderState.message}</span>
+              </div>
+              <div className="mermaid-error-source"><CodeView code={code} /></div>
             </div>
           ) : null}
           {renderState.status === "rendered" ? (

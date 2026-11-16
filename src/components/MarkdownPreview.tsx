@@ -18,6 +18,7 @@ export type MarkdownPreviewMode = "interactive" | "print";
 type MarkdownPreviewProps = {
   markdown: string;
   mode?: MarkdownPreviewMode;
+  printMermaidAsCode?: boolean;
   className?: string;
   previewRef?: Ref<HTMLDivElement>;
   onPreviewLinkClick?: (
@@ -30,6 +31,7 @@ type MarkdownPreviewProps = {
 export function MarkdownPreview({
   markdown,
   mode = "interactive",
+  printMermaidAsCode = false,
   className = "mdPreview mdPreview-scroll",
   previewRef,
   onPreviewLinkClick,
@@ -82,7 +84,7 @@ export function MarkdownPreview({
                 const code = String(
                   codeElement.props.children ?? ""
                 ).replace(/\n$/, "");
-                return <MermaidBlock code={code} />;
+                return <MermaidBlock code={code} printAsCode={printMermaidAsCode} forPrint={mode === "print"} />;
               }
             }
             return <pre>{children}</pre>;
