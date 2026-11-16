@@ -111,6 +111,12 @@ export function MermaidBlock({ code, printAsCode = false, forPrint = false }: Me
   const printLayout = useMemo(() => renderedSvg ? getMermaidPrintLayout(renderedSvg) : null, [renderedSvg]);
   const printFallback = showDiagram && renderState.status === "rendered" && (printAsCode || !printLayout);
 
+  if (forPrint && printAsCode) {
+    return <figure className="mermaid-block" data-mermaid-status="source" data-print-fallback="source">
+      <div className="mermaid-print-fallback"><CodeView code={code} /></div>
+    </figure>;
+  }
+
   return (
     <figure className="mermaid-block" data-mermaid-status={renderState.status} data-print-fallback={printFallback ? "source" : undefined} style={printLayout ? { "--mermaid-print-width": `${printLayout.width}px` } as CSSProperties : undefined}>
       <div className="mermaid-block-header">
@@ -136,7 +142,7 @@ export function MermaidBlock({ code, printAsCode = false, forPrint = false }: Me
           </button>
         </div>
       </div>
-      {showDiagram && printLayout?.smallText && !printAsCode ? <p className="mermaid-print-warning">This diagram will fit on one printed page; text may be small. You can choose “Print Mermaid as source” in More actions.</p> : null}
+      {showDiagram && printLayout?.smallText && !printAsCode ? <p className="mermaid-print-warning">This diagram will fit on one printed page; text may be small. You can choose source code after selecting “Print / PDF”.</p> : null}
       {printFallback ? <div className="mermaid-print-fallback"><CodeView code={code} /></div> : null}
       {showDiagram ? (
         <div className="mermaid-diagram-panel">

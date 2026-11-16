@@ -4,6 +4,11 @@ import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { readBodyEditorValue } from "./body-editor";
 
+async function continueMermaidPrint(page: import("@playwright/test").Page) {
+  const dialog = page.getByRole("dialog", { name: "Mermaid output" });
+  if (await dialog.isVisible()) await dialog.getByRole("button", { name: "Continue to print" }).click();
+}
+
 async function savePdfIfChromium(page: import("@playwright/test").Page, testInfo: import("@playwright/test").TestInfo, options: Parameters<import("@playwright/test").Page["pdf"]>[0]) {
   return testInfo.project.name === "chromium" ? page.pdf(options) : null;
 }
@@ -73,6 +78,7 @@ test.describe("Preview Print / PDF", () => {
     await page.getByLabel("Orientation").selectOption("landscape");
     await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
     await page.getByRole("button", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
     await expect(page.locator(".styled-export-preview-wrap .print-image-slice").first()).toBeAttached();
     await page.pdf({ path: testInfo.outputPath("phase2-landscape-image.pdf"), printBackground: true, preferCSSPageSize: true });
@@ -91,6 +97,7 @@ test.describe("Preview Print / PDF", () => {
     await page.getByLabel("Table of contents", { exact: true }).check();
     await expect(page.getByLabel("Styled export preview").getByRole("navigation", { name: "Table of contents" }).getByRole("link")).toHaveCount(80);
     await page.getByRole("button", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
     await page.pdf({ path: testInfo.outputPath("phase2-long-toc.pdf"), printBackground: true, preferCSSPageSize: true });
     await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
@@ -119,6 +126,7 @@ test.describe("Preview Print / PDF", () => {
     await page.getByLabel("Cover page").check();
     await page.getByLabel("Table of contents", { exact: true }).check();
     await page.getByRole("button", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
     await expect(page.getByLabel("Orientation")).toBeDisabled();
     const pdf = await page.pdf({ path: testInfo.outputPath("phase2-landscape.pdf"), printBackground: true, preferCSSPageSize: true });
@@ -192,6 +200,7 @@ test.describe("Preview Print / PDF", () => {
     const html = readFileSync(await download.path(), "utf8");
     expect(html).toContain("size:letter landscape;margin:18mm 14mm");
     await page.getByRole("button", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.locator("html").getAttribute("data-print-page-css")).toContain("size:letter landscape;margin:18mm 16mm");
     await page.getByRole("button", { name: "Back to Preview" }).click();
     await page.getByRole("button", { name: "More actions" }).click();
@@ -214,6 +223,7 @@ test.describe("Preview Print / PDF", () => {
     await expect(toolbar).toBeVisible();
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
     await page.emulateMedia({ media: "print" });
     await expect(toolbar).toBeHidden();
@@ -231,6 +241,7 @@ test.describe("Preview Print / PDF", () => {
     await page.evaluate(() => document.body.classList.remove("styled-export-printing"));
     await expect(toolbar).toBeVisible();
     await page.getByRole("button", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(2);
     await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
   });
@@ -243,6 +254,7 @@ test.describe("Preview Print / PDF", () => {
     page.once("dialog", async (dialog) => { message = dialog.message(); await dialog.accept(); });
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     expect(message).toContain("image");
     expect(await page.evaluate(() => window.__printCalls ?? 0)).toBe(0);
     await page.getByRole("button", { name: "More actions" }).click();
@@ -263,6 +275,7 @@ test.describe("Preview Print / PDF", () => {
     });
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await page.getByRole("button", { name: "Notes", exact: true }).click();
     await page.getByRole("button", { name: "Open note: Second print note" }).click();
     await page.evaluate(() => window.__releaseFonts?.());
@@ -281,6 +294,7 @@ test.describe("Preview Print / PDF", () => {
     page.once("dialog", async (dialog) => { message = dialog.message(); await dialog.accept(); });
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await page.clock.fastForward(10_000);
     await expect.poll(() => message).toContain("timed out");
     expect(await page.evaluate(() => window.__printCalls ?? 0)).toBe(0);
@@ -299,6 +313,7 @@ test.describe("Preview Print / PDF", () => {
     });
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await page.getByRole("textbox", { name: "Body" }).fill("Changed while preparing");
     await page.evaluate(() => window.__releaseFonts?.());
     await page.getByRole("button", { name: "More actions" }).click();
@@ -314,6 +329,7 @@ test.describe("Preview Print / PDF", () => {
     await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
     await page.clock.fastForward(60_000);
     await page.getByRole("button", { name: "More actions" }).click();
@@ -330,11 +346,13 @@ test.describe("Preview Print / PDF", () => {
     await page.evaluate(() => { window.print = () => { window.__printExceptionCalled = true; throw new Error("simulated print failure"); }; });
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printExceptionCalled ?? false)).toBe(true);
     await page.getByRole("button", { name: "More actions" }).click();
     await expect(page.getByRole("menuitem", { name: "Print / PDF" })).toBeEnabled();
     await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; window.dispatchEvent(new Event("afterprint")); }; });
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
   });
 
@@ -363,11 +381,13 @@ test.describe("Preview Print / PDF", () => {
   });
 
   test("fits a tall Mermaid and only prints source when selected", async ({ page }, testInfo) => {
+    await page.addInitScript(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
     await page.goto("/");
     const graph = ["graph TD", ...Array.from({ length: 60 }, (_, i) => `N${i}[NODE${i}]${i < 59 ? ` --> N${i + 1}` : ""}`)].join("\n");
     await createSavedNote(page, "Tall Mermaid", `\`\`\`mermaid\n${graph}\n\`\`\`\n\nDiagram end marker.`);
-    const simple = page.locator('.print-surface [data-mermaid-status="rendered"]');
+    const simple = page.locator('.print-surface [data-mermaid-status]');
     await expect(simple).toHaveCount(1, { timeout: 20_000 });
+    await expect(simple).toHaveAttribute("data-mermaid-status", "rendered", { timeout: 20_000 });
     await expect(simple).not.toHaveAttribute("data-print-fallback");
     await page.emulateMedia({ media: "print" });
     await expect(simple.locator("svg")).toBeVisible();
@@ -377,12 +397,17 @@ test.describe("Preview Print / PDF", () => {
     await expect(page.locator('.print-surface .mermaid-print-warning')).toBeHidden();
     await page.emulateMedia({ media: "screen" });
     await page.getByRole("button", { name: "More actions" }).click();
-    await page.getByRole("menuitemcheckbox", { name: "Print Mermaid as source" }).click();
+    await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await page.getByRole("radio", { name: /Source code/ }).check();
+    await page.getByRole("button", { name: "Continue to print" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls)).toBe(1);
     await expect(simple).toHaveAttribute("data-print-fallback", "source");
     await page.emulateMedia({ media: "print" });
     await expect(simple.locator("svg")).toBeHidden();
     await expect(simple.locator(".mermaid-print-fallback pre")).toBeVisible();
     await page.emulateMedia({ media: "screen" });
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+    await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
     await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled({ timeout: 20_000 });
     const styled = page.locator('.styled-export-mermaid');
@@ -394,7 +419,10 @@ test.describe("Preview Print / PDF", () => {
     await expect(styled).toHaveCSS("break-inside", "avoid");
     await page.emulateMedia({ media: "screen" });
     await page.evaluate(() => document.body.classList.remove("styled-export-printing"));
-    await page.getByRole("checkbox", { name: "Print Mermaid as source" }).check();
+    await page.getByRole("button", { name: "Print / PDF", exact: true }).click();
+    await page.getByRole("radio", { name: /Source code/ }).check();
+    await page.getByRole("button", { name: "Continue to print" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls)).toBe(2);
     await expect(styled).toHaveAttribute("data-print-fallback", "source");
     await page.evaluate(() => document.body.classList.add("styled-export-printing"));
     await page.emulateMedia({ media: "print" });
@@ -402,7 +430,7 @@ test.describe("Preview Print / PDF", () => {
     await expect(styled.locator(".mermaid-print-fallback pre")).toBeVisible();
     await page.emulateMedia({ media: "screen" });
     await page.evaluate(() => document.body.classList.remove("styled-export-printing"));
-    await page.getByRole("checkbox", { name: "Print Mermaid as source" }).uncheck();
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
     // The standalone HTML also needs the same page-fit rules, without JavaScript.
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Download HTML" }).click();
@@ -455,6 +483,7 @@ test.describe("Preview Print / PDF", () => {
     const beforeSimple = requests;
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
     expect(requests).toBe(beforeSimple);
     await expect(page.locator(".print-surface .print-image-slice")).toHaveCount(5);
@@ -466,6 +495,7 @@ test.describe("Preview Print / PDF", () => {
     await page.evaluate(() => { window.print = () => { window.__printExceptionCalled = true; throw new Error("simulated print failure"); }; });
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printExceptionCalled ?? false)).toBe(true);
     await expect(page.locator(".print-surface .print-image-slice")).toHaveCount(0);
     await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
@@ -476,6 +506,7 @@ test.describe("Preview Print / PDF", () => {
     const originalStyledSource = await page.locator(".styled-export-preview-wrap img").getAttribute("src");
     const beforeStyled = requests;
     await page.getByRole("button", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(2);
     expect(requests).toBe(beforeStyled);
     await expect(page.locator(".styled-export-preview-wrap .print-image-slice")).toHaveCount(5);
@@ -490,6 +521,7 @@ test.describe("Preview Print / PDF", () => {
     await expect(page.locator(".styled-export-preview-wrap img")).toHaveAttribute("src", originalStyledSource!);
     expect(await page.evaluate(() => window.__savedPrintCanvases?.every((canvas) => canvas.width === 0 && canvas.height === 0))).toBe(true);
     await page.getByRole("button", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(3);
     await page.evaluate(() => { window.__savedPrintCanvases = Array.from(document.querySelectorAll('.styled-export-preview-wrap .print-image-slice canvas')); });
     await page.getByRole("button", { name: "Back to Preview" }).click();
@@ -508,6 +540,7 @@ test.describe("Preview Print / PDF", () => {
     await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
     await page.emulateMedia({ media: "print" });
     for (const parent of [".print-surface td", ".print-surface blockquote"]) {
@@ -527,6 +560,7 @@ test.describe("Preview Print / PDF", () => {
     await page.getByRole("button", { name: "Load HTTPS images" }).click();
     await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled({ timeout: 20_000 });
     await page.getByRole("button", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(2);
     await page.emulateMedia({ media: "print" });
     for (const parent of [".styled-export-preview-wrap td", ".styled-export-preview-wrap blockquote"]) {
@@ -561,6 +595,7 @@ test.describe("Preview Print / PDF", () => {
     await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
     await expect(page.locator(".print-surface .print-image-slice")).toHaveCount(0);
     await page.emulateMedia({ media: "print" });
@@ -582,6 +617,7 @@ test.describe("Preview Print / PDF", () => {
     await page.getByRole("button", { name: "Load HTTPS images" }).click();
     await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
     await page.getByRole("button", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(2);
     await expect(page.locator(".styled-export-preview-wrap .print-image-slice")).toHaveCount(0);
     await page.emulateMedia({ media: "print" });
@@ -619,6 +655,7 @@ test.describe("Preview Print / PDF", () => {
       await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
       await page.getByLabel("Design").selectOption("website");
       await page.getByRole("button", { name: "Print / PDF" }).click();
+      await continueMermaidPrint(page);
       await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
       await expect(page.locator(".styled-export-preview-wrap .print-image-slice")).toHaveCount(0);
       await savePdfIfChromium(page, testInfo, { path: testInfo.outputPath(`website-${viewportWidth}.pdf`), format: "A4", printBackground: true, preferCSSPageSize: true });
@@ -663,6 +700,7 @@ test.describe("Preview Print / PDF", () => {
       };
       await page.getByRole("button", { name: "More actions" }).click();
       await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+      await continueMermaidPrint(page);
       await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
       await verifyPixels(".print-surface");
       await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
@@ -672,6 +710,7 @@ test.describe("Preview Print / PDF", () => {
       await page.locator('.styled-export-issues input[type="file"]').setInputFiles({ name: `fixture.${format}`, mimeType: mime, buffer: data });
       await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
       await page.getByRole("button", { name: "Print / PDF" }).click();
+      await continueMermaidPrint(page);
       await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(2);
       await verifyPixels(".styled-export-preview-wrap");
       await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
@@ -691,6 +730,7 @@ test.describe("Preview Print / PDF", () => {
       await page.evaluate(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
       await page.getByRole("button", { name: "More actions" }).click();
       await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+      await continueMermaidPrint(page);
       await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
       await expect(page.locator(".print-surface .print-image-slice")).toHaveCount(expected);
       await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
@@ -699,6 +739,7 @@ test.describe("Preview Print / PDF", () => {
       await page.locator('.styled-export-issues input[type="file"]').setInputFiles({ name: `threshold-${height}.svg`, mimeType: "image/svg+xml", buffer: data });
       await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
       await page.getByRole("button", { name: "Print / PDF" }).click();
+      await continueMermaidPrint(page);
       await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(2);
       await expect(page.locator(".styled-export-preview-wrap .print-image-slice")).toHaveCount(expected);
       await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
@@ -775,6 +816,7 @@ test.describe("Preview Print / PDF", () => {
       await page.getByLabel("Orientation").selectOption("landscape");
       await page.evaluate(() => { window.print = () => { window.__printCalls = 1; }; });
       await page.getByRole("button", { name: "Print / PDF", exact: true }).click();
+      await continueMermaidPrint(page);
       await expect.poll(() => page.evaluate(() => window.__printCalls)).toBe(1);
       await page.emulateMedia({ media: "print" });
       const landscapeSize = await styled.locator("svg").boundingBox();
@@ -902,6 +944,7 @@ test.describe("Preview Print / PDF", () => {
 
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
 
     await expect
       .poll(() => page.evaluate(() => window.__printCalls ?? 0))
@@ -944,6 +987,7 @@ test.describe("Preview Print / PDF", () => {
 
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Print / PDF" }).click();
+    await continueMermaidPrint(page);
     await expect
       .poll(() => page.evaluate(() => window.__printCalls ?? 0))
       .toBe(1);
