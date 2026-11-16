@@ -4196,7 +4196,6 @@ function App() {
             />
           </div>
           <h1 className="app-title">Markdown Knowledge Board</h1>
-          <LocalMcpLauncher />
           <div className="editor-status" aria-label="Editor status" aria-live="polite">
             <span className={`status-indicator status-${editorStatus.tone}`}>
               <span className="sr-only">Status: </span>
@@ -4204,6 +4203,7 @@ function App() {
               <span>{editorStatus.label}</span>
             </span>
           </div>
+          <LocalMcpLauncher />
         </div>
         <div className="editor-actions">
           <button
