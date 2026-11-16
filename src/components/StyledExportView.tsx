@@ -57,6 +57,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
   const [{ assets, assetErrors }, setImageState] = useState<{ assets: StyledAssetMap; assetErrors: Record<string, string> }>({ assets: {}, assetErrors: {} });
   const [mermaidSvgs, setMermaidSvgs] = useState<Record<string, string>>({});
   const [mermaidErrors, setMermaidErrors] = useState<string[]>([]);
+  const [printMermaidAsCode, setPrintMermaidAsCode] = useState(false);
   const [isPreparingDocument, setIsPreparingDocument] = useState(true);
   const [preparationError, setPreparationError] = useState("");
   const [preparationAttempt, setPreparationAttempt] = useState(0);
@@ -102,7 +103,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       const failures: string[] = [];
       await Promise.all(analysis.mermaidCodes.map(async (code, index) => {
         try {
-          rendered[code] = await renderMermaidSvg(code, `styled-export-${index}`, true);
+          rendered[code] = await renderMermaidSvg(code, `styled-export-${index}`, true, true);
         } catch {
           failures.push(code);
         }
@@ -222,6 +223,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       analysis={analysis}
       assets={assets}
       mermaidSvgs={mermaidSvgs}
+      printMermaidAsCode={printMermaidAsCode}
       allowLocalLinks={allowLocalLinks}
       printGeometry={getPrintGeometry(layout, "html")}
       coverPage={layout.coverPage} tableOfContents={layout.tableOfContents} tocDepth={layout.tocDepth}
@@ -231,8 +233,8 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
 
   const isReady = !isPreparingDocument && !preparationError && unresolvedImages.length === 0 && (localLinkIssues.length === 0 || allowLocalLinks);
   const previewDocument = useMemo(() => (
-    <StyledDocument title={snapshot.title} tags={snapshot.tags} markdown={snapshot.body} options={options} analysis={analysis} assets={assets} mermaidSvgs={mermaidSvgs} allowLocalLinks={allowLocalLinks} printGeometry={getPrintGeometry(layout, "app")} coverPage={layout.coverPage} tableOfContents={layout.tableOfContents} tocDepth={layout.tocDepth} />
-  ), [snapshot, options, analysis, assets, mermaidSvgs, allowLocalLinks, layout]);
+    <StyledDocument title={snapshot.title} tags={snapshot.tags} markdown={snapshot.body} options={options} analysis={analysis} assets={assets} mermaidSvgs={mermaidSvgs} printMermaidAsCode={printMermaidAsCode} allowLocalLinks={allowLocalLinks} printGeometry={getPrintGeometry(layout, "app")} coverPage={layout.coverPage} tableOfContents={layout.tableOfContents} tocDepth={layout.tocDepth} />
+  ), [snapshot, options, analysis, assets, mermaidSvgs, printMermaidAsCode, allowLocalLinks, layout]);
 
   const downloadHtml = () => {
     if (!isReady) {
@@ -339,6 +341,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
           <label>Design<select value={options.designId} disabled={isPrinting} onChange={(event) => changeOption("designId", event.target.value as StyledExportOptions["designId"])}>{STYLED_EXPORT_DESIGNS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
           <label>Text size<select value={options.textScale} disabled={isPrinting} onChange={(event) => changeOption("textScale", Number(event.target.value) as StyledExportOptions["textScale"])}>{STYLED_EXPORT_TEXT_SCALES.map((scale) => <option key={scale} value={scale}>{scale}%</option>)}</select></label>
           <label className="styled-export-tags-toggle"><input type="checkbox" checked={options.showTags} disabled={isPrinting} onChange={(event) => changeOption("showTags", event.target.checked)} /> Show tags</label>
+          {analysis.mermaidCodes.length > 0 ? <label className="styled-export-tags-toggle"><input type="checkbox" checked={printMermaidAsCode} disabled={isPrinting} onChange={(event) => setPrintMermaidAsCode(event.target.checked)} /> Print Mermaid as source</label> : null}
         </div>
         <details className="styled-export-layout" open={layoutOpen} onToggle={(event) => setLayoutOpen(event.currentTarget.open)}>
           <summary>Document layout · {layout.paperSize === "a4" ? "A4" : "Letter"} / {layout.orientation === "portrait" ? "Portrait" : "Landscape"} · Cover {layout.coverPage ? "On" : "Off"} · TOC {layout.tableOfContents ? "On" : "Off"}</summary>

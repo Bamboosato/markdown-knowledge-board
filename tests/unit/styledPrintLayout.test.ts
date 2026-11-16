@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getPrintGeometry, printPageCss } from "../../src/lib/styledExport/printLayout";
 import type { Orientation, PaperSize } from "../../src/lib/styledExport/printLayout";
 import { planPrintImageSlices } from "../../src/lib/printImageSlices";
-import { requiresMermaidPrintFallback } from "../../src/lib/mermaidPrint";
+import { getMermaidPrintLayout } from "../../src/lib/mermaidPrint";
 
 describe("Styled print layout", () => {
   it.each([
@@ -25,11 +25,12 @@ describe("Styled print layout", () => {
     expect(planPrintImageSlices(100, Math.floor(page.height) * 2, 100, page.height)).toBeNull();
   });
 
-  it("falls back for a diagram too tall for landscape and escapes a title", () => {
+  it("fits a diagram to the shorter landscape page and escapes a title", () => {
     const svg = '<svg viewBox="0 0 800 700"></svg>';
-    expect(requiresMermaidPrintFallback(svg)).toBe(false);
-    expect(requiresMermaidPrintFallback(svg, getPrintGeometry({ paperSize: "a4", orientation: "landscape" }, "app"))).toBe(true);
-    expect(requiresMermaidPrintFallback('<svg viewBox="0 0 1000 700"></svg>', { width: 1000, height: 650 })).toBe(true);
+    const portrait = getMermaidPrintLayout(svg)!;
+    const landscape = getMermaidPrintLayout(svg, getPrintGeometry({ paperSize: "a4", orientation: "landscape" }, "app"))!;
+    expect(landscape.height).toBeLessThan(portrait.height);
+    expect(landscape.width / landscape.height).toBeCloseTo(800 / 700);
     expect(printPageCss({ paperSize: "a4", orientation: "portrait" }, "html", '</style>')).not.toContain('</style>');
   });
 });

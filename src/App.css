@@ -942,8 +942,15 @@
   background: #ffffff;
 }
 
-.mermaid-print-fallback {
+.mermaid-print-fallback,
+.mermaid-error-source {
   display: none;
+}
+
+.mermaid-print-warning {
+  margin: 8px 12px;
+  color: var(--preview-muted-text);
+  font-size: 0.875rem;
 }
 
 .print-image-slices {
@@ -3813,25 +3820,46 @@
     display: none;
   }
 
-  .print-mdPreview .mermaid-block[data-print-fallback="oversized"] .mermaid-diagram-panel {
+  .print-mdPreview .mermaid-block[data-print-fallback] .mermaid-diagram-panel {
     display: none;
   }
 
-  .print-mdPreview .mermaid-block[data-print-fallback="oversized"] {
+  .print-mdPreview .mermaid-block {
     overflow: visible;
+    border: 0;
+    margin: 12px 0;
   }
 
-  .print-mdPreview .mermaid-block[data-print-fallback="oversized"] .mermaid-print-fallback {
+  .print-mdPreview .mermaid-block[data-print-fallback] .mermaid-print-fallback,
+  .print-mdPreview .mermaid-error-source {
     display: block;
+  }
+
+  .print-mdPreview .mermaid-block[data-mermaid-status="rendered"]:not([data-print-fallback]) {
+    break-inside: avoid;
+  }
+
+  .print-mdPreview .mermaid-print-warning {
+    display: none;
   }
 
   .print-mdPreview .mermaid-diagram-panel,
   .print-mdPreview .mermaid-diagram-scroll {
     overflow: visible;
+    padding: 0;
+    min-height: 0;
   }
 
   .print-mdPreview .mermaid-diagram-svg {
     max-width: 100%;
+    min-width: 0;
+  }
+
+  .print-mdPreview .mermaid-diagram-svg svg {
+    width: min(100%, var(--mermaid-print-width)) !important;
+    max-width: 100% !important;
+    height: auto !important;
+    margin-inline: auto;
   }
 
   .print-task-checkbox {

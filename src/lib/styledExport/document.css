@@ -215,6 +215,12 @@
   display: none;
 }
 
+.styled-export-document .mermaid-print-warning {
+  color: var(--styled-muted);
+  font-size: 0.875em;
+  text-align: left;
+}
+
 .styled-export-missing-image {
   display: inline-block;
   padding: .35em .55em;
@@ -283,15 +289,29 @@
 @media print {
   .styled-export-header.styled-export-cover, .styled-export-toc { break-after: page; }
   .styled-export-toc li { break-inside: avoid; }
-  .styled-export-mermaid[data-print-fallback="oversized"] {
+  .styled-export-mermaid {
     overflow: visible;
+    margin: 12px 0;
   }
-  .styled-export-mermaid[data-print-fallback="oversized"] > [role="img"] {
+  .styled-export-mermaid[data-print-fallback] > [role="img"] {
     display: none;
   }
-  .styled-export-mermaid[data-print-fallback="oversized"] > .mermaid-print-fallback {
+  .styled-export-mermaid[data-print-fallback] > .mermaid-print-fallback {
     display: block;
     text-align: left;
+  }
+  .styled-export-mermaid:not([data-print-fallback]) {
+    break-inside: avoid;
+  }
+  .styled-export-mermaid svg {
+    display: block;
+    width: min(100%, var(--mermaid-print-width)) !important;
+    max-width: 100% !important;
+    height: auto !important;
+    margin-inline: auto;
+  }
+  .styled-export-document .mermaid-print-warning {
+    display: none;
   }
   .styled-export-markdown {
     line-break: strict;
@@ -335,8 +355,7 @@
   }
 
   .styled-export-markdown table,
-  .styled-export-markdown blockquote,
-  .styled-export-mermaid {
+  .styled-export-markdown blockquote {
     break-inside: auto;
   }
 

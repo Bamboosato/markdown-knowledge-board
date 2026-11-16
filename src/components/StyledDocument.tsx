@@ -1,5 +1,5 @@
 import { isValidElement, useMemo } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   createStyledExportRemarkPlugins,
@@ -13,7 +13,7 @@ import type {
   MarkdownPosition,
 } from "../lib/styledExport/types";
 import { getThemeVariables } from "../lib/styledExport/theme";
-import { requiresMermaidPrintFallback } from "../lib/mermaidPrint";
+import { getMermaidPrintLayout } from "../lib/mermaidPrint";
 
 type MarkdownNode = {
   position?: { start?: { line?: number; column?: number } };
@@ -31,6 +31,7 @@ export type StyledDocumentProps = {
   mermaidSvgs: Record<string, string>;
   allowLocalLinks: boolean;
   printGeometry?: { width: number; height: number };
+  printMermaidAsCode?: boolean;
   coverPage?: boolean;
   tableOfContents?: boolean;
   tocDepth?: "h2" | "h2-h3";
@@ -47,6 +48,7 @@ export function StyledDocument({
   mermaidSvgs,
   allowLocalLinks,
   printGeometry,
+  printMermaidAsCode = false,
   coverPage = false,
   tableOfContents = false,
   tocDepth = "h2-h3",
@@ -117,8 +119,15 @@ export function StyledDocument({
                   if (language === "mermaid") {
                     const source = String(code.props.children ?? "").replace(/\n$/, "");
                     const svg = mermaidSvgs[source];
+                    // CSS min(100%, fitted width) also accounts for theme padding
+                    // and nested containers, including viewport-relative padding.
+                    const fit = svg ? getMermaidPrintLayout(svg, printGeometry) : null;
                     return svg
-                      ? <div className="styled-export-mermaid" data-print-fallback={requiresMermaidPrintFallback(svg, printGeometry) ? "oversized" : undefined}><div role="img" dangerouslySetInnerHTML={{ __html: svg }} /><div className="mermaid-print-fallback"><p>Diagram may not fit a printed page; Mermaid source follows.</p><pre><code>{source}</code></pre></div></div>
+                      ? <div className="styled-export-mermaid" data-print-fallback={printMermaidAsCode || !fit ? "source" : undefined} style={fit ? { "--mermaid-print-width": `${fit.width}px` } as CSSProperties : undefined}>
+                          {fit?.smallText && !printMermaidAsCode ? <p className="mermaid-print-warning">This diagram will fit on one printed page; text may be small. Review the PDF or choose “Print Mermaid as source”.</p> : null}
+                          <div role="img" dangerouslySetInnerHTML={{ __html: svg }} />
+                          <div className="mermaid-print-fallback"><pre><code>{source}</code></pre></div>
+                        </div>
                       : <pre><code>{source}</code></pre>;
                   }
                 }
