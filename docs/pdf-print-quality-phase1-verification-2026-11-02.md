@@ -1,6 +1,8 @@
 # PDF品質改善 Phase 1 ローカル検証記録
 
-2026-11-02。対象は `c2a4c5b` とその後のローカル差分。Windows・Playwright Chromium、A4 portrait。印刷ダイアログは代替し、PDFは `page.pdf` で生成した。Safari/iOS/Android実機、OSネイティブ印刷ダイアログ、本番環境は未検証。生成PDFとページ画像はローカルの `output/pdf-review/` に保存し、リポジトリには含めない。
+初回検証は2026-11-02、対象は `c2a4c5b` とその後のローカル差分。Windows・Playwright Chromium、A4 portraitで、印刷ダイアログを代替し、PDFは `page.pdf` で生成した。当時は実機、OSネイティブ印刷ダイアログ、本番環境を未検証。後日のPixel・Windowsの実機・印刷ダイアログ確認は下記に追記している。生成PDFとページ画像はローカルの `output/pdf-review/` に保存し、リポジトリには含めない。
+
+2026-11-16時点: Phase 1は[PR #56](https://github.com/Bamboosato/markdown-knowledge-board/pull/56)でマージ・本番公開済み。AC-01〜13は下表の対象ケースで合格し、Phase 1は完了とする。Safari／iPhone実機はユーザー指定で対象外。Firefox・WebKitのPDF出力、他のAndroid実機、実プリンターなどの未確認範囲と、縦長画像に余白が残り得る制限は維持する。本番環境での印刷操作を再検証したことは意味しない。依存監査の最新状況は[CI・監査記録](./github-actions-ci-proposal.md)を参照する。
 
 ## 観点と前提
 
@@ -52,7 +54,7 @@
 
 - 対象はPR #56の `bdfece56608fdc13dd0de3d375aca29d5f9d75ff` から作成されたVercel Preview、Pixel 10a / Android 17 / Chrome 156。前回と同じ日本語・表・縦長画像のテスト用Markdownを取り込み、200×6000pxの合成PNGをローカル画像として選択。Styled出力、A4、PDF保存。
 - PDFは10ページ。画像の先頭が1ページ目に表示され、画像の途中・末尾、後続本文、表と最終マーカーをページ画像で確認。1ページ目には引き続き余白が残る。保存後に再度印刷画面を開き、キャンセル後にStyled画面に戻り、印刷ボタンが有効なことを確認。
-- **原因を確認、対策未適用**: 出力PDFの各ページに円形表示と影が印刷される。プレビューのDOMでは `vercel-live-feedback` 要素が `body` の直接の子として存在し、アプリ内要素を非表示にする印刷CSSの対象外だった。同じ端末・文書・印刷設定で、ブラウザーに一時的な `@media print { vercel-live-feedback { display: none !important; } }` を追加して再出力すると、円形表示が消えた。両PDFはA4・10ページで、72dpiの各ページ画像の差分は10ページすべて同じ円形表示と影の範囲（x=304–380、y=327–403 px）に限られた。実験後に一時スタイルとデバッグ接続を取り除いた。比較前PDFは `output/pdf-review/pixel-vercel-bdfece5.pdf`、比較後は `output/pdf-review/pixel-vercel-toolbar-hidden.pdf`（リポジトリ外のローカル検証データ）。この比較は対象Pixel・Styled・対象fixtureに限る。
+- **当時は原因を確認し対策未適用**: 出力PDFの各ページに円形表示と影が印刷される。プレビューのDOMでは `vercel-live-feedback` 要素が `body` の直接の子として存在し、アプリ内要素を非表示にする印刷CSSの対象外だった。同じ端末・文書・印刷設定で、ブラウザーに一時的な `@media print { vercel-live-feedback { display: none !important; } }` を追加して再出力すると、円形表示が消えた。両PDFはA4・10ページで、72dpiの各ページ画像の差分は10ページすべて同じ円形表示と影の範囲（x=304–380、y=327–403 px）に限られた。実験後に一時スタイルとデバッグ接続を取り除いた。比較前PDFは `output/pdf-review/pixel-vercel-bdfece5.pdf`、比較後は `output/pdf-review/pixel-vercel-toolbar-hidden.pdf`（リポジトリ外のローカル検証データ）。この比較は対象Pixel・Styled・対象fixtureに限る。その後の修正と確認は次節を参照。
 - Windows Chrome 156の対象プレビューでは、ユーザー提供の印刷ダイアログ画像（`output/pdf-review/windows-vercel-preview-bdfece5.png`）で、送信先「PDFに保存」、1ページ、「TEST」の見出しと本文を確認。ユーザーが保存したPDF（`output/pdf-review/windows-vercel-bdfece5.pdf`）はA4・1ページで、レンダリング画像に同じ内容を確認。Pixelで見られた円形表示はこの画像とPDFには見当たらない。画像を含まない短文のため、画像付きStyled出力への一般化はできない。再印刷を開いてキャンセル後、本文が残り再印刷できることはユーザーが確認した。
 - 今回のPixel結果だけでは他端末、他設定、Mermaidタイムアウト後の実機再試行を保証しない。
 
@@ -65,8 +67,8 @@
 
 - `npm ci --no-audit`、`npm run test:unit`（260件成功）、lint、型チェック付きbuild、印刷対象Chromium E2E（32件成功）、PWAオフライン再起動の対象1ケース（成功）を実行。印刷以外の全E2Eや他ブラウザーのPDF生成は対象外。
 - 追加試験の初回は9,000行のエディター入力でタイムアウト。51,200文字超の少数行fixtureへ変更し再現性を確保した。別のE2E初回ページ読み込みtimeoutは単独再実行で成功した。いずれも製品の印刷失敗と断定しない。
-- 依存監査はproduction 0件、全依存low 2件/moderate 19件で失敗。lockfile・依存は今回変更しておらず、既存開発依存の問題として別途扱う。
-- Windows Chromiumの対象ケースの印刷境界は追加確認済み。ほかのブラウザー・設定の差異と依存監査は残るため、Phase 1の完了判定は保留。Safari／iPhone実機確認はユーザー指定でPhase 1対象外。
+- 当時の依存監査はproduction 0件、全依存low 2件/moderate 19件で失敗。後の依存対応と監査結果は[CI・監査記録](./github-actions-ci-proposal.md)を参照。
+- 当時はほかのブラウザー・設定の差異と依存監査が残り、Phase 1の完了判定を保留していた。その後、対象ケースの確認と別件の依存対応を経て、冒頭のとおり完了とした。Safari／iPhone実機確認はユーザー指定でPhase 1対象外。
 
 ## 縦長画像の追加調査
 
@@ -81,4 +83,4 @@
 
 - 接続先はGitHub `Bamboosato/markdown-knowledge-board`、Vercelプロジェクト `markdown-knowledge-board`。ローカルoriginには旧名 `set3-markdown-knowledge-board` が設定され、GitHub APIは現在のリポジトリへ移転応答を返す。既存の非mainブランチからのVercel Preview生成履歴がある。現在取得できたプロジェクト情報ではVercel認証が `all_except_custom_domains` で有効。今回のブランチやPRはリモート検索で見つからなかった。リポジトリ内workflow・package・設定の文字列検索では別のデプロイ処理は見つからなかったが、外部連携をすべて網羅した証明ではない。
 - 既存 `vercel.json` に `git.deploymentEnabled` はない。[Vercel公式Git設定](https://vercel.com/docs/project-configuration/git-configuration)では未指定ブランチはデフォルト有効で、pushによる自動デプロイをブランチ単位で無効化できる。取得した情報だけでは他のプロジェクト側ルールすべてを確定できないため、実際の生成有無はpush後に確認が必要。
-- 対象ブランチのプレビューを抑止する案は、既存JSONのルートに `"git": { "deploymentEnabled": { "feat/pdf-print-quality-phase1": false } }` を追加すること。これは設定変更を含む案であり、**未適用**。その後、既存設定のままプレビュー生成する方針について承認された。マージ・本番デプロイは対象外。
+- 対象ブランチのプレビューを抑止する案は、既存JSONのルートに `"git": { "deploymentEnabled": { "feat/pdf-print-quality-phase1": false } }` を追加すること。これは設定変更を含む案であり、**未適用**。その後、既存設定のままプレビュー生成する方針について承認された。この事前確認時点ではマージ・本番デプロイは対象外だったが、その後PR #56はマージ・本番公開済み。
