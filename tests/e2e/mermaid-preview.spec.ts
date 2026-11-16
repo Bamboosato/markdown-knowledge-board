@@ -209,41 +209,67 @@ test.describe("A1 Mermaid preview", () => {
     await expect(page.getByText("Status: Saved")).toBeVisible();
   });
 
-  test("keeps Preview readable when a Mermaid diagram fails", async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1200, height: 800 });
-    await page.goto("/");
-
-    await createSavedNote(
+  for (const [failure, source] of [
+    ["unknown diagram", "this is not a diagram"],
+    ["invalid flowchart label", "flowchart TD\nA{board[r][c] !== solution[r][c]}"],
+  ]) {
+    test(`keeps Preview and Styled PDF clean after ${failure}`, async ({
       page,
-      "Broken Mermaid",
-      [
-        "# Broken Mermaid",
-        "",
-        "```mermaid",
-        "this is not a diagram",
-        "```",
-        "",
-        "## Still visible",
-      ].join("\n")
-    );
+    }) => {
+      await page.setViewportSize({ width: 1200, height: 800 });
+      await page.goto("/");
 
-    await page.getByRole("button", { name: "Preview" }).click();
+      await createSavedNote(
+        page,
+        "Broken Mermaid",
+        [
+          "# Broken Mermaid",
+          "",
+          "```mermaid",
+          source,
+          "```",
+          "",
+          "## Still visible",
+        ].join("\n")
+      );
 
-    await expect(
-      page.getByRole("heading", { name: "Still visible" })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("alert").filter({
-        hasText: "Unable to render Mermaid diagram.",
-      })
-    ).toBeVisible({ timeout: 15_000 });
+      await page.getByRole("button", { name: "Preview" }).click();
 
-    await page.getByRole("button", { name: "Show Code" }).click();
-    await expect(page.locator(".mermaid-code")).toContainText(
-      "this is not a diagram"
-    );
-    await expect(page.getByText("Status: Saved")).toBeVisible();
-  });
+      await expect(
+        page.getByRole("heading", { name: "Still visible" })
+      ).toBeVisible();
+      await expect(
+        page.getByRole("alert").filter({
+          hasText: "Unable to render Mermaid diagram.",
+        })
+      ).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator('.print-surface [data-mermaid-status="error"]')).toHaveCount(1);
+      const errorSvgs = page.locator("svg").filter({ hasText: "Syntax error in text" });
+      await expect(errorSvgs).toHaveCount(0);
+
+      await page.getByRole("button", { name: "Show Code" }).click();
+      await expect(page.locator(".mermaid-code")).toContainText(
+        source
+      );
+      await expect(page.getByText("Status: Saved")).toBeVisible();
+
+      // Reopening the export re-renders the diagram; errors must not accumulate.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await page.getByRole("button", { name: "More actions" }).click();
+        await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+        await expect(page.getByText("Diagram could not be rendered; the source code will be included.")).toBeVisible();
+        await expect(page.locator(".styled-export-preview-wrap pre code")).toContainText(source);
+        await expect(page.getByRole("button", { name: "Print / PDF", exact: true })).toBeEnabled();
+        await expect(errorSvgs).toHaveCount(0);
+
+        await page.evaluate(() => document.body.classList.add("styled-export-printing"));
+        await page.emulateMedia({ media: "print" });
+        await expect(page.locator(".styled-export-preview-wrap pre code")).toBeVisible();
+        await expect(errorSvgs).toHaveCount(0);
+        await page.emulateMedia({ media: "screen" });
+        await page.evaluate(() => document.body.classList.remove("styled-export-printing"));
+        await page.getByRole("button", { name: "Back to Preview" }).click();
+      }
+    });
+  }
 });

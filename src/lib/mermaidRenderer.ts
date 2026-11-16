@@ -11,6 +11,8 @@ function loadMermaid(): Promise<MermaidApi> {
       const mermaid = module.default;
       mermaid.initialize({
         startOnLoad: false,
+        // Callers show their own error UI; do not leave Mermaid's error SVG in body.
+        suppressErrorRendering: true,
         theme: "default",
         securityLevel: "strict",
         htmlLabels: false,
