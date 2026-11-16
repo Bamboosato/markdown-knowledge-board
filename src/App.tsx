@@ -514,6 +514,19 @@ function App() {
   });
   const pwa = usePwaLifecycle();
   const [notes, setNotes] = useState<Note[]>([]);
+  useEffect(() => {
+    const onSaved = (event: Event) => {
+      const note = (event as CustomEvent<Note>).detail;
+      setNotes(current => sortNotes([...current.filter(item => item.id !== note.id), note]));
+    };
+    const onClose = () => appMenuButtonRef.current?.focus();
+    window.addEventListener("local-mcp-note-saved", onSaved);
+    window.addEventListener("close-local-mcp", onClose);
+    return () => {
+      window.removeEventListener("local-mcp-note-saved", onSaved);
+      window.removeEventListener("close-local-mcp", onClose);
+    };
+  }, []);
   const importInteractionRevisionRef = useRef(0);
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
   const printInputRevisionRef = useRef(0);
@@ -3958,6 +3971,13 @@ function App() {
                         className="app-menu-category-chevron"
                         aria-hidden="true"
                       />
+                    </button>
+                    <button className="app-menu-item" type="button" role="menuitem" onClick={() => {
+                      setIsAppMenuOpen(false);
+                      window.dispatchEvent(new Event("open-local-mcp"));
+                    }}>
+                      <HardDrive aria-hidden="true" />
+                      Local MCP
                     </button>
                     {cloudCapability.status === "enabled" ? (
                       <button

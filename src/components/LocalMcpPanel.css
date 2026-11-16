@@ -1,0 +1,22 @@
+.local-mcp-panel {
+  position: fixed;
+  z-index: 1000;
+  right: 12px;
+  bottom: 12px;
+  width: min(380px, calc(100vw - 24px));
+  max-height: calc(100dvh - 100px);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #8a8a8a;
+  border-radius: 8px;
+  background: #fff;
+  color: #222;
+  box-shadow: 0 3px 16px #0002;
+  font-size: 14px;
+}
+.local-mcp-panel summary { cursor: pointer; font-weight: 600; }
+.local-mcp-panel form { display: grid; gap: 8px; margin-top: 10px; }
+.local-mcp-panel input { width: 100%; min-width: 0; box-sizing: border-box; }
+.local-mcp-panel button, .local-mcp-panel input { min-height: 44px; }
+.local-mcp-panel p { margin: 8px 0 0; overflow-wrap: anywhere; }
+.local-mcp-close { display: block; margin: 0 0 8px auto; }
