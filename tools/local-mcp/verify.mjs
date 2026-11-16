@@ -224,7 +224,7 @@ try {
     JSON.stringify({ origin, token: '0'.repeat(64) })), origin);
   await page.reload();
   await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
-  await page.getByText('Reconnect failed. Check Codex and other connected tabs, or paste a new code.', { exact: true }).waitFor();
+  await page.getByText('Reconnect failed. Start Codex and close other connected tabs, then retry.', { exact: true }).waitFor();
   assert.equal(value(await call('connection_status')).connected, false);
   await page.getByLabel('Connection code', { exact: true }).fill(pairingCode);
   await page.getByRole('button', { name: 'Connect local MCP', exact: true }).click();

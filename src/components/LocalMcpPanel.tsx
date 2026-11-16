@@ -148,7 +148,7 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
     } catch (error) {
       setConnectionError(true);
       if (saved) setShowSetup(true);
-      setStatus(saved ? 'Reconnect failed. Check Codex and other connected tabs, or paste a new code.'
+      setStatus(saved ? 'Reconnect failed. Start Codex and close other connected tabs, then retry.'
         : error instanceof TypeError ? 'Cannot connect. Check Codex and browser permissions.' : error instanceof Error ? error.message : 'Connection failed.');
     } finally {
       setConnecting(false);
