@@ -13,6 +13,29 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 
 ## 構成と使い方
 
+### MKB Connection Setup（Windows）
+
+デスクトップの **MKB Connection Setup** を開き、**Copy connection code** で初回設定用コードをコピーできる。Codexへの質問は不要。**Open MKB** はインストール済みPWAのショートカットを起動するため、同じChromeプロファイル・ローカルノートを利用する。表示は英語の3ボタンと短い状態表示だけ。
+
+セットアップツールは既存のPC側ペアリングを読み取り、未作成の場合だけ共通の`identity.mjs`で初期設定を作る。既存のトークンを再発行しない。コードは画面・ログ・URLへ出さず、Copyを押したときだけクリップボードへ置く。MCPサービスの起動・ノート保存には従来どおりCodexを起動する。
+
+インストールはWindows PowerShellで`tools/local-mcp/install-connection-setup.ps1`を実行する。PWAのショートカットが自動検出できない場合は`-MkbShortcut`で指定する。`ConnectionSetup.cs`を小さなWindows GUI実行ファイルへビルドし、共通のコード取得処理とともに`%LOCALAPPDATA%/MarkdownKnowledgeBoard/ConnectionSetup`へ配置する。通常の起動ではPowerShellを経由せず、リポジトリのブランチ切り替えにも依存しない。更新時はツールを閉じて同じインストーラを再実行する。デスクトップのショートカットには秘密情報を含めない。PowerShellの実行ポリシーは変更しない。
+
+### 他のWindows PCへ配布する
+
+導入先の利用者向け手順は [Windowsセットアップ手順](windows/README.md)。Node.js 24以上、Codex、ChromeのMKB PWAを準備し、ZIPを展開して`Setup.cmd`を実行する。依存の取得、MCPの配置・登録、設定ツールの作成を行い、同名の別MCP登録は自動で上書きしない。CLIを使わない登録と既存環境の移行にも対応する。
+
+開発者はWindowsで次を実行すると、`output/windows-setup/build-*/`に配布ZIPとSHA-256ファイルを作成できる。明示した15ファイルとハッシュ一覧だけを収録するため、作業フォルダー内のノート・トークン・設定・依存の実体は入らない。依存は導入先でロックファイルから取得する。
+
+```powershell
+node tools/local-mcp/windows/build-kit.mjs
+node tools/local-mcp/windows/verify-kit.mjs
+```
+
+検証には開発用のMCP依存とCodex CLIも必要。隔離した導入先・デスクトップ・Codex設定・ペアリングを使い、ZIP展開、新規登録、実MCP起動、設定ツールとのペアリング共有、再インストール、改変パッケージの停止、既存登録の衝突を確認する。PWAショートカットは模擬で、別PCでの実PWA保存試験ではない。証跡は`output/windows-setup/test-*/PC セットアップ/result.json`。Windows MCP setupワークフローも同じ試験を実行し、ZIPを30日間のActions artifactとして保存する。
+
+### PWAとの接続
+
 以下はヘッダの接続インジケータを使用する手順。メニューは「Data & Backup」と「AI Integration」に分け、Local MCPは「AI Integration」に配置する。メニュー・接続表示は英語で統一し、説明は必要時のみ表示する。上記の本番検証記録は大きな接続パネルを表示する旧UIで行った結果。
 隔離Chromiumの通し試験は、接続成功時のパネル自動非表示、再表示・Esc後の接続維持とフォーカス復帰、非表示中の実保存、390px幅の表示、明示切断・通信エラー・再接続を含む。接続コード、記憶への同意、再読み込み後のボタン再接続、古い情報からの復帰、記憶の削除、ストレージ保存失敗も検証する。表示証跡は`output/playwright/local-mcp/`の`saved.png`、`indicator-mobile.png`、`reconnect.png`。
 
@@ -31,14 +54,14 @@ tool_timeout_sec = 30
 enabled = true
 ```
 
-3. 初回だけ専用MCPの`connection_status`が返す`pairingCode`を使う。コードは当該利用者の接続設定専用で、共有・公開しない。ペアリングはPC単位で保持し、同じOSユーザーで起動した複数のCodexチャットが、同じペアリング済みPWAを利用する。
+3. 初回だけMKB Connection Setupの**Copy connection code**でコードを取得する。専用MCPの`connection_status`が返す`pairingCode`も使える。コードは当該利用者の接続設定専用で、共有・公開しない。ペアリングはPC単位で保持し、同じOSユーザーで起動した複数のCodexチャットが、同じペアリング済みPWAを利用する。
 4. 保存先のPWAでアプリメニュー → **Local MCP** を開き、**Connection code**へ1回貼り付け、**Connect local MCP**。従来の個別入力は **Enter address and token** から利用できる。ChromeがこのPCへの接続許可を求めた場合は利用者が許可する。
    初回の許可待ちは最大60秒。許可前にタイムアウトした場合は、許可後にもう一度 **Connect local MCP** を押す。
    個人用端末では **Remember in this browser** を選ぶと、成功した接続情報だけをこのブラウザに記憶する。次回はメニュー → Local MCP → **Reconnect**。自動接続はせず、通常のDisconnectでは記憶を残す。**Forget connection** は記憶だけを削除し、現在の接続は維持する。
 5. `connection_status`の`browserOrigin`が意図した本番サイトであることを確認してから`create_note`を呼ぶ。
 6. 接続成功時にパネルは自動で隠れ、ヘッダに緑の「MCP connected」を表示する。インジケータまたはアプリメニューからパネルを開き直せる。「Close」・Escでは接続を維持する。
 7. 明示的な **Disconnect local MCP**、PWA再読み込み・終了、共有サービスの終了で接続が終了する。Codex/MCPやPCの再起動後も、Codexを起動してPWAの **Reconnect** を押すだけでよい。コードは変わらない。Codexを短時間で再起動し共有サービスが動き続けている場合は、既存の接続も維持する。
-   **Use a new code** は別PCの設定や意図的にペアリングを作り直した場合だけ使用する。接続に失敗した場合はCodexの起動と他の接続中タブを確認し、Reconnectを再試行する。
+   **Forget connection**と**Use a new code**は**Advanced settings**内に配置する。Use a new codeは未接続時に接続情報を入れ直す操作で、コードの生成ではない。接続に失敗した場合はCodexの起動と他の接続中タブを確認し、Reconnectを再試行する。ヘッダのMCP表示はNo note / Savedなどの保存状態の右側に表示する。
 
 ```json
 {
