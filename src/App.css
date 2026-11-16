@@ -2505,6 +2505,34 @@
   background: #f1f1f1;
 }
 
+.mermaid-print-dialog {
+  width: min(440px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  border: 1px solid #d0d0d0;
+  border-radius: 10px;
+  padding: 20px;
+  color: #222;
+  background: #fff;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 18%);
+}
+
+.mermaid-print-dialog::backdrop { background: rgb(0 0 0 / 40%); }
+.mermaid-print-dialog h2 { margin: 0 0 12px; font-size: 1.2rem; }
+.mermaid-print-dialog p { line-height: 1.5; }
+.mermaid-print-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 4px;
+  cursor: pointer;
+}
+.mermaid-print-option input { margin-top: 4px; flex-shrink: 0; }
+.mermaid-print-option small { display: block; margin-top: 4px; line-height: 1.5; }
+.mermaid-print-dialog .dialog-actions { flex-wrap: wrap; margin-top: 20px; }
+.mermaid-print-dialog button { min-height: 44px; }
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

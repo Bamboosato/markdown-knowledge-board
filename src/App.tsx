@@ -10,6 +10,8 @@ import type {
   SetStateAction,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
+import { MermaidPrintDialog } from "./components/MermaidPrintDialog";
+import { useMermaidPrintChoice } from "./hooks/useMermaidPrintChoice";
 import {
   Archive,
   Bold,
@@ -539,6 +541,7 @@ function App() {
   const [draftBody, setDraftBodyState] = useState("");
   const setDraftBody = useCallback((value: SetStateAction<string>) => { invalidatePrintPreparation(); setDraftBodyState(value); }, [invalidatePrintPreparation]);
   const [printMermaidAsCode, setPrintMermaidAsCode] = useState(false);
+  const mermaidPrintChoice = useMermaidPrintChoice();
   const printPreview = useMemo(() => <MarkdownPreview markdown={draftBody} mode="print" printMermaidAsCode={printMermaidAsCode} className="mdPreview print-mdPreview" />, [draftBody, printMermaidAsCode]);
   const [bodyEditorResetKey, setBodyEditorResetKey] = useState(0);
   const [draftMarpEnabled, setDraftMarpEnabled] = useState(
@@ -3684,19 +3687,30 @@ function App() {
     }
 
     isPrintPreparingRef.current = true;
-    setIsPrintPreparing(true);
     const revision = printInputRevisionRef.current;
+    // Use rendered Markdown blocks, not a text search (which matches examples).
+    const asSource = printSurface.querySelector('[data-mermaid-status]')
+      ? await mermaidPrintChoice.choose()
+      : false;
+    if (asSource === null || revision !== printInputRevisionRef.current) {
+      isPrintPreparingRef.current = false;
+      actionsMenuButtonRef.current?.focus();
+      return;
+    }
+    flushSync(() => setPrintMermaidAsCode(asSource));
+    setIsPrintPreparing(true);
     const controller = new AbortController();
     printPreparationAbortRef.current = controller;
     const result = await waitForPrintReadiness(printSurface, 10_000, controller.signal);
     if (revision !== printInputRevisionRef.current || result.status === "failed" || result.status === "timeout") {
       if (printPreparationAbortRef.current === controller) printPreparationAbortRef.current = null;
+      setPrintMermaidAsCode(false);
       isPrintPreparingRef.current = false;
       setIsPrintPreparing(false);
       if (revision === printInputRevisionRef.current && (result.status === "failed" || result.status === "timeout")) window.alert(`${result.reason} Please try again.`);
       return;
     }
-    if (result.status === "fallback") window.alert(result.reason);
+    if (result.status === "fallback" && !asSource) window.alert(result.reason);
 
     let cleanupImages = () => {};
     try {
@@ -3704,6 +3718,7 @@ function App() {
       if (revision !== printInputRevisionRef.current) {
         if (printPreparationAbortRef.current === controller) printPreparationAbortRef.current = null;
         cleanupImages();
+        setPrintMermaidAsCode(false);
         isPrintPreparingRef.current = false;
         setIsPrintPreparing(false);
         return;
@@ -3711,6 +3726,7 @@ function App() {
     } catch (error) {
       cleanupImages();
       if (printPreparationAbortRef.current === controller) printPreparationAbortRef.current = null;
+      setPrintMermaidAsCode(false);
       isPrintPreparingRef.current = false;
       setIsPrintPreparing(false);
       window.alert(error instanceof Error ? error.message : "Unable to prepare images for printing.");
@@ -3724,6 +3740,7 @@ function App() {
       window.clearTimeout(cleanupTimer);
       cleanupImages();
       document.title = previousTitle;
+      setPrintMermaidAsCode(false);
       isPrintPreparingRef.current = false;
       setIsPrintPreparing(false);
       window.removeEventListener("afterprint", restoreAfterPrint);
@@ -3885,6 +3902,7 @@ function App() {
         } as CSSProperties
       }
     >
+      {mermaidPrintChoice.isOpen ? <MermaidPrintDialog onChoose={mermaidPrintChoice.finish} /> : null}
       <header className="editor-header">
         <div className="editor-title-row">
           <div className="app-menu" ref={appMenuRef}>
@@ -4254,10 +4272,6 @@ function App() {
                 >
                   <FileDown aria-hidden="true" />
                   {isPrintPreparing ? "Preparing PDF..." : "Print / PDF"}
-                </button>
-                <button className="actions-menu-item" type="button" role="menuitemcheckbox" aria-checked={printMermaidAsCode} disabled={isPrintPreparing} onClick={() => { invalidatePrintPreparation(); setPrintMermaidAsCode((value) => !value); }}>
-                  <span aria-hidden="true">{printMermaidAsCode ? "☑" : "☐"}</span>
-                  Print Mermaid as source
                 </button>
                 <button
                   className="actions-menu-item"

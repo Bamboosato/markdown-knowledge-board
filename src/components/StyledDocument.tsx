@@ -124,7 +124,7 @@ export function StyledDocument({
                     const fit = svg ? getMermaidPrintLayout(svg, printGeometry) : null;
                     return svg
                       ? <div className="styled-export-mermaid" data-print-fallback={printMermaidAsCode || !fit ? "source" : undefined} style={fit ? { "--mermaid-print-width": `${fit.width}px` } as CSSProperties : undefined}>
-                          {fit?.smallText && !printMermaidAsCode ? <p className="mermaid-print-warning">This diagram will fit on one printed page; text may be small. Review the PDF or choose “Print Mermaid as source”.</p> : null}
+                          {fit?.smallText && !printMermaidAsCode ? <p className="mermaid-print-warning">This diagram will fit on one printed page; text may be small. Review the PDF for readability.</p> : null}
                           <div role="img" dangerouslySetInnerHTML={{ __html: svg }} />
                           <div className="mermaid-print-fallback"><pre><code>{source}</code></pre></div>
                         </div>

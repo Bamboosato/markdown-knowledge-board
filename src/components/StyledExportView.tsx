@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { flushSync } from "react-dom";
+import { MermaidPrintDialog } from "./MermaidPrintDialog";
+import { useMermaidPrintChoice } from "../hooks/useMermaidPrintChoice";
 import { X } from "lucide-react";
 import styledExportDocumentCss from "../lib/styledExport/document.css?inline";
 
@@ -58,6 +61,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
   const [mermaidSvgs, setMermaidSvgs] = useState<Record<string, string>>({});
   const [mermaidErrors, setMermaidErrors] = useState<string[]>([]);
   const [printMermaidAsCode, setPrintMermaidAsCode] = useState(false);
+  const mermaidPrintChoice = useMermaidPrintChoice();
   const [isPreparingDocument, setIsPreparingDocument] = useState(true);
   const [preparationError, setPreparationError] = useState("");
   const [preparationAttempt, setPreparationAttempt] = useState(0);
@@ -223,7 +227,6 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       analysis={analysis}
       assets={assets}
       mermaidSvgs={mermaidSvgs}
-      printMermaidAsCode={printMermaidAsCode}
       allowLocalLinks={allowLocalLinks}
       printGeometry={getPrintGeometry(layout, "html")}
       coverPage={layout.coverPage} tableOfContents={layout.tableOfContents} tocDepth={layout.tocDepth}
@@ -264,6 +267,12 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       return;
     }
     isPrintingRef.current = true;
+    const asSource = analysis.mermaidCodes.length > 0 ? await mermaidPrintChoice.choose() : false;
+    if (asSource === null) {
+      isPrintingRef.current = false;
+      return;
+    }
+    flushSync(() => setPrintMermaidAsCode(asSource));
     setIsPrinting(true);
     setStatusMessage("Preparing print preview…");
     document.body.classList.add("styled-export-printing");
@@ -284,6 +293,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       document.title = previousTitle;
       pageTitleStyle.remove();
       document.body.classList.remove("styled-export-printing");
+      setPrintMermaidAsCode(false);
       isPrintingRef.current = false;
       if (requestId === printRequestRef.current) setIsPrinting(false);
       window.removeEventListener("afterprint", cleanup);
@@ -294,7 +304,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
       if (!surface) throw new Error("Print preview is unavailable.");
       const result = await waitForPrintReadiness(surface);
       if (result.status === "failed" || result.status === "timeout") throw new Error(result.reason);
-      if (result.status === "fallback") window.alert(result.reason);
+      if (result.status === "fallback" && !asSource) window.alert(result.reason);
       if (requestId !== printRequestRef.current) return;
       cleanupImages = createPrintImageSlices(surface, undefined, getPrintGeometry(layout, "app"));
       window.addEventListener("afterprint", cleanup);
@@ -326,6 +336,7 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
 
   return (
     <>
+      {mermaidPrintChoice.isOpen ? <MermaidPrintDialog onChoose={mermaidPrintChoice.finish} /> : null}
       <div className="editor-tabs styled-export-view-heading">
         <h2 id="styled-export-title">Export Styled HTML / PDF</h2>
         <div className="styled-export-heading-actions">
@@ -341,7 +352,6 @@ export function StyledExportView({ snapshot, onBackToPreview }: StyledExportView
           <label>Design<select value={options.designId} disabled={isPrinting} onChange={(event) => changeOption("designId", event.target.value as StyledExportOptions["designId"])}>{STYLED_EXPORT_DESIGNS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
           <label>Text size<select value={options.textScale} disabled={isPrinting} onChange={(event) => changeOption("textScale", Number(event.target.value) as StyledExportOptions["textScale"])}>{STYLED_EXPORT_TEXT_SCALES.map((scale) => <option key={scale} value={scale}>{scale}%</option>)}</select></label>
           <label className="styled-export-tags-toggle"><input type="checkbox" checked={options.showTags} disabled={isPrinting} onChange={(event) => changeOption("showTags", event.target.checked)} /> Show tags</label>
-          {analysis.mermaidCodes.length > 0 ? <label className="styled-export-tags-toggle"><input type="checkbox" checked={printMermaidAsCode} disabled={isPrinting} onChange={(event) => setPrintMermaidAsCode(event.target.checked)} /> Print Mermaid as source</label> : null}
         </div>
         <details className="styled-export-layout" open={layoutOpen} onToggle={(event) => setLayoutOpen(event.currentTarget.open)}>
           <summary>Document layout · {layout.paperSize === "a4" ? "A4" : "Letter"} / {layout.orientation === "portrait" ? "Portrait" : "Landscape"} · Cover {layout.coverPage ? "On" : "Off"} · TOC {layout.tableOfContents ? "On" : "Off"}</summary>
