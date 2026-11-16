@@ -30,6 +30,10 @@ export type StyledDocumentProps = {
   assets: StyledAssetMap;
   mermaidSvgs: Record<string, string>;
   allowLocalLinks: boolean;
+  printGeometry?: { width: number; height: number };
+  coverPage?: boolean;
+  tableOfContents?: boolean;
+  tocDepth?: "h2" | "h2-h3";
   className?: string;
 };
 
@@ -42,27 +46,34 @@ export function StyledDocument({
   assets,
   mermaidSvgs,
   allowLocalLinks,
+  printGeometry,
+  coverPage = false,
+  tableOfContents = false,
+  tocDepth = "h2-h3",
   className = "styled-export-document",
 }: StyledDocumentProps) {
   const style = useMemo(() => getThemeVariables(options), [options]);
   const hasMarkdownTitle = analysis.firstH1Line !== null && analysis.firstH1Text.trim().length > 0;
   const displayTitle = hasMarkdownTitle ? analysis.firstH1Text : title.trim() || "Untitled";
+  const toc = analysis.tocEntries.filter((entry) => tocDepth === "h2-h3" || entry.level === 2);
+  const groups: Array<{ entry: typeof toc[number]; children: typeof toc }> = [];
+  for (const entry of toc) {
+    const previous = groups.at(-1);
+    if (entry.level === 3 && previous?.entry.level === 2) previous.children.push(entry);
+    else groups.push({ entry, children: [] });
+  }
+  const header = (
+    <header className={`styled-export-header${coverPage ? " styled-export-cover" : ""}`}>
+      <h1 className="styled-export-title" id={hasMarkdownTitle ? analysis.headingIds.get(analysis.firstH1Line!) : undefined}>{displayTitle}</h1>
+      {options.showTags && tags.length > 0 ? <ul className="styled-export-tags" aria-label="Tags">{tags.map((tag, index) => <li key={`${tag}-${index}`}>{tag}</li>)}</ul> : null}
+    </header>
+  );
 
   return (
     <article className={className} style={style} data-color={options.colorId} data-design={options.designId}>
-      <header className="styled-export-header">
-        <h1
-          className="styled-export-title"
-          id={hasMarkdownTitle ? analysis.headingIds.get(analysis.firstH1Line!) : undefined}
-        >
-          {displayTitle}
-        </h1>
-        {options.showTags && tags.length > 0 ? (
-          <ul className="styled-export-tags" aria-label="Tags">
-            {tags.map((tag, index) => <li key={`${tag}-${index}`}>{tag}</li>)}
-          </ul>
-        ) : null}
-      </header>
+      {coverPage ? header : null}
+      {tableOfContents && toc.length ? <nav className="styled-export-toc" aria-label="Table of contents"><h2>目次</h2><ol>{groups.map(({ entry, children }) => <li key={entry.id} className={entry.level === 3 ? "styled-export-toc-leading-h3" : undefined}><a href={`#${entry.id}`}>{entry.label}</a>{children.length ? <ol>{children.map((child) => <li key={child.id}><a href={`#${child.id}`}>{child.label}</a></li>)}</ol> : null}</li>)}</ol></nav> : null}
+      {!coverPage ? header : null}
       {markdown.trim() ? (
         <div className="styled-export-markdown">
           <ReactMarkdown
@@ -78,13 +89,13 @@ export function StyledDocument({
                     (typeof children === "string" && !children.trim())) {
                   return null;
                 }
-                return <h1 {...props} id={getHeadingId(node, analysis)}>{children}</h1>;
+                return <h1 {...props} id={getHeadingId(node, analysis) ?? props.id}>{children}</h1>;
               },
-              h2: ({ node, children, ...props }) => <h2 {...props} id={getHeadingId(node, analysis)}>{children}</h2>,
-              h3: ({ node, children, ...props }) => <h3 {...props} id={getHeadingId(node, analysis)}>{children}</h3>,
-              h4: ({ node, children, ...props }) => <h4 {...props} id={getHeadingId(node, analysis)}>{children}</h4>,
-              h5: ({ node, children, ...props }) => <h5 {...props} id={getHeadingId(node, analysis)}>{children}</h5>,
-              h6: ({ node, children, ...props }) => <h6 {...props} id={getHeadingId(node, analysis)}>{children}</h6>,
+              h2: ({ node, children, ...props }) => <h2 {...props} id={getHeadingId(node, analysis) ?? props.id}>{children}</h2>,
+              h3: ({ node, children, ...props }) => <h3 {...props} id={getHeadingId(node, analysis) ?? props.id}>{children}</h3>,
+              h4: ({ node, children, ...props }) => <h4 {...props} id={getHeadingId(node, analysis) ?? props.id}>{children}</h4>,
+              h5: ({ node, children, ...props }) => <h5 {...props} id={getHeadingId(node, analysis) ?? props.id}>{children}</h5>,
+              h6: ({ node, children, ...props }) => <h6 {...props} id={getHeadingId(node, analysis) ?? props.id}>{children}</h6>,
               a: ({ node: _node, href, children, ...props }) => {
                 void _node;
                 const mappedHref = getExportHref(href, analysis, allowLocalLinks);
@@ -107,7 +118,7 @@ export function StyledDocument({
                     const source = String(code.props.children ?? "").replace(/\n$/, "");
                     const svg = mermaidSvgs[source];
                     return svg
-                      ? <div className="styled-export-mermaid" data-print-fallback={requiresMermaidPrintFallback(svg) ? "oversized" : undefined}><div role="img" dangerouslySetInnerHTML={{ __html: svg }} /><div className="mermaid-print-fallback"><p>Diagram may not fit a printed page; Mermaid source follows.</p><pre><code>{source}</code></pre></div></div>
+                      ? <div className="styled-export-mermaid" data-print-fallback={requiresMermaidPrintFallback(svg, printGeometry) ? "oversized" : undefined}><div role="img" dangerouslySetInnerHTML={{ __html: svg }} /><div className="mermaid-print-fallback"><p>Diagram may not fit a printed page; Mermaid source follows.</p><pre><code>{source}</code></pre></div></div>
                       : <pre><code>{source}</code></pre>;
                   }
                 }
@@ -129,7 +140,8 @@ function getNodePosition(node: MarkdownNode | undefined): MarkdownPosition {
 }
 
 function getHeadingId(node: MarkdownNode | undefined, analysis: StyledMarkdownAnalysis) {
-  return analysis.headingIds.get(getNodePosition(node).line);
+  const line = node?.position?.start?.line;
+  return line === undefined ? undefined : analysis.headingIds.get(line);
 }
 
 function getExportHref(
@@ -147,6 +159,7 @@ function getExportHref(
     } catch {
       return undefined;
     }
+    if (analysis.footnoteIds.has(target)) return `#${target}`;
     if (analysis.headingIdBySlug.has(target)) return `#${analysis.headingIdBySlug.get(target)}`;
     if (/^user-content-(?:fn|fnref)-[\w-]+$/i.test(target)) return `#${target}`;
     return undefined;

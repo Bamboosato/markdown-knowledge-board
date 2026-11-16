@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { readBodyEditorValue } from "./body-editor";
 
 async function savePdfIfChromium(page: import("@playwright/test").Page, testInfo: import("@playwright/test").TestInfo, options: Parameters<import("@playwright/test").Page["pdf"]>[0]) {
@@ -57,6 +59,147 @@ async function stubBrowserPrint(page: import("@playwright/test").Page) {
 }
 
 test.describe("Preview Print / PDF", () => {
+  test("splits a tall Styled image for A4 landscape", async ({ page, browserName }, testInfo) => {
+    test.skip(browserName !== "chromium", "page.pdf is Chromium-only");
+    const image = "https://fixture.invalid/phase2-tall.svg";
+    await page.route(image, (route) => route.fulfill({ contentType: "image/svg+xml", headers: { "access-control-allow-origin": "*" }, body: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="3000"><rect width="100" height="3000" fill="#bcd"/><text x="4" y="25">TOP</text><text x="4" y="2990">END</text></svg>' }));
+    await page.addInitScript(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
+    await page.goto("/");
+    await createSavedNote(page, "Landscape image", `# Landscape\n\n![Tall](${image})\n\nAFTER-IMAGE`);
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await page.getByRole("button", { name: "Load HTTPS images" }).click();
+    await page.locator(".styled-export-layout summary").click();
+    await page.getByLabel("Orientation").selectOption("landscape");
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+    await page.getByRole("button", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
+    await expect(page.locator(".styled-export-preview-wrap .print-image-slice").first()).toBeAttached();
+    await page.pdf({ path: testInfo.outputPath("phase2-landscape-image.pdf"), printBackground: true, preferCSSPageSize: true });
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+    await expect(page.locator(".styled-export-preview-wrap .print-image-slice")).toHaveCount(0);
+  });
+  test("paginates a long Styled table of contents", async ({ page, browserName }, testInfo) => {
+    test.skip(browserName !== "chromium", "page.pdf is Chromium-only");
+    await page.addInitScript(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
+    await page.goto("/");
+    const body = "# 長い目次\n\n" + Array.from({ length: 80 }, (_, index) => `## SECTION-${String(index + 1).padStart(3, "0")}\n\n本文 ${index + 1}`).join("\n\n") + "\n\nFINAL-CONTENT-MARKER";
+    await createSavedNote(page, "Long contents", body);
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await page.locator(".styled-export-layout summary").click();
+    await page.getByLabel("Table of contents", { exact: true }).check();
+    await expect(page.getByLabel("Styled export preview").getByRole("navigation", { name: "Table of contents" }).getByRole("link")).toHaveCount(80);
+    await page.getByRole("button", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
+    await page.pdf({ path: testInfo.outputPath("phase2-long-toc.pdf"), printBackground: true, preferCSSPageSize: true });
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+  });
+  test("empty table of contents is omitted and settings work on desktop", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await createSavedNote(page, "No headings", "Just text.");
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await page.getByLabel("Table of contents", { exact: true }).check();
+    await expect(page.getByText("No matching headings; a table of contents will not be included.")).toBeVisible();
+    await expect(page.getByLabel("Styled export preview").getByRole("navigation", { name: "Table of contents" })).toHaveCount(0);
+    await page.getByLabel("Table of contents", { exact: true }).uncheck();
+    await expect(page.getByLabel("TOC depth")).toBeDisabled();
+  });
+  test("generates a landscape Styled PDF with cover and contents", async ({ page, browserName }, testInfo) => {
+    test.skip(browserName !== "chromium", "page.pdf is Chromium-only");
+    await page.addInitScript(() => { window.print = () => { window.__printCalls = (window.__printCalls ?? 0) + 1; }; });
+    await page.goto("/");
+    await createSavedNote(page, "PDF review", "# 表紙タイトル\n\n## 見出し\n\n本文と終端 END-OF-DOCUMENT");
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await page.locator(".styled-export-layout summary").click();
+    await page.getByLabel("Orientation").selectOption("landscape");
+    await page.getByLabel("Cover page").check();
+    await page.getByLabel("Table of contents", { exact: true }).check();
+    await page.getByRole("button", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.evaluate(() => window.__printCalls ?? 0)).toBe(1);
+    await expect(page.getByLabel("Orientation")).toBeDisabled();
+    const pdf = await page.pdf({ path: testInfo.outputPath("phase2-landscape.pdf"), printBackground: true, preferCSSPageSize: true });
+    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(pdf.toString("latin1").match(/\/Type\s*\/Page\b/g)).toHaveLength(3);
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+    await expect(page.getByRole("button", { name: "Print / PDF" })).toBeEnabled();
+    await expect(page.getByLabel("Orientation")).toBeEnabled();
+  });
+  test("Styled cover and table of contents retain titles and link to duplicate headings", async ({ page, context }, testInfo) => {
+    await page.goto("/");
+    await createSavedNote(page, "Saved title", "# 日本語タイトル\n\n## A\n\n### 子項目\n\n## A\n\n## A-1\n\n## user-content-fn-note\n\n脚注[^note]。\n\n[^note]: 内容\n\nEnd marker.");
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await page.locator(".styled-export-layout summary").click();
+    await page.getByLabel("Cover page").check();
+    await page.getByLabel("Table of contents", { exact: true }).check();
+    const preview = page.getByLabel("Styled export preview");
+    await expect(preview.getByRole("heading", { name: "日本語タイトル" })).toHaveCount(1);
+    const toc = preview.getByRole("navigation", { name: "Table of contents" });
+    await expect(toc.getByRole("link")).toHaveCount(5);
+    const targets = await toc.locator("a").evaluateAll((links) => links.map((link) => link.getAttribute("href")?.slice(1)));
+    expect(new Set(targets).size).toBe(5);
+    for (const id of targets) await expect(preview.locator(`[id="${id}"]`)).toHaveCount(1);
+    const allIds = await preview.locator("[id]").evaluateAll((elements) => elements.map((element) => element.id));
+    expect(allIds).toEqual([...new Set(allIds)]);
+    await page.getByLabel("TOC depth").selectOption("h2");
+    await expect(toc.getByRole("link")).toHaveCount(4);
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download HTML" }).click();
+    const download = await downloadPromise;
+    const path = testInfo.outputPath("phase2-toc.html");
+    await download.saveAs(path);
+    const html = readFileSync(path, "utf8");
+    expect(html.indexOf('<header class="styled-export-header styled-export-cover"')).toBeLessThan(html.indexOf('<nav class="styled-export-toc"'));
+    expect(html).toContain("End marker.");
+    const exported = await context.newPage();
+    const external: string[] = [];
+    exported.on("request", (request) => { if (/^https?:/i.test(request.url())) external.push(request.url()); });
+    await context.setOffline(true);
+    await exported.goto(pathToFileURL(path).href);
+    const anchor = exported.getByRole("navigation", { name: "Table of contents" }).getByRole("link", { name: "A", exact: true }).first();
+    const href = await anchor.getAttribute("href");
+    await anchor.click();
+    await expect.poll(() => exported.evaluate(() => window.location.hash)).toBe(href);
+    expect(external).toEqual([]);
+    await exported.close();
+    await context.setOffline(false);
+  });
+
+  test("Styled paper and orientation affect HTML and print, then reset", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.print = () => {
+        document.documentElement.dataset.printPageCss = Array.from(document.querySelectorAll("style")).map((style) => style.textContent).find((css) => css?.includes("size:letter landscape")) ?? "";
+        window.dispatchEvent(new Event("afterprint"));
+      };
+    });
+    await page.goto("/");
+    await createSavedNote(page, "Layout", "# Layout\n\nText");
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    const layout = page.locator(".styled-export-layout");
+    await expect(layout).not.toHaveAttribute("open", "");
+    await layout.locator("summary").click();
+    await expect(layout.getByText(/If the preview does not match/)).toBeVisible();
+    await page.getByLabel("Paper size").selectOption("letter");
+    await page.getByLabel("Orientation").selectOption("landscape");
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download HTML" }).click();
+    const download = await downloadPromise;
+    const html = readFileSync(await download.path(), "utf8");
+    expect(html).toContain("size:letter landscape;margin:18mm 14mm");
+    await page.getByRole("button", { name: "Print / PDF" }).click();
+    await expect.poll(() => page.locator("html").getAttribute("data-print-page-css")).toContain("size:letter landscape;margin:18mm 16mm");
+    await page.getByRole("button", { name: "Back to Preview" }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: /Export Styled HTML/ }).click();
+    await page.locator(".styled-export-layout summary").click();
+    await expect(page.getByLabel("Paper size")).toHaveValue("a4");
+    await expect(page.getByLabel("Orientation")).toHaveValue("portrait");
+  });
   test("hides the injected preview toolbar only during both print layouts", async ({ page }) => {
     await stubBrowserPrint(page);
     await page.goto("/");

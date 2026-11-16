@@ -20,6 +20,29 @@ describe("styled export document references", () => {
     expect(result.issues.map((issue) => issue.kind)).toEqual(["local-link", "local-link"]);
   });
 
+  it("uses unique heading IDs for duplicate suffixes and reserved footnote IDs", () => {
+    const result = analyzeStyledMarkdown("## A\n\n## A\n\n## A-1\n\n## user-content-fn-note\n\n## footnote-label\n\nFootnote[^note].\n\n[^note]: text");
+    const ids = [...result.headingIds.values()];
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.slice(0, 3)).toEqual(["a", "a-1", "a-1-1"]);
+    expect(ids[3]).not.toMatch(/^user-content-(fn|fnref)-/);
+    expect(ids[4]).not.toBe("footnote-label");
+    expect(result.headingIdBySlug.get("a")).toBe("a");
+    expect(result.tocEntries.map((entry) => entry.id)).toEqual(ids);
+  });
+
+  it("extracts only text headings and retains heading order and level", () => {
+    const result = analyzeStyledMarkdown("### Earlier\n\n## **Hello** `code` [link](https://example.com)\n\n## ![image](image.png)\n\n### 日本語");
+    expect(result.tocEntries.map(({ level, label }) => ({ level, label }))).toEqual([
+      { level: 3, label: "Earlier" }, { level: 2, label: "Hello code link" }, { level: 3, label: "日本語" },
+    ]);
+  });
+
+  it("preserves existing heading IDs when they do not collide with actual footnotes", () => {
+    const result = analyzeStyledMarkdown("## footnote-label\n\n## user-content-fn-other\n\n[^note]: note");
+    expect([...result.headingIds.values()]).toEqual(["footnote-label", "user-content-fn-other"]);
+  });
+
   it("replaces forbidden filename characters", () => {
     expect(sanitizeDownloadName("企画: A/B?")).toBe("企画_ A_B_");
   });

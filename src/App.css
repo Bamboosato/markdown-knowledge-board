@@ -3901,6 +3901,19 @@
   height: 0;
 }
 
+.styled-export-layout {
+  margin: 0 18px 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: 8px;
+}
+
+.styled-export-layout summary { cursor: pointer; }
+.styled-export-layout-fields { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.styled-export-layout-fields label { display: flex; align-items: center; gap: 8px; }
+.styled-export-layout-fields select { min-height: 36px; }
+.styled-export-layout p { margin: 8px 0 0; font-size: .875rem; }
+
 .styled-export-controls {
   display: flex;
   flex: 0 0 auto;

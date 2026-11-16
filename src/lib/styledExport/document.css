@@ -29,6 +29,12 @@
   break-after: avoid;
 }
 
+.styled-export-cover { min-height: 50vh; }
+.styled-export-toc { padding: var(--styled-body-pad-y, 10mm) var(--styled-body-pad-x, 12mm); }
+.styled-export-toc a { color: inherit; overflow-wrap: anywhere; }
+.styled-export-toc li { margin: .35em 0; }
+.styled-export-toc-leading-h3 { margin-left: 1.5em !important; }
+
 .styled-export-title {
   margin: 0;
   color: inherit;
@@ -275,6 +281,8 @@
 }
 
 @media print {
+  .styled-export-header.styled-export-cover, .styled-export-toc { break-after: page; }
+  .styled-export-toc li { break-inside: avoid; }
   .styled-export-mermaid[data-print-fallback="oversized"] {
     overflow: visible;
   }
