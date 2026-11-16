@@ -83,11 +83,23 @@ try {
   await page.getByRole('textbox', { name: 'Body', exact: true }).fill('未保存の編集中本文');
 
   const connect = async () => {
+    await page.locator('.local-mcp-indicator').waitFor();
+    if (await page.locator('.local-mcp-indicator').getAttribute('aria-expanded') === 'false') {
+      await page.locator('.local-mcp-indicator').click();
+    }
     await page.getByLabel('Pairing token').fill(token);
     await page.getByRole('button', { name: 'Connect local MCP', exact: true }).click();
-    await page.getByRole('button', { name: 'Disconnect local MCP', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'MCP接続中：接続設定を開く', exact: true }).waitFor();
+    await page.getByRole('complementary', { name: 'Local MCP', exact: true }).waitFor({ state: 'hidden' });
   };
   await connect();
+  await page.locator('.local-mcp-indicator').click();
+  await page.getByRole('button', { name: 'Disconnect local MCP', exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('complementary', { name: 'Local MCP', exact: true }).isVisible(), false);
+  assert.equal(value(await call('connection_status')).connected, true);
+  assert.equal(await page.locator('.local-mcp-indicator').evaluate(el => el === document.activeElement), true);
+  pass('Connect auto-hides panel; reopening and Escape keep receiving and restore indicator focus');
   const second = await context.newPage();
   await second.goto(origin, { waitUntil: 'domcontentloaded' });
   await second.getByLabel('Pairing token').fill(token);
@@ -112,6 +124,12 @@ try {
   pass('Real MCP create -> browser save receipt; Unicode, tags, existing data and unsaved editor preserved');
   await mkdir(new URL('../../output/playwright/local-mcp/', import.meta.url), { recursive: true });
   await page.screenshot({ path: fileURLToPath(new URL('../../output/playwright/local-mcp/saved.png', import.meta.url)), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const indicator = await page.locator('.local-mcp-indicator').boundingBox();
+  assert.ok(indicator && indicator.x >= 0 && indicator.x + indicator.width <= 390);
+  await page.screenshot({ path: fileURLToPath(new URL('../../output/playwright/local-mcp/indicator-mobile.png', import.meta.url)), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  pass('Header indicator remains visible at desktop and narrow widths');
   const retry = value(await call('create_note', sample));
   assert.equal(retry.id, receipt.id);
   assert.equal(retry.reused, true);
@@ -139,7 +157,9 @@ try {
 
   await page.getByRole('button', { name: /^Save$/ }).click();
   await page.getByText('Status: Saved', { exact: true }).waitFor();
+  await page.locator('.local-mcp-indicator').click();
   await page.getByRole('button', { name: 'Disconnect local MCP', exact: true }).click();
+  await page.getByRole('button', { name: 'MCP未接続：接続設定を開く', exact: true }).waitFor();
   // Wait for explicit disconnect before reconnecting after a reload.
   for (let attempt = 0; value(await call('connection_status')).connected; attempt++) {
     assert.ok(attempt < 50);
@@ -158,6 +178,7 @@ try {
   const uncertainInput = { ...sample, request_id: 'lost-receipt-001', title: '応答喪失テスト' };
   const uncertain = await call('create_note', uncertainInput);
   assert.equal(uncertain.isError, true);
+  await page.getByRole('button', { name: 'MCP接続エラー：接続設定を開く', exact: true }).waitFor();
   assert.equal((await notes(page)).length, 3);
   await page.unroute('**/__local_mcp/ack');
   await connect();
@@ -173,7 +194,8 @@ try {
   }, null, 2));
 } catch (error) {
   console.error('Server diagnostics:', stderr.replace(/Pairing token: [a-f0-9]+/g, 'Pairing token: [redacted]').slice(-3000));
-  throw error;
+  console.error(String(error.stack ?? error).replace(/[a-f0-9]{64}/g, '[redacted]'));
+  process.exitCode = 1;
 } finally {
   await browser?.close();
   await client.close();

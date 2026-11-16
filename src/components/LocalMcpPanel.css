@@ -20,3 +20,27 @@
 .local-mcp-panel button, .local-mcp-panel input { min-height: 44px; }
 .local-mcp-panel p { margin: 8px 0 0; overflow-wrap: anywhere; }
 .local-mcp-close { display: block; margin: 0 0 8px auto; }
+
+.local-mcp-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 4px 7px;
+  border: 1px solid #d4d4d4;
+  border-radius: 6px;
+  background: #fff;
+  color: #555;
+  font: inherit;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.local-mcp-indicator:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.local-mcp-dot { width: 7px; height: 7px; border-radius: 50%; background: #777; flex: 0 0 auto; }
+.local-mcp-connected { color: #166534; border-color: #b5d4be; background: #f0fdf4; }
+.local-mcp-connected .local-mcp-dot { background: #15803d; }
+.local-mcp-error, .local-mcp-connecting { color: #92400e; }
+.local-mcp-error .local-mcp-dot, .local-mcp-connecting .local-mcp-dot { background: #b45309; }
+@media (pointer: coarse) { .local-mcp-indicator { min-height: 44px; } }

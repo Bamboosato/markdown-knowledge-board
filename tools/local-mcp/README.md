@@ -9,9 +9,12 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 - Chromeのインストール済みPWA（standalone表示）を更新し、接続前に既存99件の保持を確認。専用`connection_status`の`browserOrigin`は`https://mkb.bamboosato.com`。
 - 専用`create_note`で「Codex専用MCPからの本番PWA保存確認」を作成。`status: saved`、`reused: false`を受領。ノート数100件、本文・タグ・Saved表示、再読み込み後の保持を画面確認した。手動SDKクライアントは使っていない。
 - request_id: `codex-pwa-native-20261116-01`、note ID: `mcp-e34236e9a3a9a5de8a49db6ecde02314bb8ed6f099ae26199c3f40f62121080d`。
-- 再読み込みの検証後、同じPWAを再接続した。mainへのマージは実施していないため、以後の本番リリース時にはこの変更を含める必要がある。
+- 再読み込みの検証後、同じPWAを再接続した。これは上記コミットを先行配布した時点の検証記録。
 
 ## 構成と使い方
+
+以下はヘッダの接続インジケータを使用する手順。メニューは「データ管理・バックアップ」と「AI連携」に分け、Local MCPは「AI連携」に配置する。上記の本番検証記録は大きな接続パネルを表示する旧UIで行った結果。
+改善版では隔離Chromiumの通し試験13項目を確認済み。接続成功時のパネル自動非表示、再表示・Esc後の接続維持とフォーカス復帰、非表示中の実保存、390px幅のインジケータ表示、明示切断・通信エラー・再接続を含む。表示証跡は`output/playwright/local-mcp/saved.png`と`indicator-mobile.png`。
 
 `Codex専用MCPツール → STDIOサーバー → 127.0.0.1のHTTP → 本番PWA → IndexedDB → 保存結果`
 
@@ -30,9 +33,10 @@ enabled = true
 
 3. 専用MCPの`connection_status`を呼ぶ。未接続の場合に返る`origin`と`pairingToken`を使う。トークンは共有・公開しない。
 4. 保存先のPWAでアプリメニュー → **Local MCP** を開き、**Server address** と **Pairing token** を入力して **Connect local MCP**。ChromeがこのPCへの接続許可を求めた場合は利用者が許可する。
-   初回の許可操作中に10秒の接続タイムアウトになった場合は、許可後にもう一度 **Connect local MCP** を押す。今回の実PWAでもこの手順で接続した。
+   初回の許可待ちは最大60秒。許可前にタイムアウトした場合は、許可後にもう一度 **Connect local MCP** を押す。
 5. `connection_status`の`browserOrigin`が意図した本番サイトであることを確認してから`create_note`を呼ぶ。
-6. 一覧から作成ノートを開く。パネルを閉じる、切断、再読み込み、MCP終了で接続は終了する。再接続時はそのチャットの最新のアドレス・トークンを使う。
+6. 接続成功時にパネルは自動で隠れ、ヘッダに緑の「MCP接続中」を表示する。インジケータまたはアプリメニューからパネルを開き直せる。「閉じる」・Escでは接続を維持する。
+7. 明示的な **Disconnect local MCP**、再読み込み、アプリ終了、MCP終了で接続が終了する。接続切れはヘッダの「MCP接続エラー」で確認できる。再接続時はそのチャットの最新のアドレス・トークンを使う。
 
 ```json
 {
