@@ -1,11 +1,11 @@
 import { fileURLToPath } from 'node:url';
-import { createServer } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { z } from 'zod';
 import { createBridge } from './bridge.mjs';
+import { connectBroker } from './broker-client.mjs';
+import { noteShape } from './note-schema.mjs';
 
-// Catalog probes and chat connections must not compete for a fixed port.
+// Production clients share one persistent identity and one authenticated loopback service.
 const dev = process.env.MKB_MCP_DEV === '1';
 const port = Number(process.env.MKB_MCP_PORT ?? (dev ? 5186 : 0));
 if (!Number.isInteger(port) || (port !== 0 && (port < 1024 || port > 65535))) throw new Error('Invalid MKB_MCP_PORT.');
@@ -24,30 +24,21 @@ if (dev) {
   await vite.listen();
   closeHttp = () => vite.close();
 } else {
-  const http = createServer((req, res) => {
-    void bridge.middleware(req, res, () => { res.writeHead(404); res.end(); });
-  });
-  await new Promise((resolve, reject) => { http.once('error', reject); http.listen(port, '127.0.0.1', resolve); });
-  origin = `http://127.0.0.1:${http.address().port}`;
-  bridge = createBridge(origin, { allowedOrigins: ['https://mkb.bamboosato.com', 'https://markdown-knowledge-board.vercel.app'] });
-  closeHttp = () => new Promise(resolve => { http.close(resolve); http.closeAllConnections(); });
+  bridge = await connectBroker();
+  origin = bridge.origin;
+  closeHttp = async () => {};
 }
-const mcp = new McpServer({ name: 'mkb-local-prototype', version: '0.2.0' });
+const mcp = new McpServer({ name: 'mkb-local-prototype', version: '0.3.0' });
 const result = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }], isError: Boolean(value.error) });
 mcp.registerTool('connection_status', {
-  description: 'Check the paired Markdown Knowledge Board PWA. If disconnected, returns a private pairingCode to paste once in the app Local MCP panel, plus the address and token for manual setup. Share the code only with this user for their app; never publish it. The app can remember the connection for a Reconnect button. Server restart requires a fresh code. Check browserOrigin before creating a note.',
+  description: 'Check this PC shared Markdown Knowledge Board connection. Pairing survives Codex and PC restarts: use Reconnect in the paired PWA. If disconnected, returns a private pairingCode for first setup only. Share it only with this user, never publish it. Multiple Codex chats on this PC share the paired PWA. Check browserOrigin before creating a note.',
   inputSchema: {}, annotations: { readOnlyHint: true },
-}, async () => result({ ...bridge.status(), ...(!bridge.status().connected ? {
+}, async () => { const status = await bridge.status(); return result({ ...status, ...(!status.connected ? {
   pairingToken: bridge.token, pairingCode: `MKB1|${origin}|${bridge.token}`,
-} : {}) }));
+} : {}) }); });
 mcp.registerTool('create_note', {
   description: 'Create a NEW note in the explicitly paired Markdown Knowledge Board PWA on this PC. Returns saved only after IndexedDB commit. Reuse exactly the same request_id and input after uncertain delivery. Never replaces existing notes or switches the active editor.',
-  inputSchema: {
-    request_id: z.string().regex(/^[a-zA-Z0-9_-]{8,80}$/),
-    title: z.string().trim().min(1).max(200),
-    markdown: z.string().min(1).max(131072).refine(v => v.trim().length > 0 && Buffer.byteLength(v) <= 131072, 'Markdown must be nonempty and at most 128 KiB.'),
-    tags: z.array(z.string().trim().min(1).max(80)).max(32).default([]),
-  },
+  inputSchema: noteShape,
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
 }, async input => result(await bridge.create(input)));
 await mcp.connect(new StdioServerTransport());

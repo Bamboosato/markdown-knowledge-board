@@ -37,6 +37,11 @@ jobs:
       - run: npm run lint
       - run: npm run test:unit
       - run: npm run test:security
+      - name: Verify local MCP lifecycle
+        run: |
+          npm ci --prefix tools/local-mcp --ignore-scripts
+          node --test tools/local-mcp/bridge.test.mjs
+          node tools/local-mcp/concurrent-probe.mjs
       - run: npm run build
 
   dependency-audit:

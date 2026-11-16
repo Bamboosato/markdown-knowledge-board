@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
 // One paired tab, one in-flight write; no note body or token is logged.
-export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [origin] } = {}) {
-  const token = randomBytes(32).toString('hex');
+export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [origin], token = randomBytes(32).toString('hex') } = {}) {
+  if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('Invalid pairing credential.');
   let client = null;
   let job = null;
   const fresh = () => client && Date.now() - client.seen < 5000;
@@ -99,6 +99,6 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
         };
       });
     },
-    close: () => { finish(fail('MCP server stopped.')); client = null; },
+    close: () => { finish(fail('MCP server stopped. Save outcome may be unknown; retry the same request_id.')); client = null; },
   };
 }
