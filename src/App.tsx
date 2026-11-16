@@ -11,6 +11,7 @@ import type {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { MermaidPrintDialog } from "./components/MermaidPrintDialog";
+import LocalMcpLauncher from "./components/LocalMcpLauncher";
 import { useMermaidPrintChoice } from "./hooks/useMermaidPrintChoice";
 import {
   Archive,
@@ -514,6 +515,16 @@ function App() {
   });
   const pwa = usePwaLifecycle();
   const [notes, setNotes] = useState<Note[]>([]);
+  useEffect(() => {
+    const onSaved = (event: Event) => {
+      const note = (event as CustomEvent<Note>).detail;
+      setNotes(current => sortNotes([...current.filter(item => item.id !== note.id), note]));
+    };
+    window.addEventListener("local-mcp-note-saved", onSaved);
+    return () => {
+      window.removeEventListener("local-mcp-note-saved", onSaved);
+    };
+  }, []);
   const importInteractionRevisionRef = useRef(0);
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
   const printInputRevisionRef = useRef(0);
@@ -3935,6 +3946,9 @@ function App() {
               >
                 {appMenuView === "root" ? (
                   <>
+                    <div className="app-menu-section-label" role="presentation">
+                      データ管理・バックアップ
+                    </div>
                     <button
                       ref={localDataMenuItemRef}
                       className="app-menu-item app-menu-category"
@@ -4003,6 +4017,17 @@ function App() {
                         <ChevronRight className="app-menu-category-chevron" aria-hidden="true" />
                       </button>
                     ) : null}
+                    <div className="app-menu-separator" role="separator" />
+                    <div className="app-menu-section-label" role="presentation">
+                      AI連携
+                    </div>
+                    <button className="app-menu-item" type="button" role="menuitem" onClick={() => {
+                      setIsAppMenuOpen(false);
+                      window.dispatchEvent(new Event("open-local-mcp"));
+                    }}>
+                      <HardDrive aria-hidden="true" />
+                      Local MCP
+                    </button>
                     <div className="app-menu-separator" role="separator" />
                     <a className="app-menu-item app-menu-back" role="menuitem" href="/about.html" target="_blank" rel="noopener noreferrer" onClick={() => setIsAppMenuOpen(false)}>
                       About / アプリについて
@@ -4171,6 +4196,7 @@ function App() {
             />
           </div>
           <h1 className="app-title">Markdown Knowledge Board</h1>
+          <LocalMcpLauncher />
           <div className="editor-status" aria-label="Editor status" aria-live="polite">
             <span className={`status-indicator status-${editorStatus.tone}`}>
               <span className="sr-only">Status: </span>

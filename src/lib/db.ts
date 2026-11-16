@@ -71,6 +71,32 @@ export async function saveNote(note: Note): Promise<void> {
   await db.put(STORE_NAME, note);
 }
 
+// Atomic create-only path for local MCP retries. Never overwrites an existing note.
+export async function addNewNoteOrReuse(note: Note): Promise<{ note: Note; reused: boolean }> {
+  const db = await requireDb();
+  const transaction = db.transaction(STORE_NAME, "readwrite");
+  try {
+    const existing = await transaction.store.get(note.id);
+    if (existing) {
+      await transaction.done;
+      const comparable = (value: Note) => JSON.stringify([
+        value.title, value.body, value.tags, value.marp, value.customMetadata,
+      ]);
+      if (comparable(existing) !== comparable(note)) {
+        throw new Error("This request ID already exists with different content or the note has been edited. Nothing was overwritten.");
+      }
+      return { note: existing, reused: true };
+    }
+    await transaction.store.add(note);
+    await transaction.done;
+    return { note, reused: false };
+  } catch (error) {
+    try { transaction.abort(); } catch { /* May already be complete. */ }
+    try { await transaction.done; } catch { /* Preserve the original error. */ }
+    throw error;
+  }
+}
+
 export async function deleteNote(id: string): Promise<void> {
   const db = await requireDb();
   await db.delete(STORE_NAME, id);
