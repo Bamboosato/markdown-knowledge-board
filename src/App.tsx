@@ -3947,7 +3947,7 @@ function App() {
                 {appMenuView === "root" ? (
                   <>
                     <div className="app-menu-section-label" role="presentation">
-                      データ管理・バックアップ
+                      Data & Backup
                     </div>
                     <button
                       ref={localDataMenuItemRef}
@@ -4019,7 +4019,7 @@ function App() {
                     ) : null}
                     <div className="app-menu-separator" role="separator" />
                     <div className="app-menu-section-label" role="presentation">
-                      AI連携
+                      AI Integration
                     </div>
                     <button className="app-menu-item" type="button" role="menuitem" onClick={() => {
                       setIsAppMenuOpen(false);
@@ -4030,13 +4030,13 @@ function App() {
                     </button>
                     <div className="app-menu-separator" role="separator" />
                     <a className="app-menu-item app-menu-back" role="menuitem" href="/about.html" target="_blank" rel="noopener noreferrer" onClick={() => setIsAppMenuOpen(false)}>
-                      About / アプリについて
+                      About
                     </a>
                     <a className="app-menu-item app-menu-back" role="menuitem" href="/privacy.html" target="_blank" rel="noopener noreferrer" onClick={() => setIsAppMenuOpen(false)}>
-                      Privacy Policy / プライバシーポリシー
+                      Privacy Policy
                     </a>
                     <a className="app-menu-item app-menu-back" role="menuitem" href="/terms.html" target="_blank" rel="noopener noreferrer" onClick={() => setIsAppMenuOpen(false)}>
-                      Terms of Use / 利用規約
+                      Terms of Use
                     </a>
                     {pwa.snapshot.registration === "ready" &&
                     pwa.snapshot.install === "available" ? (

@@ -47,7 +47,10 @@ async function notes(page) {
 
 try {
   await client.connect(transport);
-  const token = value(await call('connection_status')).pairingToken;
+  const setup = value(await call('connection_status'));
+  const token = setup.pairingToken;
+  const pairingCode = setup.pairingCode;
+  assert.equal(pairingCode, `MKB1|${origin}|${token}`);
   assert.ok(token, 'Server must return setup instructions through the MCP tool');
   assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['connection_status', 'create_note']);
   pass('MCP initialize and tools/list');
@@ -87,12 +90,17 @@ try {
     if (await page.locator('.local-mcp-indicator').getAttribute('aria-expanded') === 'false') {
       await page.locator('.local-mcp-indicator').click();
     }
-    await page.getByLabel('Pairing token').fill(token);
-    await page.getByRole('button', { name: 'Connect local MCP', exact: true }).click();
-    await page.getByRole('button', { name: 'MCP接続中：接続設定を開く', exact: true }).waitFor();
+    if (await page.getByRole('button', { name: 'Reconnect', exact: true }).isVisible()) {
+      await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+    } else {
+      await page.getByLabel('Connection code', { exact: true }).fill(pairingCode);
+      await page.getByRole('button', { name: 'Connect local MCP', exact: true }).click();
+    }
+    await page.getByRole('button', { name: 'MCP connected: connection settings', exact: true }).waitFor();
     await page.getByRole('complementary', { name: 'Local MCP', exact: true }).waitFor({ state: 'hidden' });
   };
   await connect();
+  assert.equal(await page.evaluate(() => localStorage.getItem('mkb-local-mcp-connection-v1')), null);
   await page.locator('.local-mcp-indicator').click();
   await page.getByRole('button', { name: 'Disconnect local MCP', exact: true }).waitFor();
   await page.keyboard.press('Escape');
@@ -102,6 +110,7 @@ try {
   pass('Connect auto-hides panel; reopening and Escape keep receiving and restore indicator focus');
   const second = await context.newPage();
   await second.goto(origin, { waitUntil: 'domcontentloaded' });
+  await second.getByRole('button', { name: 'Enter address and token', exact: true }).click();
   await second.getByLabel('Pairing token').fill(token);
   await second.getByRole('button', { name: 'Connect local MCP', exact: true }).click();
   await second.getByText('Another tab is connected. Disconnect it first.', { exact: true }).waitFor();
@@ -159,26 +168,43 @@ try {
   await page.getByText('Status: Saved', { exact: true }).waitFor();
   await page.locator('.local-mcp-indicator').click();
   await page.getByRole('button', { name: 'Disconnect local MCP', exact: true }).click();
-  await page.getByRole('button', { name: 'MCP未接続：接続設定を開く', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'MCP disconnected: connection settings', exact: true }).waitFor();
   // Wait for explicit disconnect before reconnecting after a reload.
   for (let attempt = 0; value(await call('connection_status')).connected; attempt++) {
     assert.ok(attempt < 50);
     await new Promise(resolve => setTimeout(resolve, 100));
   }
+  await page.getByLabel('Remember in this browser', { exact: true }).check();
+  await page.getByLabel('Connection code', { exact: true }).fill(`MKB1|${origin}|${'0'.repeat(64)}`);
+  await page.getByRole('button', { name: 'Connect local MCP', exact: true }).click();
+  await page.getByRole('button', { name: 'MCP connection error: connection settings', exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => localStorage.getItem('mkb-local-mcp-connection-v1')), null);
+  await connect();
+  assert.equal(await page.evaluate(() => Boolean(localStorage.getItem('mkb-local-mcp-connection-v1'))), true);
+  await page.locator('.local-mcp-indicator').click();
+  await page.getByRole('button', { name: 'Disconnect local MCP', exact: true }).click();
+  for (let attempt = 0; value(await call('connection_status')).connected; attempt++) {
+    assert.ok(attempt < 50);
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  pass('One-paste pairing works; credentials are remembered only after opt-in and successful connection');
   await page.reload();
   await page.locator('.note-title', { hasText: sample.title }).waitFor();
+  await page.getByRole('button', { name: 'Reconnect', exact: true }).waitFor();
+  assert.equal(value(await call('connection_status')).connected, false);
+  await page.screenshot({ path: fileURLToPath(new URL('../../output/playwright/local-mcp/reconnect.png', import.meta.url)), fullPage: true });
   await connect();
   assert.equal(value(await call('create_note', sample)).reused, true);
   stored = await notes(page);
   assert.equal(stored.length, 2);
   assert.equal(stored.find(n => n.id === receipt.id).body, sample.markdown);
-  pass('Reload preserves the note and retry deduplication');
+  pass('Reload does not auto-connect; remembered one-click reconnect preserves notes and retry deduplication');
 
   await page.route('**/__local_mcp/ack', route => route.abort());
   const uncertainInput = { ...sample, request_id: 'lost-receipt-001', title: '応答喪失テスト' };
   const uncertain = await call('create_note', uncertainInput);
   assert.equal(uncertain.isError, true);
-  await page.getByRole('button', { name: 'MCP接続エラー：接続設定を開く', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'MCP connection error: connection settings', exact: true }).waitFor();
   assert.equal((await notes(page)).length, 3);
   await page.unroute('**/__local_mcp/ack');
   await connect();
@@ -186,6 +212,56 @@ try {
   assert.equal(recovered.reused, true);
   assert.equal((await notes(page)).length, 3);
   pass('Lost save receipt is not reported as success; retry does not duplicate');
+
+  await page.locator('.local-mcp-indicator').click();
+  await page.getByRole('button', { name: 'Disconnect local MCP', exact: true }).click();
+  for (let attempt = 0; value(await call('connection_status')).connected; attempt++) {
+    assert.ok(attempt < 50);
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  // Model credentials expiring after a server restart, without changing the test server.
+  await page.evaluate(origin => localStorage.setItem('mkb-local-mcp-connection-v1',
+    JSON.stringify({ origin, token: '0'.repeat(64) })), origin);
+  await page.reload();
+  await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+  await page.getByText('Reconnect failed. Check Codex and other connected tabs, or paste a new code.', { exact: true }).waitFor();
+  assert.equal(value(await call('connection_status')).connected, false);
+  await page.getByLabel('Connection code', { exact: true }).fill(pairingCode);
+  await page.getByRole('button', { name: 'Connect local MCP', exact: true }).click();
+  await page.getByRole('complementary', { name: 'Local MCP', exact: true }).waitFor({ state: 'hidden' });
+  assert.equal(value(await call('connection_status')).connected, true);
+  pass('Expired remembered credentials show recovery input; one new code reconnects');
+
+  await page.locator('.local-mcp-indicator').click();
+  await page.getByRole('button', { name: 'Forget connection', exact: true }).click();
+  assert.equal(await page.evaluate(() => localStorage.getItem('mkb-local-mcp-connection-v1')), null);
+  assert.equal(value(await call('connection_status')).connected, true);
+  await page.getByRole('button', { name: 'Disconnect local MCP', exact: true }).click();
+  for (let attempt = 0; value(await call('connection_status')).connected; attempt++) {
+    assert.ok(attempt < 50);
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  await page.reload();
+  await page.getByLabel('Connection code', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Reconnect', exact: true }).isVisible(), false);
+  pass('Forget removes remembered credentials across reload without interrupting the active session');
+
+  // Persistence can be denied independently of a successful loopback connection.
+  await page.evaluate(() => {
+    window.originalStorageSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === 'mkb-local-mcp-connection-v1') throw new DOMException('Synthetic storage failure', 'QuotaExceededError');
+      return window.originalStorageSetItem.call(this, key, value);
+    };
+  });
+  await page.getByLabel('Remember in this browser', { exact: true }).check();
+  await page.getByLabel('Connection code', { exact: true }).fill(pairingCode);
+  await page.getByRole('button', { name: 'Connect local MCP', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'could not remember settings' }).waitFor();
+  assert.equal(value(await call('connection_status')).connected, true);
+  assert.equal(await page.getByRole('complementary', { name: 'Local MCP', exact: true }).isVisible(), true);
+  await page.evaluate(() => { Storage.prototype.setItem = window.originalStorageSetItem; delete window.originalStorageSetItem; });
+  pass('Storage failure preserves the connection and leaves a visible explanation');
 
   assert.deepEqual(pageErrors, []);
   pass('No browser runtime errors');

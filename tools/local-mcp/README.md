@@ -13,8 +13,8 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 
 ## 構成と使い方
 
-以下はヘッダの接続インジケータを使用する手順。メニューは「データ管理・バックアップ」と「AI連携」に分け、Local MCPは「AI連携」に配置する。上記の本番検証記録は大きな接続パネルを表示する旧UIで行った結果。
-改善版では隔離Chromiumの通し試験13項目を確認済み。接続成功時のパネル自動非表示、再表示・Esc後の接続維持とフォーカス復帰、非表示中の実保存、390px幅のインジケータ表示、明示切断・通信エラー・再接続を含む。表示証跡は`output/playwright/local-mcp/saved.png`と`indicator-mobile.png`。
+以下はヘッダの接続インジケータを使用する手順。メニューは「Data & Backup」と「AI Integration」に分け、Local MCPは「AI Integration」に配置する。メニュー・接続表示は英語で統一し、説明は必要時のみ表示する。上記の本番検証記録は大きな接続パネルを表示する旧UIで行った結果。
+隔離Chromiumの通し試験は、接続成功時のパネル自動非表示、再表示・Esc後の接続維持とフォーカス復帰、非表示中の実保存、390px幅の表示、明示切断・通信エラー・再接続を含む。接続コード、記憶への同意、再読み込み後のボタン再接続、古い情報からの復帰、記憶の削除、ストレージ保存失敗も検証する。表示証跡は`output/playwright/local-mcp/`の`saved.png`、`indicator-mobile.png`、`reconnect.png`。
 
 `Codex専用MCPツール → STDIOサーバー → 127.0.0.1のHTTP → 本番PWA → IndexedDB → 保存結果`
 
@@ -31,12 +31,13 @@ tool_timeout_sec = 30
 enabled = true
 ```
 
-3. 専用MCPの`connection_status`を呼ぶ。未接続の場合に返る`origin`と`pairingToken`を使う。トークンは共有・公開しない。
-4. 保存先のPWAでアプリメニュー → **Local MCP** を開き、**Server address** と **Pairing token** を入力して **Connect local MCP**。ChromeがこのPCへの接続許可を求めた場合は利用者が許可する。
+3. 専用MCPの`connection_status`を呼ぶ。未接続の場合に返る`pairingCode`を使う。コードは当該利用者の接続設定専用で、共有・公開しない。旧バージョンの起動中サーバーでは`MKB1|originの値|pairingTokenの値`で同じコードを構成できる。
+4. 保存先のPWAでアプリメニュー → **Local MCP** を開き、**Connection code**へ1回貼り付け、**Connect local MCP**。従来の個別入力は **Enter address and token** から利用できる。ChromeがこのPCへの接続許可を求めた場合は利用者が許可する。
    初回の許可待ちは最大60秒。許可前にタイムアウトした場合は、許可後にもう一度 **Connect local MCP** を押す。
+   個人用端末では **Remember in this browser** を選ぶと、成功した接続情報だけをこのブラウザに記憶する。次回はメニュー → Local MCP → **Reconnect**。自動接続はせず、通常のDisconnectでは記憶を残す。**Forget connection** は記憶だけを削除し、現在の接続は維持する。
 5. `connection_status`の`browserOrigin`が意図した本番サイトであることを確認してから`create_note`を呼ぶ。
-6. 接続成功時にパネルは自動で隠れ、ヘッダに緑の「MCP接続中」を表示する。インジケータまたはアプリメニューからパネルを開き直せる。「閉じる」・Escでは接続を維持する。
-7. 明示的な **Disconnect local MCP**、再読み込み、アプリ終了、MCP終了で接続が終了する。接続切れはヘッダの「MCP接続エラー」で確認できる。再接続時はそのチャットの最新のアドレス・トークンを使う。
+6. 接続成功時にパネルは自動で隠れ、ヘッダに緑の「MCP connected」を表示する。インジケータまたはアプリメニューからパネルを開き直せる。「Close」・Escでは接続を維持する。
+7. 明示的な **Disconnect local MCP**、再読み込み、アプリ終了、MCP終了で接続が終了する。接続切れはヘッダの「MCP connection error」で確認できる。Codex/MCP再起動時にはアドレス・トークンが変わるため、**Use a new code**からこのチャットの最新コードを貼り付ける。古い記憶への再接続が失敗した場合も入力欄を表示する。
 
 ```json
 {
@@ -49,7 +50,8 @@ enabled = true
 
 - 本番用はViteを起動せず、OSが割り当てた空きポートで待ち受ける。別チャットや一覧取得用の接続と競合しない。インターネットやLAN向けには待ち受けない。
 - 許可Originは`https://mkb.bamboosato.com`と`https://markdown-knowledge-board.vercel.app`だけ。正確なHost、Origin、Bearerトークン、JSON POSTを検証する。接続したOriginとタブに配送を限定する。
-- 接続情報はPWAのメモリだけに保持。本文・トークンをサーバーログへ記録しない。診断ファイル`output/local-mcp/startup-<PID>.json`には起動時刻・PID・段階・失敗理由だけを残す。
+- 接続情報は通常PWAのメモリだけに保持。Rememberを選んだ場合のみ、成功したアドレス・トークンを同じOriginのlocalStorage（`mkb-local-mcp-connection-v1`）に保存する。クラウドバックアップには含めず、共有端末では記憶しない。保存できない場合も接続を維持し、パネルで通知する。読み出した情報も接続前にループバックURLとトークン形式を再検証する。
+- 本文・トークン・接続コードをサーバーログへ記録しない。診断ファイル`output/local-mcp/startup-<PID>.json`には起動時刻・PID・段階・失敗理由だけを残す。
 - 新規保存だけを提供し、既存ノートを上書きしない。一覧に追加するが編集中のノートを切り替えない。成功応答はIndexedDBトランザクション完了後。
 - `request_id`からIDを決める。同一内容の再送は既存ノートを返す。別内容・編集後の衝突は拒否する。保存応答を失った場合は同じID・内容を再送する。
 - 本文128 KiB（UTF-8）、タイトル200文字、タグ32件・各80文字。処理中の保存は1件、応答待ちは15秒。バックグラウンド抑制・スリープ中の到達は保証しない。
@@ -70,7 +72,7 @@ enabled = true
 ```powershell
 node --test tools/local-mcp/bridge.test.mjs
 node tools/local-mcp/concurrent-probe.mjs
-npm run test:unit -- tests/unit/localMcpNote.test.ts tests/unit/db.test.ts
+npm run test:unit -- tests/unit/localMcpConnection.test.ts tests/unit/localMcpNote.test.ts tests/unit/db.test.ts
 npm run lint
 npm run build
 ```

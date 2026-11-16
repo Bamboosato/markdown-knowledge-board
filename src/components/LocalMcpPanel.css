@@ -20,6 +20,11 @@
 .local-mcp-panel button, .local-mcp-panel input { min-height: 44px; }
 .local-mcp-panel p { margin: 8px 0 0; overflow-wrap: anywhere; }
 .local-mcp-close { display: block; margin: 0 0 8px auto; }
+.local-mcp-remembered { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.local-mcp-remembered p { flex-basis: 100%; }
+.local-mcp-remember { display: flex; align-items: center; gap: 8px; }
+.local-mcp-remember input { width: 20px; flex: 0 0 20px; }
+.local-mcp-input-toggle { font: inherit; }
 
 .local-mcp-indicator {
   display: inline-flex;
