@@ -1,10 +1,17 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { accessSchemas, accessResults, accessError } from './note-schema.mjs';
+import { metadataActions as brokerMetadataActions } from './metadata-schema.mjs';
 const brokerCapabilities = ['create_note', ...Object.keys(accessSchemas)];
 function supportedOperations(body) {
   if (!Object.hasOwn(body, 'supportedOperations')) return body.protocolVersion === 2 ? ['create_note', 'search_notes', 'get_note', 'update_note'] : ['create_note'];
   if (!Array.isArray(body.supportedOperations) || body.supportedOperations.some(v => typeof v !== 'string')) throw new Error('Invalid capabilities.');
   return brokerCapabilities.filter(name => body.supportedOperations.includes(name));
+}
+function supportedMetadataActions(body, operations) {
+  if (!operations.includes('preview_custom_metadata_changes') || !operations.includes('apply_custom_metadata_changes')) return [];
+  if (!Object.hasOwn(body, 'supportedMetadataActions')) return ['add', 'update', 'upsert'];
+  if (!Array.isArray(body.supportedMetadataActions) || body.supportedMetadataActions.some(v => typeof v !== 'string')) throw new Error('Invalid metadata actions.');
+  return brokerMetadataActions.filter(action => body.supportedMetadataActions.includes(action));
 }
 
 // One paired tab, one in-flight write; no note body or token is logged.
@@ -62,8 +69,10 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
         if ((fresh() || job) && client?.id !== body.clientId) {
           return send(409, fail('Another tab is connected. Disconnect it first.'));
         }
-        client = { id: body.clientId, origin: req.headers.origin, seen: Date.now(), protocolVersion: body.protocolVersion === 2 ? 2 : 1, noteAccess: body.noteAccess === true, supportedOperations: supportedOperations(body) };
-        return send(200, { connected: true, protocolVersion: 2 });
+        const operations = supportedOperations(body);
+        client = { id: body.clientId, origin: req.headers.origin, seen: Date.now(), protocolVersion: body.protocolVersion === 2 ? 2 : 1, noteAccess: body.noteAccess === true, supportedOperations: operations,
+          metadataActions: supportedMetadataActions(body, operations) };
+        return send(200, { connected: true, protocolVersion: 2, brokerMetadataActions });
       }
       if (client?.id !== body.clientId || client.origin !== req.headers.origin) return send(409, fail('Connect this tab first.'));
       client.seen = Date.now();
@@ -73,8 +82,9 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
       }
       if (req.url === '/__local_mcp/poll') {
         const supported = supportedOperations(body);
-        if (body.protocolVersion === 2) { client.protocolVersion = 2; client.noteAccess = body.noteAccess === true; client.supportedOperations = supported; }
-        return send(200, { job: job ? { deliveryId: job.deliveryId, operation: job.operation, input: job.input } : null });
+        const actions = supportedMetadataActions(body, supported);
+        if (body.protocolVersion === 2) { client.protocolVersion = 2; client.noteAccess = body.noteAccess === true; client.supportedOperations = supported; client.metadataActions = actions; }
+        return send(200, { brokerMetadataActions, job: job ? { deliveryId: job.deliveryId, operation: job.operation, input: job.input } : null });
       }
       if (req.url === '/__local_mcp/disconnect') {
         finish(fail('Browser disconnected. If delivery had started, outcome is unknown; retry the same request_id.'));
@@ -112,7 +122,9 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
     token,
     middleware,
     status: () => ({ connected: Boolean(fresh()), busy: Boolean(job), origin, browserOrigin: fresh() ? client.origin : null,
-      protocolVersion: 2, brokerCapabilities, capabilities: fresh() ? client.supportedOperations.filter(name => name === 'create_note' || client.protocolVersion === 2 && client.noteAccess) : [] }),
+      protocolVersion: 2, brokerCapabilities, brokerMetadataActions,
+      metadataActions: fresh() && client.protocolVersion === 2 && client.noteAccess ? client.metadataActions : [],
+      capabilities: fresh() ? client.supportedOperations.filter(name => name === 'create_note' || client.protocolVersion === 2 && client.noteAccess) : [] }),
     execute: (operation, input) => {
       const error = (code, message) => Promise.resolve({ error: { code, message } });
       if (!Object.hasOwn(accessSchemas, operation) || !accessSchemas[operation].safeParse(input).success) return error('INVALID_ARGUMENT', 'Invalid note request.');
@@ -120,6 +132,7 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
       if (client.protocolVersion !== 2) return error('UPGRADE_REQUIRED', 'Update the MKB PWA.');
       if (!client.supportedOperations.includes(operation)) return error('UPGRADE_REQUIRED', 'Update the MKB PWA to use this operation.');
       if (!client.noteAccess) return error('ACCESS_DISABLED', 'Enable reading and updating notes in MKB Advanced settings.');
+      if (operation === 'preview_custom_metadata_changes' && input.changes.some(c => !client.metadataActions.includes(c.action))) return error('UPGRADE_REQUIRED', 'Update the MKB PWA to use this metadata action.');
       if (job) return error('BUSY', 'Another operation is in progress.');
       return new Promise(resolve => {
         job = { operation, input, resolve, deliveryId: randomUUID(),

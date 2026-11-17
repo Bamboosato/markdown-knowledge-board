@@ -8,10 +8,10 @@ const base: Note = { id: 'a', title: 'MCP Guide', body: '# 日本語 📝', tags
   pinnedAt: 2, marp: { enabled: true, theme: 'gaia' }, customMetadata: [{ key: 'source', value: 'old' }] };
 let session = createMetadataSession();
 const change = (action = 'upsert', key = 'source', value: unknown = 'new') => ({ action, key, value });
-const preview = (changes = [change()], filter: unknown = { all_notes: true }) =>
-  session.execute('preview_custom_metadata_changes', { filter, changes }, () => true) as Promise<MetadataPreviewResult>;
+const preview = (changes: unknown[] = [change()], filter: unknown = { all_notes: true }) =>
+  session.execute('preview_custom_metadata_changes', { filter, changes }, () => true, () => true) as Promise<MetadataPreviewResult>;
 const apply = (plan: MetadataPreviewResult, request_id = 'metadata-001') =>
-  session.execute('apply_custom_metadata_changes', { plan_id: plan.plan_id, request_id }, () => true);
+  session.execute('apply_custom_metadata_changes', { plan_id: plan.plan_id, request_id }, () => true, () => true);
 beforeEach(async () => {
   session = createMetadataSession();
   const db = await requireDb(); await db.clear('notes'); await db.clear('mcpReceipts');
@@ -20,6 +20,86 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('Custom metadata plans', () => {
+  const remove = (key = 'source') => ({ action: 'remove', key });
+  it('removes only exact keys, preserves entry order and other note fields, and skips missing keys', async () => {
+    const customMetadata = [{ key: 'first', value: 1 }, { key: 'nil', value: null }, { key: 'last', value: false }];
+    await saveNote({ ...base, customMetadata }, base);
+    await saveNote({ ...base, id: 'b', customMetadata: [] });
+    const plan = await preview([remove('nil'), remove('absent')]);
+    expect(plan).toMatchObject({ changed_notes: 1, skipped_notes: 1 });
+    expect(plan.items[0].changes[0]).toEqual({ action: 'remove', key: 'nil', result: 'removed', before: { exists: true, value: null }, after: { exists: false } });
+    const result = await apply(plan);
+    expect(result).toMatchObject({ updated_notes: 1, skipped_notes: 1, removed_fields: 1, added_fields: 0, updated_fields: 0 });
+    const saved = (await getNote('a'))!;
+    expect(saved).toEqual({ ...base, customMetadata: [customMetadata[0], customMetadata[2]], updatedAt: saved.updatedAt });
+    expect((await getNote('b'))?.updatedAt).toBe(100);
+    expect(await preview([remove('nil')])).toMatchObject({ status: 'no_changes', plan_id: null, skipped_notes: 2 });
+    expect(await getNote('a')).toEqual(saved);
+  });
+  it.each([null, '', false, 0, [], { nested: [1] }])('removes the last entry with value %j, storing an empty collection', async value => {
+    await saveNote({ ...base, customMetadata: [{ key: 'source', value }] }, base);
+    expect(await apply(await preview([remove()]))).toMatchObject({ removed_fields: 1 });
+    expect((await getNote('a'))?.customMetadata).toEqual([]);
+  });
+  it('matches filters before removing and supports mixed actions, including zero removals in a changed plan', async () => {
+    const plan = await preview([remove(), change('add', 'added', null), change('upsert', 'other', 0)], { custom_metadata: [{ key: 'source', op: 'equals', value: 'old' }] });
+    expect(await apply(plan)).toMatchObject({ removed_fields: 1, added_fields: 2 });
+    const noRemoval = await preview([remove('missing'), change('update', 'added', false)]);
+    expect(await apply(noRemoval, 'mixed-second-001')).toMatchObject({ removed_fields: 0, updated_fields: 1 });
+    expect(await apply(await preview([change('upsert', 'other', 1)]), 'old-shape-001')).not.toHaveProperty('removed_fields');
+  });
+  it('rejects remove values, duplicate/mixed keys, managed keys and nested-path interpretation', async () => {
+    for (const changes of [[{ ...remove(), value: null }], [{ ...remove(), value: undefined }], [remove(), change()], [remove('title')], [remove('__proto__')], [remove(' source')]]) {
+      await expect(preview(changes)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    }
+    await saveNote({ ...base, customMetadata: [{ key: 'owner', value: { name: 'keep' } }, { key: 'owner.name', value: 'remove' }] }, base);
+    await apply(await preview([remove('owner.name')]));
+    expect((await getNote('a'))?.customMetadata).toEqual([{ key: 'owner', value: { name: 'keep' } }]);
+  });
+  it('checks remove support before preview, commit and receipt replay while keeping old receipts readable', async () => {
+    const raw = { filter: { all_notes: true }, changes: [remove()] };
+    await expect(session.execute('preview_custom_metadata_changes', raw, () => true)).rejects.toMatchObject({ code: 'UPGRADE_REQUIRED' });
+    const plan = await preview([remove()]);
+    const input = { plan_id: plan.plan_id, request_id: 'remove-cap-001' };
+    await expect(session.execute('apply_custom_metadata_changes', input, () => true)).rejects.toMatchObject({ code: 'UPGRADE_REQUIRED' });
+    expect(await getNote('a')).toEqual(base);
+    const result = await apply(plan, input.request_id);
+    session = createMetadataSession();
+    await expect(session.execute('apply_custom_metadata_changes', input, () => true)).rejects.toMatchObject({ code: 'UPGRADE_REQUIRED' });
+    expect(await apply(plan, input.request_id)).toEqual({ ...result, reused: true });
+    const oldPlan = await preview();
+    const oldResult = await apply(oldPlan, 'legacy-receipt-001');
+    expect(await session.execute('apply_custom_metadata_changes', { plan_id: oldPlan.plan_id, request_id: 'legacy-receipt-001' }, () => true)).toEqual({ ...oldResult, reused: true });
+  });
+  it('replays original removed count after reconnect, expiry and re-adding a key without removing it again', async () => {
+    const plan = await preview([remove()]); const result = await apply(plan);
+    const saved = (await getNote('a'))!;
+    await saveNote({ ...saved, customMetadata: [{ key: 'source', value: 're-added' }] }, saved);
+    session = createMetadataSession();
+    vi.spyOn(Date, 'now').mockReturnValue(plan.expires_at! + 1);
+    expect(await apply(plan)).toEqual({ ...result, reused: true });
+    expect((await getNote('a'))?.customMetadata).toEqual([{ key: 'source', value: 're-added' }]);
+  });
+  it('rejects the entire removal batch after one key changes, even if it is already absent', async () => {
+    await saveNote({ ...base, id: 'b' });
+    const plan = await preview([remove()]);
+    await saveNote({ ...base, customMetadata: [] }, base);
+    await expect(apply(plan)).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect((await getNote('b'))?.customMetadata).toEqual(base.customMetadata);
+  });
+  it('rolls back all removals if the receipt cannot be stored', async () => {
+    await saveNote({ ...base, id: 'b' });
+    const plan = await preview([remove()]);
+    const original = IDBObjectStore.prototype.add;
+    const spy = vi.spyOn(IDBObjectStore.prototype, 'add').mockImplementation(function (this: IDBObjectStore, ...args) {
+      if (this.name === 'mcpReceipts') throw new DOMException('Synthetic quota failure', 'QuotaExceededError');
+      return original.apply(this, args);
+    });
+    try { await expect(apply(plan)).rejects.toBeDefined(); } finally { spy.mockRestore(); }
+    expect(await getNote('a')).toEqual(base);
+    expect((await getNote('b'))?.customMetadata).toEqual(base.customMetadata);
+    expect(await apply(plan)).toMatchObject({ removed_fields: 2 });
+  });
   it('upserts missing/existing keys, leaves equal values and all other note fields intact', async () => {
     await saveNote({ ...base, id: 'b', customMetadata: [] });
     await saveNote({ ...base, id: 'c', customMetadata: [{ key: 'source', value: 'new' }] });

@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { createBridge } from './bridge.mjs';
-import { accessSchemas } from './note-schema.mjs';
+import { accessSchemas, accessResults } from './note-schema.mjs';
 
 const origin = 'http://127.0.0.1:5186';
 const clientId = '00000000-0000-4000-8000-000000000001';
 const input = { request_id: 'test-request', title: '架空のノート 📝', markdown: '# Synthetic', tags: [] };
 const supported = ['create_note', ...Object.keys(accessSchemas)];
+const actions = ['add', 'update', 'upsert', 'remove'];
 async function request(bridge, path, body = {}, headers = {}) {
   // Deliberately split UTF-8 characters across chunks, as TCP is allowed to do.
   const req = Readable.from(Array.from(Buffer.from(JSON.stringify({ clientId, ...body })), byte => Buffer.from([byte])));
@@ -209,4 +210,56 @@ test('metadata ACK requires a complete valid summary and the requested plan ID',
   }
   assert.equal((await request(bridge, 'ack', { deliveryId: job.deliveryId, result })).status, 200);
   assert.deepEqual(await pending, result); bridge.close();
+});
+
+test('negotiates removal explicitly, preserving legacy actions and permission boundaries', async () => {
+  const bridge = createBridge(origin);
+  const input = { filter: { all_notes: true }, changes: [{ action: 'remove', key: 'source' }] };
+  assert.deepEqual(bridge.status().brokerMetadataActions, actions);
+  assert.deepEqual(bridge.status().metadataActions, []);
+  await request(bridge, 'connect', { protocolVersion: 2, noteAccess: true, supportedOperations: supported });
+  assert.deepEqual(bridge.status().metadataActions, actions.slice(0, 3));
+  assert.equal((await bridge.execute('preview_custom_metadata_changes', input)).error.code, 'UPGRADE_REQUIRED');
+  assert.equal(bridge.status().busy, false);
+  assert.equal((await request(bridge, 'poll', { protocolVersion: 2, noteAccess: true, supportedOperations: supported, supportedMetadataActions: 'invalid' })).status, 400);
+  await request(bridge, 'poll', { protocolVersion: 2, noteAccess: true, supportedOperations: supported, supportedMetadataActions: [...actions, 'unknown'] });
+  assert.deepEqual(bridge.status().metadataActions, actions);
+  const pending = bridge.execute('preview_custom_metadata_changes', input);
+  const { job, brokerMetadataActions } = (await request(bridge, 'poll', { protocolVersion: 2, noteAccess: true, supportedOperations: supported, supportedMetadataActions: actions })).value;
+  assert.deepEqual(brokerMetadataActions, actions);
+  const result = { status: 'no_changes', plan_id: null, matched_notes: 1, changed_notes: 0, unchanged_notes: 0, skipped_notes: 1,
+    items: [{ id: 'x', title: 'Test', expected_revision: `v1-${'a'.repeat(64)}`, status: 'skipped',
+      changes: [{ action: 'remove', key: 'source', result: 'key_missing', before: { exists: false }, after: { exists: false } }] }] };
+  assert.equal((await request(bridge, 'ack', { deliveryId: job.deliveryId, result })).status, 200);
+  assert.deepEqual(await pending, result);
+  const unsupported = bridge.execute('apply_custom_metadata_changes', {
+    plan_id: 'cmdp_00000000-0000-4000-8000-000000000001', request_id: 'remove-old-receipt-001',
+  });
+  const unsupportedJob = (await request(bridge, 'poll', { protocolVersion: 2, noteAccess: true, supportedOperations: supported, supportedMetadataActions: actions })).value.job;
+  const refusal = { error: { code: 'UNSUPPORTED_OPERATION', message: 'Update the local MCP service to replay a removal.' } };
+  assert.equal((await request(bridge, 'ack', { deliveryId: unsupportedJob.deliveryId, result: refusal })).status, 200);
+  assert.deepEqual(await unsupported, refusal);
+  await request(bridge, 'permissions', { noteAccess: false });
+  assert.deepEqual(bridge.status().metadataActions, []);
+  assert.equal((await bridge.execute('preview_custom_metadata_changes', input)).error.code, 'ACCESS_DISABLED');
+  bridge.close();
+});
+
+test('remove rejects values and duplicate keys; receipts accept only bounded removed counts and consistent removal diffs', () => {
+  const input = { filter: { all_notes: true }, changes: [{ action: 'remove', key: 'x' }] };
+  assert.equal(accessSchemas.preview_custom_metadata_changes.safeParse(input).success, true);
+  for (const changes of [[{ ...input.changes[0], value: null }], [input.changes[0], { action: 'add', key: 'x', value: 1 }]]) {
+    assert.equal(accessSchemas.preview_custom_metadata_changes.safeParse({ ...input, changes }).success, false);
+  }
+  const revision = `v1-${'a'.repeat(64)}`;
+  const result = { status: 'applied', plan_id: 'cmdp_00000000-0000-4000-8000-000000000001', matched_notes: 1, updated_notes: 1, unchanged_notes: 0, skipped_notes: 0,
+    added_fields: 0, updated_fields: 0, reused: false, items: [{ id: 'x', status: 'updated', previous_revision: revision, revision, updated_at: 1 }] };
+  for (const removed_fields of [undefined, 0, 1, 1000]) assert.equal(accessResults.apply_custom_metadata_changes.safeParse({ ...result, ...(removed_fields === undefined ? {} : { removed_fields }) }).success, true);
+  for (const removed_fields of [-1, 1001, 1.5, '1', null]) assert.equal(accessResults.apply_custom_metadata_changes.safeParse({ ...result, removed_fields }).success, false);
+  const preview = { status: 'ready', plan_id: result.plan_id, expires_at: 1, matched_notes: 1, changed_notes: 1, unchanged_notes: 0, skipped_notes: 0,
+    items: [{ id: 'x', title: 'Test', status: 'changed', expected_revision: revision,
+      changes: [{ action: 'remove', key: 'x', result: 'removed', before: { exists: true, value: null }, after: { exists: false } }] }] };
+  assert.equal(accessResults.preview_custom_metadata_changes.safeParse(preview).success, true);
+  preview.items[0].changes[0].after = { exists: true, value: null };
+  assert.equal(accessResults.preview_custom_metadata_changes.safeParse(preview).success, false);
 });

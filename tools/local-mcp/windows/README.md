@@ -5,10 +5,10 @@
 
 ## セットアップ一式の入手
 
-通常は[GitHub Releases：MKB Windows Setup v1.3.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.3.0)のAssetsから、次のファイルをダウンロードしてください。
+通常は[GitHub Releases：MKB Windows Setup v1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)のAssetsから、次のファイルをダウンロードしてください。
 
-- [MKB-Windows-Setup.zip](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.3.0/MKB-Windows-Setup.zip)：セットアップ一式
-- [MKB-Windows-Setup.zip.sha256](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.3.0/MKB-Windows-Setup.zip.sha256)：対応するZIPのSHA-256チェックサム
+- [MKB-Windows-Setup.zip](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip)：セットアップ一式
+- [MKB-Windows-Setup.zip.sha256](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip.sha256)：対応するZIPのSHA-256チェックサム
 
 Releaseの添付ファイルは30日で自動失効しません。GitHub Actionsの検証用Artifactsに設定された30日間の保持期間とは別です。公開中のReleaseから同じリンクで取得できます。
 
@@ -86,7 +86,7 @@ Codexで「MKBにタイトル『接続確認』、本文『このPCからの保�
 
 ### 既存ノートを検索・更新する
 
-Setup 1.3.0はruntime 0.6.0を同梱し、計9ツールを提供します。本文の追記・単一置換・全件置換に加え、Custom metadataの条件付きAdd / Update / Upsertを利用できます。
+Setup 1.4.0はruntime 0.7.0を同梱し、計9ツールを提供します。本文の追記・単一置換・全件置換に加え、Custom metadataの条件付きAdd / Update / Upsert / Removeを利用できます。
 
 1. MKBのLocal MCPを開き、Advanced settingsの **Allow reading and updating notes** をオンにします。
 2. 接続をRemember in this browserで保存していれば、許可も保持されます。次回はReconnectだけで接続します。
@@ -98,7 +98,9 @@ Setup 1.3.0はruntime 0.6.0を同梱し、計9ツールを提供します。本�
 
 ### Custom metadataをまとめて変更する
 
-例：「タグMKBのノートで、Custom metadataのreview_statusをreviewedへUpsertしてください」。Addはキーがない場合だけ追加、Updateは既存キーだけ更新、Upsertはなければ追加・あれば更新します。同じ値は書き換えません。本文・タイトル・タグ・Pin・Marpは維持します。
+削除例：「タグMKBのノートからCustom metadataのreview_statusキーを削除してください」。削除にはruntime 0.7.0と対応PWAの両方が必要です。
+
+例：「タグMKBのノートで、Custom metadataのreview_statusをreviewedへUpsertしてください」。Addはキーがない場合だけ追加、Updateは既存キーだけ更新、Upsertはなければ追加・あれば更新します。Removeは指定したCustom metadataキーと値を削除します。キーがなければ正常なスキップです。同じ値は書き換えません。本文・タイトル・タグ・Pin・Marpは維持します。
 
 Codexはpreviewで対象と差分を確認し、10分以内に確認済みplanをapplyします。最大50ノートで、1件でも競合・編集中・保存失敗なら全件を取り消します。変更前後のCustom metadataはCodexへ渡ります。正常なスキップは失敗ではありません。切断・権限解除・PWA再読み込み後は未実行planを作り直します。保存応答が失われた場合は、まず同じplan_id/request_idで再送します。
 
