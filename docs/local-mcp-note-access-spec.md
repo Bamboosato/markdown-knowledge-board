@@ -2,11 +2,11 @@
 
 - 更新日：2026-11-17
 - 状態：実装確定。要求・応答と制限を同梱実装に合わせて記載。
-- 対象実装：runtime 0.6.0（Custom metadataの条件付きAdd / Update / Upsertを追加。ローカル実装、未公開）。既存APIの基盤は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)。
+- 対象実装：runtime 0.6.0（Custom metadataの条件付きAdd / Update / Upsertを追加）。既存APIの基盤は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)。
 - MCPサーバー：`mkb-local-prototype` / runtime `0.6.0`。Codex登録名：`mkb_local_prototype`
-- PWA連携プロトコル：`2`。配布済みWindows Setup `1.2.0`はruntime `0.5.0`で、新metadata操作を含まない。
+- PWA連携プロトコル：`2`。Windows Setup `1.3.0`はruntime `0.6.0`を同梱。旧Setup `1.2.0`はruntime `0.5.0`で、新metadata操作を含まない。
 
-本書は従来の既存ノートアクセス仕様案を置き換える。文書のファイル名は既存リンクとの互換性のため維持する。利用手順は[ローカルMCP README](https://github.com/Bamboosato/markdown-knowledge-board/blob/main/tools/local-mcp/README.md)、配布物は[Windows Setup 1.2.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.2.0)を参照する。
+本書は従来の既存ノートアクセス仕様案を置き換える。文書のファイル名は既存リンクとの互換性のため維持する。利用手順は[ローカルMCP README](https://github.com/Bamboosato/markdown-knowledge-board/blob/main/tools/local-mcp/README.md)、配布物は[Windows Setup 1.3.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.3.0)を参照する。
 
 ## 1. 目的・対象・構成
 
@@ -709,7 +709,7 @@ runtime 0.6.0で`preview_custom_metadata_changes`と`apply_custom_metadata_chang
 - メモリ上のplanは接続解除・権限解除・PWA再読み込みで破棄する。本文更新用の9節に対するmetadata専用の詳細は上記仕様を優先する。
 - 新エラーは`TOO_MANY_MATCHES`、`INVALID_METADATA`、`METADATA_LIMIT_EXCEEDED`、`PLAN_NOT_FOUND`、`PLAN_EXPIRED`、`PLAN_ALREADY_APPLIED`、`PLAN_LIMIT_EXCEEDED`。共通エラーも継承する。未知の要求フィールドを拒否する。
 
-未公開の追加実装であり、配布済みSetup 1.2.0には含まれない。本番ノートへの確認は公開後に別途行う。
+Windows Setup 1.3.0と対応PWAで利用する。旧Setup 1.2.0には含まれない。更新後はCodex再起動、PWA更新・Reconnectが必要。接続コードは維持する。
 
 ## 8. エラー一覧と検証境界
 

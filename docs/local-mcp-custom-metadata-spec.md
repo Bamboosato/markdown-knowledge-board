@@ -1,7 +1,7 @@
 # MKB Local MCP：Custom metadataの条件付き追加・更新・Upsert仕様
 
 - 更新日：2026-11-17
-- 状態：ローカル実装に合わせて更新。runtime 0.6.0向けの追加仕様。PR・マージ・配布・本番反映は未実施。
+- 状態：実装確定。runtime 0.6.0 / Windows Setup 1.3.0の追加仕様。
 - 基盤：`817b95316a032b5b61a5acc542e40f08dbd89748`（runtime 0.5.0）。追加実装は`src/lib/localMcpMetadata.ts`、要求・応答のschemaは`tools/local-mcp/metadata-schema.mjs`。
 - 現行契約：[Local MCP API設計書](./local-mcp-note-access-spec.md)
 
@@ -297,4 +297,4 @@ planは永続化せず、DB version 2を維持する。既存`UpdateReceipt`と�
 
 条件はAND、操作はadd/update/upsertを明示、既存キーへのaddと欠落キーへのupdateはskip、preview必須、対象固定、最大50ノート、一括transaction、既存のrevision・再送保証を継承する。キー削除・rename・複雑な条件式は今回含めない。
 
-本仕様はローカル実装を記述する。GitHub ReleasesのWindows Setup 1.2.0（runtime 0.5.0）には含まれない。新runtimeと対応PWAの双方の公開後、Codex再起動とPWA更新・Reconnectで利用する。接続コードの再発行は不要。本番MKB説明ノートの更新と本番動作確認は公開時に実施する。
+本仕様はruntime 0.6.0と対応PWAを対象とする。[Windows Setup 1.3.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.3.0)へ更新し、Codex再起動とPWA更新・Reconnectで利用する。旧Setup 1.2.0（runtime 0.5.0）には含まれない。接続コードの再発行は不要。ローカル検証と本番確認の範囲は分けて扱う。
