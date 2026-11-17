@@ -127,7 +127,7 @@ export function MetadataDialog({
       assertFrontmatterExpansion(
         rows.map((_, index) => ({
           key: normalizedKeys[index],
-          value: validations[index].parsedValue ?? "",
+          value: validations[index].parsedValue === undefined ? "" : validations[index].parsedValue,
         }))
       );
       return "";
@@ -169,7 +169,7 @@ export function MetadataDialog({
     onApply(
       rows.map((_, index) => ({
         key: normalizedKeys[index],
-        value: validations[index].parsedValue ?? "",
+        value: validations[index].parsedValue === undefined ? "" : validations[index].parsedValue,
       }))
     );
   };

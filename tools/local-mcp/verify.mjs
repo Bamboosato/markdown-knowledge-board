@@ -52,7 +52,7 @@ try {
   const pairingCode = setup.pairingCode;
   assert.equal(pairingCode, `MKB1|${origin}|${token}`);
   assert.ok(token, 'Server must return setup instructions through the MCP tool');
-  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['append_note', 'connection_status', 'create_note', 'get_note', 'replace_note_text', 'search_notes', 'update_note']);
+  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['append_note', 'apply_custom_metadata_changes', 'connection_status', 'create_note', 'get_note', 'preview_custom_metadata_changes', 'replace_note_text', 'search_notes', 'update_note']);
   pass('MCP initialize and tools/list');
   assert.equal((await call('create_note', sample)).isError, true);
   assert.equal(value(await call('connection_status')).connected, false);
@@ -337,6 +337,67 @@ try {
   }
   pass('Append and replace-all lost ACK/reload retries preserve the original count and never repeat the write');
 
+  const metadataPreview = (changes, filter = { note_ids: [receipt.id, recovered.id] }) => call('preview_custom_metadata_changes', { filter, changes }).then(value);
+  const metadataApply = (plan, request_id) => call('apply_custom_metadata_changes', { plan_id: plan.plan_id, request_id }).then(value);
+  const beforeMetadata = await notes(page);
+  const metadataPlan = await metadataPreview([{ action: 'upsert', key: 'review_status', value: 'reviewed' }, { action: 'add', key: 'nullable', value: null }]);
+  assert.equal(metadataPlan.status, 'ready', JSON.stringify(metadataPlan));
+  assert.equal(metadataPlan.changed_notes, 2);
+  assert.deepEqual(await notes(page), beforeMetadata);
+  const metadataSaved = await metadataApply(metadataPlan, 'metadata-live-001');
+  assert.equal(metadataSaved.updated_notes, 2, JSON.stringify(metadataSaved));
+  assert.equal(metadataSaved.added_fields, 4);
+  assert.deepEqual(await metadataApply(metadataPlan, 'metadata-live-001'), { ...metadataSaved, reused: true });
+  for (const id of [receipt.id, recovered.id]) {
+    const prior = beforeMetadata.find(n => n.id === id);
+    const saved = (await notes(page)).find(n => n.id === id);
+    assert.deepEqual(saved, { ...prior, updatedAt: saved.updatedAt, customMetadata: [{ key: 'review_status', value: 'reviewed' }, { key: 'nullable', value: null }] });
+  }
+  const skipPlan = await metadataPreview([{ action: 'add', key: 'review_status', value: 'other' }, { action: 'update', key: 'missing', value: false }]);
+  assert.equal(skipPlan.status, 'no_changes'); assert.equal(skipPlan.skipped_notes, 2);
+  const samePlan = await metadataPreview([{ action: 'upsert', key: 'review_status', value: 'reviewed' }]);
+  assert.equal(samePlan.unchanged_notes, 2);
+  const typedPlan = await metadataPreview([{ action: 'update', key: 'nullable', value: false }], { tags: ['MCP'], custom_metadata: [{ key: 'nullable', op: 'equals', value: null }] });
+  assert.equal(typedPlan.matched_notes, 2);
+  assert.equal((await metadataApply(typedPlan, 'metadata-types-001')).updated_fields, 2);
+  pass('Real MCP metadata preview/add/update/upsert, typed AND filters, skips, counts, atomic save and exact replay');
+
+  await page.locator('.note-title', { hasText: sample.title }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Body', exact: true }).fill('Metadata dirty draft');
+  const busyPlan = await metadataPreview([{ action: 'upsert', key: 'review_status', value: 'busy' }]);
+  const beforeBusy = await notes(page);
+  assert.equal((await metadataApply(busyPlan, 'metadata-busy-001')).error.code, 'NOTE_BUSY');
+  assert.deepEqual(await notes(page), beforeBusy);
+  await page.getByRole('button', { name: /^Save$/ }).click();
+  await page.getByText('Status: Saved', { exact: true }).waitFor();
+  assert.equal((await metadataApply(busyPlan, 'metadata-stale-001')).error.code, 'CONFLICT');
+  pass('One dirty or changed metadata target prevents the entire batch from writing');
+
+  const lostMetadataPlan = await metadataPreview([{ action: 'upsert', key: 'nullable', value: null }]);
+  let committedMetadata;
+  await page.route('**/__local_mcp/ack', route => { committedMetadata = route.request().postDataJSON().result; return route.abort(); });
+  assert.equal((await metadataApply(lostMetadataPlan, 'metadata-lost-001')).error.code, 'OUTCOME_UNKNOWN');
+  assert.equal(committedMetadata?.status, 'applied');
+  await page.unroute('**/__local_mcp/ack');
+  await page.reload(); await connect();
+  assert.deepEqual(await metadataApply(lostMetadataPlan, 'metadata-lost-001'), { ...committedMetadata, reused: true });
+  assert.equal((await metadataApply(lostMetadataPlan, 'metadata-newid-001')).error.code, 'PLAN_NOT_FOUND');
+  pass('Metadata receipt survives lost ACK and PWA reload; a new request cannot reuse the lost session plan');
+
+  await page.locator('.note-title', { hasText: sample.title }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'More actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Metadata', exact: true }).click();
+  const metadataDialog = page.getByRole('dialog', { name: 'Metadata', exact: true });
+  await metadataDialog.getByRole('button', { name: 'Apply', exact: true }).click();
+  await page.getByRole('button', { name: /^Save$/ }).click();
+  await page.getByText('Status: Saved', { exact: true }).waitFor();
+  assert.equal((await notes(page)).find(n => n.id === receipt.id).customMetadata.find(e => e.key === 'nullable').value, null);
+  pass('MCP null metadata survives opening the metadata editor, Apply and Save');
+
+  const revokedMetadataPlan = await metadataPreview([{ action: 'upsert', key: 'review_status', value: 'revoked' }]);
+
   await page.locator('.local-mcp-indicator').click();
   await page.getByRole('button', { name: 'Advanced settings', exact: true }).click();
   await page.getByLabel('Allow reading and updating notes', { exact: true }).uncheck();
@@ -345,6 +406,17 @@ try {
     assert.ok(attempt < 30); await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.equal(value(await call('get_note', { note_id: receipt.id })).error.code, 'ACCESS_DISABLED');
+  assert.equal((await metadataApply(revokedMetadataPlan, 'metadata-revoke-001')).error.code, 'ACCESS_DISABLED');
+  await page.locator('.local-mcp-indicator').click();
+  if (await page.getByRole('button', { name: 'Advanced settings', exact: true }).getAttribute('aria-expanded') !== 'true') {
+    await page.getByRole('button', { name: 'Advanced settings', exact: true }).click();
+  }
+  await page.getByLabel('Allow reading and updating notes', { exact: true }).check();
+  await page.keyboard.press('Escape');
+  for (let attempt = 0; !value(await call('connection_status')).capabilities.includes('apply_custom_metadata_changes'); attempt++) {
+    assert.ok(attempt < 30); await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.equal((await metadataApply(revokedMetadataPlan, 'metadata-revoke-001')).error.code, 'PLAN_NOT_FOUND');
   pass('Access can be revoked while create-only connection remains active');
 
   await page.locator('.local-mcp-indicator').click();

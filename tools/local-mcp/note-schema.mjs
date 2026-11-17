@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { metadataSchemas, metadataResults } from './metadata-schema.mjs';
 
 export const noteShape = {
   request_id: z.string().regex(/^[a-zA-Z0-9_-]{8,80}$/),
@@ -14,6 +15,7 @@ const text = z.string().max(131072).refine(v => Buffer.byteLength(v) <= 131072);
 const nonemptyText = z.string().min(1).max(131072).refine(v => Buffer.byteLength(v) <= 131072);
 const editFields = { note_id: noteId, request_id: noteShape.request_id, expected_revision: z.string().regex(/^v1-[a-f0-9]{64}$/) };
 export const accessSchemas = {
+  ...metadataSchemas,
   append_note: z.object({ ...editFields, text: nonemptyText }).strict(),
   replace_note_text: z.object({ ...editFields, search_text: nonemptyText, replacement_text: text, mode: z.enum(['single', 'all']).optional() }).strict(),
   search_notes: z.object({ query: z.string().max(200).optional(), scope: z.enum(['title', 'title_body']).optional(),
@@ -30,6 +32,7 @@ const revision = z.string().regex(/^v1-[a-f0-9]{64}$/);
 const summary = z.object({ id: noteId, title: z.string(), tags: z.array(z.string()), updated_at: z.number(),
   snippet: z.string(), body_bytes: z.number().int().nonnegative() }).strict();
 export const accessResults = {
+  ...metadataResults,
   search_notes: z.object({ items: z.array(summary).max(50), total: z.number().int().nonnegative(), next_offset: z.number().int().nonnegative().nullable() }).strict(),
   get_note: z.object({ id: noteId, title: z.string(), body: z.string().refine(v => Buffer.byteLength(v) <= 131072),
     tags: z.array(z.string()), updated_at: z.number(), revision, body_bytes: z.number().int().nonnegative(),
@@ -42,4 +45,5 @@ accessResults.append_note = accessResults.update_note;
 accessResults.replace_note_text = accessResults.update_note.extend({ replacement_count: z.number().int().positive() });
 export const accessError = z.object({ error: z.object({ code: z.enum(['ACCESS_DISABLED', 'INVALID_ARGUMENT', 'NOT_FOUND',
   'STORAGE_UNAVAILABLE', 'SAVE_FAILED', 'CONFLICT', 'NOTE_BUSY', 'REQUEST_ID_CONFLICT', 'NOTE_TOO_LARGE', 'RESPONSE_TOO_LARGE', 'UNSUPPORTED_OPERATION',
-  'TEXT_NOT_FOUND', 'MULTIPLE_MATCHES', 'RESULT_TOO_LARGE']), message: z.string().max(500) }).strict() }).strict();
+  'TEXT_NOT_FOUND', 'MULTIPLE_MATCHES', 'RESULT_TOO_LARGE', 'TOO_MANY_MATCHES', 'INVALID_METADATA', 'METADATA_LIMIT_EXCEEDED',
+  'PLAN_LIMIT_EXCEEDED', 'PLAN_NOT_FOUND', 'PLAN_EXPIRED', 'PLAN_ALREADY_APPLIED']), message: z.string().max(500) }).strict() }).strict();

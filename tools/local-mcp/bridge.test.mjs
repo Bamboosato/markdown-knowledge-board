@@ -178,3 +178,35 @@ test('validates new mutation receipts, counts and structured errors', async () =
   assert.equal((await bridge.execute('replace_note_text', { ...edit, expected_count: 3 })).error.code, 'INVALID_ARGUMENT');
   bridge.close();
 });
+
+test('metadata inputs reject broad/unsafe changes and old PWA capabilities before delivery', async () => {
+  const bridge = createBridge(origin);
+  const changes = [{ action: 'upsert', key: 'review', value: null }];
+  await request(bridge, 'connect', { protocolVersion: 2, noteAccess: true, supportedOperations: supported.filter(s => !s.includes('custom_metadata')) });
+  assert.equal((await bridge.execute('preview_custom_metadata_changes', { filter: { all_notes: true }, changes })).error.code, 'UPGRADE_REQUIRED');
+  await request(bridge, 'poll', { protocolVersion: 2, noteAccess: true, supportedOperations: supported });
+  for (const filter of [{}, { all_notes: true, query: 'x' }, { scope: 'title' }, { tags: [] }, { custom_metadata: [{ key: 'x', op: 'equals' }] }]) {
+    assert.equal((await bridge.execute('preview_custom_metadata_changes', { filter, changes })).error.code, 'INVALID_ARGUMENT');
+  }
+  for (const change of [{ action: 'upsert', key: 'pinnedAt', value: 1 }, { action: 'upsert', key: 'x' },
+    { action: 'upsert', key: 'x', value: JSON.parse('{"__proto__":1}') }]) {
+    assert.equal(accessSchemas.preview_custom_metadata_changes.safeParse({ filter: { all_notes: true }, changes: [change] }).success, false);
+  }
+  assert.equal(bridge.status().busy, false); bridge.close();
+});
+
+test('metadata ACK requires a complete valid summary and the requested plan ID', async () => {
+  const bridge = createBridge(origin);
+  await request(bridge, 'connect', { protocolVersion: 2, noteAccess: true, supportedOperations: supported });
+  const plan_id = 'cmdp_00000000-0000-4000-8000-000000000001';
+  const pending = bridge.execute('apply_custom_metadata_changes', { plan_id, request_id: 'metadata-001' });
+  const { job } = (await request(bridge, 'poll')).value;
+  const revision = `v1-${'a'.repeat(64)}`;
+  const result = { status: 'applied', plan_id, matched_notes: 1, updated_notes: 1, unchanged_notes: 0, skipped_notes: 0,
+    added_fields: 1, updated_fields: 0, reused: false, items: [{ id: 'x', status: 'updated', previous_revision: revision, revision, updated_at: 1 }] };
+  for (const bad of [{ ...result, matched_notes: 2 }, { ...result, items: [] }, { ...result, plan_id: plan_id.slice(0, -1) + '2' }]) {
+    assert.equal((await request(bridge, 'ack', { deliveryId: job.deliveryId, result: bad })).status, 400);
+  }
+  assert.equal((await request(bridge, 'ack', { deliveryId: job.deliveryId, result })).status, 200);
+  assert.deepEqual(await pending, result); bridge.close();
+});

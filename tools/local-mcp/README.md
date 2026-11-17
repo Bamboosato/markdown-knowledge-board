@@ -1,5 +1,11 @@
 # ローカルMCPからPWAのノートを操作する
 
+## Custom metadata操作（runtime 0.6.0 / Windows Setup 1.3.0）
+
+`preview_custom_metadata_changes`で条件に合うノートと差分を確認し、`apply_custom_metadata_changes`で確認済みplanを一括保存する。Addは欠落キーのみ追加、Updateは既存キーのみ更新、Upsertはキーがなければ追加・あれば更新。同値は変更しない。本文・タイトル・タグ等は保持する。
+
+既存の読み取り・更新許可を使う。最大50ノート、planは10分有効。1件でも競合・編集中・保存失敗なら全件取り消し。再送には同じplan_idとrequest_idを使う。[要求・応答JSONと制限](../../docs/local-mcp-custom-metadata-spec.md)を参照。Setup 1.3.0へ更新し、Codexを再起動、PWAを更新してReconnectする。接続コードは継続利用できる。
+
 
 ## 既存ノートへのアクセス（runtime 0.5.0 / Windows Setup 1.2.0）
 
@@ -44,11 +50,11 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 
 ### 他のWindows PCへ配布する
 
-通常の配布先は[GitHub Releases：MKB Windows Setup v1.2.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.2.0)。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.2.0/MKB-Windows-Setup.zip)と[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.2.0/MKB-Windows-Setup.zip.sha256)を取得でき、Releaseの添付ファイルは30日で自動失効しない。
+通常の配布先は[GitHub Releases：MKB Windows Setup v1.3.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.3.0)。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.3.0/MKB-Windows-Setup.zip)と[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.3.0/MKB-Windows-Setup.zip.sha256)を取得でき、Releaseの添付ファイルは30日で自動失効しない。
 
 導入先の利用者向け手順は [Windowsセットアップ手順](windows/README.md)。Node.js 24以上、Codex、ChromeのMKB PWAを準備し、ダウンロードしたZIPをすべて展開して`Setup.cmd`を実行する。依存の取得、MCPの配置・登録、設定ツールの作成を行い、同名の別MCP登録は自動で上書きしない。自動登録にはCodex CLIが必要。CLIを使わない登録と既存環境の移行にも対応する。
 
-開発者はWindowsで次を実行すると、`output/windows-setup/build-*/`に配布ZIPとSHA-256ファイルを作成できる。明示した16ファイルとハッシュ一覧だけを収録するため、作業フォルダー内のノート・トークン・設定・依存の実体は入らない。依存は導入先でロックファイルから取得する。
+開発者はWindowsで次を実行すると、`output/windows-setup/build-*/`に配布ZIPとSHA-256ファイルを作成できる。明示した17ファイルとハッシュ一覧だけを収録するため、作業フォルダー内のノート・トークン・設定・依存の実体は入らない。依存は導入先でロックファイルから取得する。
 
 ```powershell
 node tools/local-mcp/windows/build-kit.mjs

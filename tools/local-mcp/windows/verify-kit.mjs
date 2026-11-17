@@ -25,7 +25,8 @@ const bundle = JSON.parse(execFileSync(process.execPath, ['tools/local-mcp/windo
 ps(`Expand-Archive -LiteralPath ${quote(bundle.archive)} -DestinationPath ${quote(work)}`);
 const kit = join(work, 'MKB-Windows-Setup');
 const manifest = JSON.parse(await readFile(join(kit, 'manifest.json'), 'utf8'));
-assert.equal(manifest.files.length, 16);
+assert.equal(manifest.files.length, 17);
+assert.ok(manifest.files.some(f => f.path === 'tools/local-mcp/metadata-schema.mjs'));
 assert.ok(manifest.files.every(f => !/identity\.json|setup-config|node_modules|\.codex|output/.test(f.path)));
 pass('ZIP extracts with only the allowlisted source files and no PC identity or credentials');
 
@@ -62,7 +63,7 @@ async function probe() {
   transport.stderr.on('data', () => {});
   try {
     await client.connect(transport);
-    assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['append_note', 'connection_status', 'create_note', 'get_note', 'replace_note_text', 'search_notes', 'update_note']);
+    assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['append_note', 'apply_custom_metadata_changes', 'connection_status', 'create_note', 'get_note', 'preview_custom_metadata_changes', 'replace_note_text', 'search_notes', 'update_note']);
     const result = await client.callTool({ name: 'connection_status', arguments: {} });
     assert.notEqual(result.isError, true);
     const status = JSON.parse(result.content[0].text);

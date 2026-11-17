@@ -2,11 +2,11 @@
 
 - 更新日：2026-11-17
 - 状態：実装確定。要求・応答と制限を同梱実装に合わせて記載。
-- 対象実装：runtime 0.5.0（末尾追記・単一置換・全件置換）。既存APIの基盤は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)。
-- MCPサーバー：`mkb-local-prototype` / runtime `0.5.0`。Codex登録名：`mkb_local_prototype`
-- PWA連携プロトコル：`2`。Windows Setup：`1.2.0`
+- 対象実装：runtime 0.6.0（Custom metadataの条件付きAdd / Update / Upsertを追加）。既存APIの基盤は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)。
+- MCPサーバー：`mkb-local-prototype` / runtime `0.6.0`。Codex登録名：`mkb_local_prototype`
+- PWA連携プロトコル：`2`。Windows Setup `1.3.0`はruntime `0.6.0`を同梱。旧Setup `1.2.0`はruntime `0.5.0`で、新metadata操作を含まない。
 
-本書は従来の既存ノートアクセス仕様案を置き換える。文書のファイル名は既存リンクとの互換性のため維持する。利用手順は[ローカルMCP README](https://github.com/Bamboosato/markdown-knowledge-board/blob/main/tools/local-mcp/README.md)、配布物は[Windows Setup 1.2.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.2.0)を参照する。
+本書は従来の既存ノートアクセス仕様案を置き換える。文書のファイル名は既存リンクとの互換性のため維持する。利用手順は[ローカルMCP README](https://github.com/Bamboosato/markdown-knowledge-board/blob/main/tools/local-mcp/README.md)、配布物は[Windows Setup 1.3.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.3.0)を参照する。
 
 ## 1. 目的・対象・構成
 
@@ -20,7 +20,7 @@ Codex → MCP STDIO server → 認証付きloopback HTTP → 共有broker
                                          IndexedDB（notes / mcpReceipts）
 ```
 
-MCP serverとPWAは両方起動している必要がある。共有brokerは`127.0.0.1`だけで待ち受け、1つのPWA接続と全ツール共通の1件の処理枠を持つ。複数Codexチャットで同じ接続を共有する。待ち行列、削除ツール、一括更新、意味検索、正規表現検索、差分パッチ、履歴復元、自動同期は提供しない。
+MCP serverとPWAは両方起動している必要がある。共有brokerは`127.0.0.1`だけで待ち受け、1つのPWA接続と全ツール共通の1件の処理枠を持つ。複数Codexチャットで同じ接続を共有する。Custom metadataのみ、確認済みplanによる最大50ノートの一括更新を提供する。待ち行列、削除ツール、本文の一括更新、意味検索、正規表現検索、差分パッチ、履歴復元、自動同期は提供しない。
 
 実装の対応箇所：
 
@@ -31,6 +31,7 @@ MCP serverとPWAは両方起動している必要がある。共有brokerは`127
 | 接続状態・配送・応答照合・制限 | `tools/local-mcp/bridge.mjs` |
 | 共有サービス・クライアント | `tools/local-mcp/broker.mjs`, `broker-client.mjs` |
 | PWAの検索・取得・更新 | `src/lib/localMcpAccess.ts` |
+| Custom metadataのpreview・一括保存・要求/応答schema | `src/lib/localMcpMetadata.ts`, `tools/local-mcp/metadata-schema.mjs` |
 | 新規作成・frontmatter処理 | `src/lib/localMcpNote.ts`, `note.ts`, `frontmatter.ts` |
 | revision・DB照合・再送記録 | `src/lib/noteRevision.ts`, `db.ts` |
 | 許可・接続保持・画面同期 | `src/components/LocalMcpPanel.tsx`, `src/lib/localMcpConnection.ts`, `noteEvents.ts`, `src/App.tsx` |
@@ -39,7 +40,7 @@ MCP serverとPWAは両方起動している必要がある。共有brokerは`127
 
 ### 2.1 呼び出しと応答の階層
 
-初期化済みのMCP STDIO接続で`tools/list`から7ツールを取得し、`tools/call`で呼び出す。`protocolVersion: 2`はPWAとbrokerの独自プロトコル番号であり、MCP initializeで交渉するプロトコルバージョンとは別である。
+初期化済みのMCP STDIO接続で`tools/list`から9ツールを取得し、`tools/call`で呼び出す。runtime 0.5.0の7ツールに、新規2ツール（7C節）を加える。`protocolVersion: 2`はPWAとbrokerの独自プロトコル番号であり、MCP initializeで交渉するプロトコルバージョンとは別である。
 
 JSON-RPC要求の完全な例：
 
@@ -141,7 +142,7 @@ JSON-RPC要求の完全な例：
 | `persistentPairing` | boolean。本番の共有broker経由ではtrue。開発用直接bridgeでは省略 |
 | `pairingToken` / `pairingCode` | string。未接続時だけ追加。tokenは64桁hex、codeは`MKB1\|origin\|token`。機密情報 |
 
-`connection_status`自身はcapabilitiesに含めない。`tools/list`は7ツールの存在、capabilitiesは現在の接続先で実行可能な操作を表す。`busy: true`でもcapabilitiesは消えず、実行時にBUSYとなる場合がある。`brokerPid`は内部管理用でありMCP応答には含めない。
+`connection_status`自身はcapabilitiesに含めない。`tools/list`は9ツールの存在、capabilitiesは現在の接続先で実行可能な操作を表す。`busy: true`でもcapabilitiesは消えず、実行時にBUSYとなる場合がある。`brokerPid`は内部管理用でありMCP応答には含めない。0.6.0同士の接続では`preview_custom_metadata_changes`と`apply_custom_metadata_changes`もbrokerCapabilitiesおよび許可後のcapabilitiesへ加わる。以下の6操作の例は0.5.0接続の例。
 
 接続・アクセス許可済みの例：
 
@@ -696,6 +697,19 @@ CONFLICTではgetをやり直して変更内容を判断する。古い本文の
 ```
 
 いずれもNoteとreceiptを保存しない。共通のCONFLICT、NOTE_BUSY、REQUEST_ID_CONFLICT等は8節を参照。
+
+## 7C. Custom metadata — 条件付きAdd / Update / Upsert
+
+runtime 0.6.0で`preview_custom_metadata_changes`と`apply_custom_metadata_changes`を追加する。要求・正常応答・エラーJSON例、全フィールド定義は[Custom metadata API仕様](./local-mcp-custom-metadata-spec.md)に集約する。MCP共通の包装は本書2節と同じ。
+
+- previewはAND条件で最大50件を選び、キーごとの変更前後・スキップ理由と10分有効のplan_idを返す。既存ノートの読み取り・更新許可を使い、ノートは保存しない。
+- Addは欠落キーだけ追加、Updateは既存キーだけ更新、Upsertは欠落なら追加・既存なら更新。同値の更新は保存日時もrevisionも維持する。
+- applyはplan_idとrequest_idだけを受け取り、対象全件のrevisionと編集状態を確認し、変更ノートとreceiptを同じtransactionで保存する。タイトル・本文・タグ・Marp・Pinは維持する。
+- 正常なskipは失敗ではない。競合・編集中・保存失敗は全件取り消し。応答喪失時は同じplan_id/request_idを再送する。成功receiptはplan期限・再接続より先に照合する。
+- メモリ上のplanは接続解除・権限解除・PWA再読み込みで破棄する。本文更新用の9節に対するmetadata専用の詳細は上記仕様を優先する。
+- 新エラーは`TOO_MANY_MATCHES`、`INVALID_METADATA`、`METADATA_LIMIT_EXCEEDED`、`PLAN_NOT_FOUND`、`PLAN_EXPIRED`、`PLAN_ALREADY_APPLIED`、`PLAN_LIMIT_EXCEEDED`。共通エラーも継承する。未知の要求フィールドを拒否する。
+
+Windows Setup 1.3.0と対応PWAで利用する。旧Setup 1.2.0には含まれない。更新後はCodex再起動、PWA更新・Reconnectが必要。接続コードは維持する。
 
 ## 8. エラー一覧と検証境界
 
