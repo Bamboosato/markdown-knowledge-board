@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { saveLocalMcpNote } from '../lib/localMcpNote';
 import { executeNoteAccess } from '../lib/localMcpAccess';
+import { createMetadataSession } from '../lib/localMcpMetadata';
 import { NoteAccessError } from '../lib/noteRevision';
 import { LOCAL_MCP_CONNECTION_KEY, parseLocalMcpCode, readLocalMcpConnection, validateLocalMcpConnection } from '../lib/localMcpConnection';
 import type { LocalMcpConnection } from '../lib/localMcpConnection';
 import './LocalMcpPanel.css';
 
 type Session = { token: string; clientId: string; origin: string };
-const supportedOperations = ['create_note', 'search_notes', 'get_note', 'update_note', 'append_note', 'replace_note_text'];
+const metadataOperations = ['preview_custom_metadata_changes', 'apply_custom_metadata_changes'];
+const supportedOperations = ['create_note', 'search_notes', 'get_note', 'update_note', 'append_note', 'replace_note_text', ...metadataOperations];
 
 async function request(session: Session, operation: string, value = {}, signal?: AbortSignal) {
   const response = await fetch(`${session.origin}/__local_mcp/${operation}`, {
@@ -42,6 +44,7 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
   const [savedConnection, setSavedConnection] = useState(readLocalMcpConnection);
   const [noteAccess, setNoteAccess] = useState(() => readLocalMcpConnection()?.noteAccess === true);
   const noteAccessRef = useRef(noteAccess);
+  const metadataSessionRef = useRef<ReturnType<typeof createMetadataSession> | null>(null);
   const [showSetup, setShowSetup] = useState(!savedConnection);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [remember, setRemember] = useState(Boolean(savedConnection));
@@ -67,6 +70,8 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
 
   useEffect(() => {
     if (!session) return;
+    const metadataSession = createMetadataSession();
+    metadataSessionRef.current = metadataSession;
     const controller = new AbortController();
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -78,8 +83,10 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
           let receipt;
           try {
             if (job.operation && job.operation !== 'create_note') {
-              receipt = await executeNoteAccess(job.operation, job.input, () => !stopped && noteAccessRef.current);
-              if (!stopped && ['update_note', 'append_note', 'replace_note_text'].includes(job.operation)) setStatus('Note update completed.');
+              receipt = metadataOperations.includes(job.operation)
+                ? await metadataSession.execute(job.operation, job.input, () => !stopped && noteAccessRef.current)
+                : await executeNoteAccess(job.operation, job.input, () => !stopped && noteAccessRef.current);
+              if (!stopped && ['update_note', 'append_note', 'replace_note_text', 'apply_custom_metadata_changes'].includes(job.operation)) setStatus('Note update completed.');
             } else {
             const saved = await saveLocalMcpNote(job.input);
             window.dispatchEvent(new CustomEvent('local-mcp-note-saved', { detail: saved.note }));
@@ -108,6 +115,8 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
     void poll();
     return () => {
       stopped = true;
+      metadataSession.close();
+      if (metadataSessionRef.current === metadataSession) metadataSessionRef.current = null;
       clearTimeout(timer);
       controller.abort();
       void request(session, 'disconnect').catch(() => {});
@@ -118,6 +127,7 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
     try {
       localStorage.removeItem(LOCAL_MCP_CONNECTION_KEY);
       noteAccessRef.current = false;
+      metadataSessionRef.current?.clear();
       setNoteAccess(false);
       if (session) void request(session, 'permissions', { noteAccess: false }).catch(() => {});
       setSavedConnection(null);
@@ -179,6 +189,7 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
   }
 
   function changeNoteAccess(allowed: boolean) {
+    if (!allowed) metadataSessionRef.current?.clear();
     noteAccessRef.current = allowed;
     setNoteAccess(allowed);
     try {

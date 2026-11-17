@@ -1,4 +1,4 @@
-import { requireDb, type UpdateReceipt } from './db';
+import { requireDb, type UpdateReceipt, type McpReceipt } from './db';
 import { assertSnapshot, canonical, digest, noteRevision, NoteAccessError } from './noteRevision';
 import { acquireNoteUpdate, notifyNotesChanged } from './noteEvents';
 import type { Note } from './types';
@@ -107,7 +107,8 @@ export async function executeNoteAccess(operation: string, raw: unknown, allowed
     const fingerprint = await digest(operation === 'update_note' ? { ...input, ...changes } : {
       operation, input: operation === 'replace_note_text' ? { ...input, mode } : input,
     });
-    const reuse = (receipt: UpdateReceipt) => {
+    const reuse = (receipt: McpReceipt) => {
+      if (receipt.result.status === 'applied') throw new NoteAccessError('REQUEST_ID_CONFLICT', 'Invalid receipt for this operation.');
       if (receipt.digest !== fingerprint) throw new NoteAccessError('REQUEST_ID_CONFLICT', 'Request ID already used for different input.');
       return { ...receipt.result, reused: true };
     };

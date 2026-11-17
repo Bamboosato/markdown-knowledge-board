@@ -137,13 +137,15 @@ try {
   let legacyClient;
   try {
     legacyClient = await start(legacyDirectory);
-    for (const name of ['append_note', 'replace_note_text']) {
-      const args = { note_id: 'x', expected_revision: `v1-${'a'.repeat(64)}`, request_id: 'legacy-check-001',
-        ...(name === 'append_note' ? { text: 'x' } : { search_text: 'a', replacement_text: 'b' }) };
+    for (const name of ['append_note', 'replace_note_text', 'preview_custom_metadata_changes', 'apply_custom_metadata_changes']) {
+      const args = name === 'preview_custom_metadata_changes' ? { filter: { all_notes: true }, changes: [{ action: 'upsert', key: 'x', value: null }] }
+        : name === 'apply_custom_metadata_changes' ? { plan_id: `cmdp_${randomUUID()}`, request_id: 'legacy-check-001' }
+        : { note_id: 'x', expected_revision: `v1-${'a'.repeat(64)}`, request_id: 'legacy-check-001',
+          ...(name === 'append_note' ? { text: 'x' } : { search_text: 'a', replacement_text: 'b' }) };
       assert.equal(unwrap(await legacyClient.callTool({ name, arguments: args })).error.code, 'UPGRADE_REQUIRED');
     }
     assert.equal(unsupportedDispatches, 0);
-    pass('New runtime rejects text edits against a legacy broker before dispatch');
+    pass('New runtime rejects text and metadata edits against a legacy broker before dispatch');
   } finally {
     await legacyClient?.close();
     legacy.closeAllConnections();

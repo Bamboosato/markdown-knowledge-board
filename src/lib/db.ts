@@ -3,14 +3,17 @@ import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import type { Note } from "./types";
 import { assertSnapshot, NoteAccessError } from './noteRevision';
 import { notifyNotesChanged } from './noteEvents';
+import type { MetadataApplyResult } from './localMcpMetadata';
 
 export type UpdateReceipt = { key: string; digest: string; result: {
   status: 'updated' | 'unchanged'; id: string; title: string; previous_revision: string;
   revision: string; updated_at: number; reused: boolean; replacement_count?: number;
 } };
+export type MetadataReceipt = { key: string; digest: string; result: MetadataApplyResult };
+export type McpReceipt = UpdateReceipt | MetadataReceipt;
 
 interface MarkdownDbSchema extends DBSchema {
-  mcpReceipts: { key: string; value: UpdateReceipt };
+  mcpReceipts: { key: string; value: McpReceipt };
   notes: {
     key: string;
     value: Note;

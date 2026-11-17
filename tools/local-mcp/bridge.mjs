@@ -88,7 +88,8 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
           const parsed = accessResults[job.operation].safeParse(result);
           const error = accessError.safeParse(result);
           if (!parsed.success && !error.success) return send(400, fail('Invalid operation receipt.'));
-          if (parsed.success && job.operation !== 'search_notes' && parsed.data.id !== job.input.note_id) return send(400, fail('Wrong note receipt.'));
+          if (parsed.success && ['get_note', 'update_note', 'append_note', 'replace_note_text'].includes(job.operation) && parsed.data.id !== job.input.note_id) return send(400, fail('Wrong note receipt.'));
+          if (parsed.success && job.operation === 'apply_custom_metadata_changes' && parsed.data.plan_id !== job.input.plan_id) return send(400, fail('Wrong plan receipt.'));
           finish(parsed.success ? parsed.data : error.data);
           return send(200, { acknowledged: true });
         }

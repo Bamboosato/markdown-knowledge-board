@@ -133,7 +133,7 @@ function parseFrontmatterBlock(text: string): {
   return { data, body };
 }
 
-function normalizeFrontmatterValue(
+export function normalizeFrontmatterValue(
   value: unknown,
   depth = 0
 ): FrontmatterValue {

@@ -59,7 +59,7 @@ export async function connectBroker() {
       try {
         await ensure();
         const status = await rpc('status');
-        if (status.protocolVersion !== 2 || (['append_note', 'replace_note_text'].includes(operation) && !status.brokerCapabilities?.includes(operation))) return { error: { code: 'UPGRADE_REQUIRED', message: 'Close all Codex clients, wait 35 seconds, then restart to update the shared service.' } };
+        if (status.protocolVersion !== 2 || (['append_note', 'replace_note_text', 'preview_custom_metadata_changes', 'apply_custom_metadata_changes'].includes(operation) && !status.brokerCapabilities?.includes(operation))) return { error: { code: 'UPGRADE_REQUIRED', message: 'Close all Codex clients, wait 35 seconds, then restart to update the shared service.' } };
         return await rpc('execute', { operation, input }, 20000);
       } catch {
         return { error: { code: 'OUTCOME_UNKNOWN', message: 'Service unavailable. Reconnect; retry an update with exactly the same request_id and input.' } };
