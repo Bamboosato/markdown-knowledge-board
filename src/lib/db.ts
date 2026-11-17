@@ -1,8 +1,16 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 
 import type { Note } from "./types";
+import { assertSnapshot, NoteAccessError } from './noteRevision';
+import { notifyNotesChanged } from './noteEvents';
+
+export type UpdateReceipt = { key: string; digest: string; result: {
+  status: 'updated' | 'unchanged'; id: string; title: string; previous_revision: string;
+  revision: string; updated_at: number; reused: boolean;
+} };
 
 interface MarkdownDbSchema extends DBSchema {
+  mcpReceipts: { key: string; value: UpdateReceipt };
   notes: {
     key: string;
     value: Note;
@@ -10,7 +18,7 @@ interface MarkdownDbSchema extends DBSchema {
 }
 
 const DB_NAME = "markdown-knowledge-board";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "notes";
 
 let dbPromise: Promise<IDBPDatabase<MarkdownDbSchema>> | null = null;
@@ -20,15 +28,20 @@ async function getDb(): Promise<IDBPDatabase<MarkdownDbSchema> | undefined> {
   if (!dbPromise) {
     dbPromise = openDB<MarkdownDbSchema>(DB_NAME, DB_VERSION, {
       upgrade(db) {
+        if (!db.objectStoreNames.contains('mcpReceipts')) db.createObjectStore('mcpReceipts', { keyPath: 'key' });
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME, { keyPath: "id" });
         }
       },
+      blocked() { dbInitError = 'Close other MKB windows, then reload to finish updating storage.'; if (typeof window !== 'undefined') window.dispatchEvent(new Event('mkb-storage-blocked')); },
+      blocking() { void dbPromise?.then(db => db.close()); dbPromise = null; },
     });
   }
 
   try {
-    return await dbPromise;
+    const db = await dbPromise;
+    dbInitError = null;
+    return db;
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to open IndexedDB.";
@@ -42,10 +55,10 @@ function createDbUnavailableError(): Error {
   return new Error(dbInitError ?? "IndexedDB is unavailable.");
 }
 
-async function requireDb(): Promise<IDBPDatabase<MarkdownDbSchema>> {
+export async function requireDb(): Promise<IDBPDatabase<MarkdownDbSchema>> {
   const db = await getDb();
   if (!db) {
-    throw createDbUnavailableError();
+    throw new NoteAccessError('STORAGE_UNAVAILABLE', createDbUnavailableError().message);
   }
   return db;
 }
@@ -66,9 +79,8 @@ export async function getNote(id: string): Promise<Note | undefined> {
   return db.get(STORE_NAME, id);
 }
 
-export async function saveNote(note: Note): Promise<void> {
-  const db = await requireDb();
-  await db.put(STORE_NAME, note);
+export async function saveNote(note: Note, expected: Note | null = null): Promise<void> {
+  await applyNotesTransaction([note], expected ? [expected] : []);
 }
 
 // Atomic create-only path for local MCP retries. Never overwrites an existing note.
@@ -97,19 +109,27 @@ export async function addNewNoteOrReuse(note: Note): Promise<{ note: Note; reuse
   }
 }
 
-export async function deleteNote(id: string): Promise<void> {
+export async function deleteNote(id: string, expected: Note): Promise<void> {
   const db = await requireDb();
-  await db.delete(STORE_NAME, id);
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  try {
+    assertSnapshot(await tx.store.get(id), expected);
+    await tx.store.delete(id);
+    await tx.done;
+    notifyNotesChanged();
+  } catch (error) { try { tx.abort(); } catch { /* finished */ } await tx.done.catch(() => {}); throw error; }
 }
 
-export async function applyNotesTransaction(notes: Note[]): Promise<void> {
+export async function applyNotesTransaction(notes: Note[], expected: Note[] = []): Promise<void> {
   const db = await requireDb();
   const transaction = db.transaction(STORE_NAME, "readwrite");
   try {
     for (const note of notes) {
+      assertSnapshot(await transaction.store.get(note.id), expected.find(item => item.id === note.id) ?? null);
       await transaction.store.put(note);
     }
     await transaction.done;
+    notifyNotesChanged();
   } catch (error) {
     try {
       transaction.abort();

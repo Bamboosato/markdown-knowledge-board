@@ -24,7 +24,7 @@ function createNote(id: string, body = `Body ${id}`): Note {
 
 async function clearNotesStore(): Promise<void> {
   const database = await new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
+    const request = indexedDB.open(DB_NAME);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(STORE_NAME)) {
         request.result.createObjectStore(STORE_NAME, { keyPath: "id" });
@@ -54,7 +54,7 @@ describe("applyNotesTransaction", () => {
     await applyNotesTransaction([
       createNote("added"),
       createNote("updated", "after"),
-    ]);
+    ], [createNote("updated", "before")]);
 
     const notes = (await getAllNotes()).sort((left, right) =>
       left.id.localeCompare(right.id)

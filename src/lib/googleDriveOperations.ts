@@ -24,6 +24,7 @@ import {
   type DriveFile,
 } from './googleDrive'
 import type { Note } from './types'
+import { canonical } from './noteRevision'
 
 export async function createGoogleBackup(token: string, accountId: string, passphrase: string, confirmation: string, preferredFolderId?: string) {
   const normalized = validateNewBackupPassphrase(passphrase, confirmation)
@@ -74,18 +75,29 @@ export async function prepareGoogleRestore(token: string, folderId: string, file
   const envelope = parseEncryptedBackupEnvelope(content)
   const document = await decryptBackupEnvelope(envelope, passphrase)
   const cloudNotes = createNotesFromBackupDocument(document)
-  const plan = await buildRestorePlan(await getAllNotes(), cloudNotes)
+  const localNotes = await getAllNotes()
+  const plan = await buildRestorePlan(localNotes, cloudNotes)
+  restoreSnapshots.set(plan, localNotes)
   return { document, plan, file }
 }
 
+const restoreSnapshots = new WeakMap<object, Note[]>()
+
 export async function applyGoogleRestore(document: Awaited<ReturnType<typeof prepareGoogleRestore>>['document'], expectedPlan: Awaited<ReturnType<typeof prepareGoogleRestore>>['plan']) {
-  const latest = await buildRestorePlan(await getAllNotes(), createNotesFromBackupDocument(document))
+  const localNotes = await getAllNotes()
+  const expected = restoreSnapshots.get(expectedPlan)
+  const latest = await buildRestorePlan(localNotes, createNotesFromBackupDocument(document))
+  const writeIds = new Set(getNotesToApply(latest).map(note => note.id))
+  const affected = (notes: Note[]) => canonical(notes.filter(note => writeIds.has(note.id)).sort((a,b) => a.id.localeCompare(b.id)))
+  if (!expected || affected(expected) !== affected(localNotes)) {
+    throw new Error('Local notes changed. Review the restore preview again.')
+  }
   const identity = (items: typeof latest) => items.map(item => [item.id, item.action, item.reason, item.localUpdatedAt, item.cloudUpdatedAt])
   if (JSON.stringify(identity(latest)) !== JSON.stringify(identity(expectedPlan))) {
     throw new Error('Local notes changed. Review the restore preview again.')
   }
   const toApply = getNotesToApply(latest)
-  if (toApply.length) await applyNotesTransaction(toApply)
+  if (toApply.length) await applyNotesTransaction(toApply, localNotes)
   return latest
 }
 

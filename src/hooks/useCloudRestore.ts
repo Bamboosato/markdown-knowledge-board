@@ -17,6 +17,8 @@ import {
   type RestorePlanItem,
 } from '../lib/cloudRestore'
 import { applyNotesTransaction, getAllNotes } from '../lib/db'
+import { canonical } from '../lib/noteRevision'
+import type { Note } from '../lib/types'
 import type { GitHubSessionState } from './useGitHubSession'
 
 export type CloudRestoreCounts = Record<RestoreAction, number> & {
@@ -109,6 +111,7 @@ export function useCloudRestore(options: {
   onReauthorizationRequired?: () => void
 }) {
   const { onReauthorizationRequired } = options
+  const restoreSnapshotRef = useRef<Note[]>([])
   const [downloading, setDownloading] = useState(false)
   const [preparing, setPreparing] = useState(false)
   const [applying, setApplying] = useState(false)
@@ -189,6 +192,7 @@ export function useCloudRestore(options: {
       const cloudNotes = createNotesFromBackupDocument(document)
       const localNotes = await getAllNotes()
       const plan = await buildRestorePlan(localNotes, cloudNotes)
+      restoreSnapshotRef.current = localNotes
       const nextPreview: CloudRestorePreview = {
         createdAt: document.createdAt,
         noteCount: document.noteCount,
@@ -222,7 +226,10 @@ export function useCloudRestore(options: {
         const cloudNotes = createNotesFromBackupDocument(document)
         const localNotes = await getAllNotes()
         const latestPlan = await buildRestorePlan(localNotes, cloudNotes)
-        if (!samePlan(currentPreview.plan, latestPlan)) {
+        const writeIds = new Set(getNotesToApply(latestPlan).map(note => note.id))
+        const affected = (notes: Note[]) => canonical(notes.filter(note => writeIds.has(note.id)))
+        if (!samePlan(currentPreview.plan, latestPlan) || affected(localNotes) !== affected(restoreSnapshotRef.current)) {
+          restoreSnapshotRef.current = localNotes
           setPreview({
             ...currentPreview,
             plan: latestPlan,
@@ -236,7 +243,7 @@ export function useCloudRestore(options: {
         const notesToApply = getNotesToApply(latestPlan)
         try {
           if (notesToApply.length > 0) {
-            await applyNotesTransaction(notesToApply)
+            await applyNotesTransaction(notesToApply, localNotes)
           }
         } catch {
           const failedResult = countPlan(latestPlan, notesToApply.length)

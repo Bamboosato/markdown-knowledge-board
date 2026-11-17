@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useCallback } from "react";
 import { useLayoutEffect } from "react";
 import type {
@@ -117,6 +117,7 @@ import type {
   Note,
 } from "./lib/types";
 import { dbInitError, deleteNote, getAllNotes, saveNote } from "./lib/db";
+import { canonical } from './lib/noteRevision';
 import {
   createBackupDocument,
   parseImportFileContent,
@@ -578,6 +579,7 @@ function App() {
   >([]);
   const [isDirty, setIsDirtyState] = useState(false);
   const isDirtyRef = useRef(false);
+  const draftBaseRef = useRef<Note | null>(null);
   const setIsDirty = useCallback((value: boolean) => {
     if (value) importInteractionRevisionRef.current += 1;
     isDirtyRef.current = value;
@@ -1433,9 +1435,10 @@ function App() {
     };
   }, [isTagFilterSuggestOpen]);
 
-  const resetDraft = (note?: Note) => {
+  const resetDraft = (note?: Note, resetEditor = true) => {
+    draftBaseRef.current = note ?? null;
     closeTagSuggestions();
-    setBodyEditorResetKey((current) => current + 1);
+    if (resetEditor) setBodyEditorResetKey((current) => current + 1);
     if (!note) {
       setDraftTitle("");
       setDraftTags([]);
@@ -1487,6 +1490,43 @@ function App() {
     setLastSaveError(null);
     setSaveStatus((current) => (current === "draft" ? "draft" : "unsaved"));
   };
+
+  const beforeMcpUpdate = useEffectEvent((event: Event) => {
+    const id = (event as CustomEvent<{ id: string }>).detail.id;
+    if (importRequestRef.current || isImporting || pendingDeleteRef.current?.note.id === id ||
+        (selectedId === id && (isDirtyRef.current || tagInputRef.current.trim() ||
+          saveStatusRef.current === 'saving' || isMetadataDialogOpen))) event.preventDefault();
+  });
+  const applyExternalNotes = useEffectEvent((latest: Note[]) => {
+    if (dbInitError) { setDbError(dbInitError); return; }
+    setNotes(sortNotes(latest));
+    const current = latest.find(note => note.id === selectedId);
+    if (!isDirtyRef.current && !tagInputRef.current.trim() && saveStatusRef.current !== 'saving' &&
+        !isMetadataDialogOpen && !importRequestRef.current && current &&
+        canonical(current) !== canonical(draftBaseRef.current)) resetDraft(current, false);
+  });
+  useEffect(() => {
+    let active = true;
+    let generation = 0;
+    const beforeUpdate = (event: Event) => beforeMcpUpdate(event);
+    const changed = () => {
+      const ticket = ++generation;
+      void getAllNotes().then(notes => { if (active && ticket === generation) applyExternalNotes(notes); });
+    };
+    const blocked = () => { setDbError(dbInitError); };
+    const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('mkb-notes');
+    if (channel) channel.onmessage = changed;
+    window.addEventListener('mkb-before-note-update', beforeUpdate);
+    window.addEventListener('mkb-notes-changed', changed);
+    window.addEventListener('mkb-storage-blocked', blocked);
+    return () => {
+      active = false;
+      channel?.close();
+      window.removeEventListener('mkb-before-note-update', beforeUpdate);
+      window.removeEventListener('mkb-notes-changed', changed);
+      window.removeEventListener('mkb-storage-blocked', blocked);
+    };
+  }, []);
 
   const captureEditorSelection = (): EditorSelectionSnapshot | null => {
     const snapshot = bodyRef.current?.getSelectionSnapshot() ?? null;
@@ -1578,7 +1618,7 @@ function App() {
     }
 
     try {
-      await deleteNote(pending.note.id);
+      await deleteNote(pending.note.id, pending.note);
       setDbError(dbInitError);
     } catch (error) {
       setDbError(getErrorMessage(error, "Failed to delete the note."));
@@ -1634,7 +1674,7 @@ function App() {
     }
 
     try {
-      await saveNote(pending.note);
+      await saveNote(pending.note, pending.note);
       setDbError(dbInitError);
       setNotes((prev) => {
         const without = prev.filter((note) => note.id !== pending.note.id);
@@ -1911,7 +1951,7 @@ function App() {
                 continue;
               }
 
-              await saveNote(candidate);
+              await saveNote(candidate, existing);
               importedNotes.set(candidate.id, candidate);
               workingNotes = workingNotes.map((note, index) =>
                 index === matchIndex ? candidate : note
@@ -2071,7 +2111,7 @@ function App() {
               restoreImportFocus(returnFocusTarget);
               return;
             }
-            replacementBase = draftSnapshot;
+            replacementBase = draftBaseRef.current;
           }
         }
       } else if (selectedNote || selectedId !== targetNoteId) {
@@ -2181,7 +2221,7 @@ function App() {
       }
 
       try {
-        await saveNote(nextNote);
+        await saveNote(nextNote, replacementBase);
       } catch (error) {
         const message = getErrorMessage(error, "Failed to save the note.");
         setDbError(message);
@@ -2589,7 +2629,8 @@ function App() {
     setLastSaveError(null);
 
     try {
-      await saveNote(note);
+      await saveNote(note, draftBaseRef.current?.id === note.id ? draftBaseRef.current : null);
+      draftBaseRef.current = note;
       setDbError(dbInitError);
       setNotes((prev) => {
         const without = prev.filter((item) => item.id !== note.id);
@@ -3419,7 +3460,10 @@ function App() {
 
     setNoteCardActionBusyId(note.id);
     try {
-      await saveNote(nextNote);
+      await saveNote(nextNote, note);
+      if (draftBaseRef.current?.id === note.id && canonical(draftBaseRef.current) === canonical(note)) {
+        draftBaseRef.current = nextNote;
+      }
       setNotes((prev) =>
         sortNotes(
           prev.map((item) => (item.id === nextNote.id ? nextNote : item))

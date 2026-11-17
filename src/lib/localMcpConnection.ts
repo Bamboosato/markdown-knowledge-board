@@ -1,4 +1,4 @@
-export type LocalMcpConnection = { origin: string; token: string };
+export type LocalMcpConnection = { origin: string; token: string; noteAccess?: boolean };
 
 export const LOCAL_MCP_CONNECTION_KEY = 'mkb-local-mcp-connection-v1';
 
@@ -27,7 +27,8 @@ export function readLocalMcpConnection(): LocalMcpConnection | null {
   try {
     const value = JSON.parse(localStorage.getItem(LOCAL_MCP_CONNECTION_KEY) ?? 'null');
     if (typeof value?.origin !== 'string' || typeof value?.token !== 'string') return null;
-    return validateLocalMcpConnection(value.origin, value.token);
+    const connection = validateLocalMcpConnection(value.origin, value.token);
+    return value.noteAccess === true ? { ...connection, noteAccess: true } : connection;
   } catch {
     return null;
   }

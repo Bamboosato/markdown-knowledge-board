@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { createBridge } from './bridge.mjs';
 import { loadIdentity } from './identity.mjs';
-import { noteSchema } from './note-schema.mjs';
+import { noteSchema, accessSchemas } from './note-schema.mjs';
 
 export const SERVICE = 'mkb-local-broker-v1';
 const identity = await loadIdentity();
@@ -39,6 +39,11 @@ const http = createServer((req, res) => {
         const parsed = noteSchema.safeParse(input);
         if (!parsed.success) { send(400, { error: 'Invalid note input.' }); return; }
         send(200, await bridge.create(parsed.data));
+      } else if (req.url === '/__local_mcp_admin/execute') {
+        const schema = Object.hasOwn(accessSchemas, input.operation) && accessSchemas[input.operation];
+        const parsed = schema && schema.safeParse(input.input);
+        if (!parsed?.success) { send(400, { error: { code: 'INVALID_ARGUMENT', message: 'Invalid note request.' } }); return; }
+        send(200, await bridge.execute(input.operation, parsed.data));
       } else send(404, { error: 'Unknown operation.' });
     } catch { if (!res.headersSent) send(400, { error: 'Invalid request.' }); }
   })();
