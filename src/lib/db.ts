@@ -6,7 +6,7 @@ import { notifyNotesChanged } from './noteEvents';
 
 export type UpdateReceipt = { key: string; digest: string; result: {
   status: 'updated' | 'unchanged'; id: string; title: string; previous_revision: string;
-  revision: string; updated_at: number; reused: boolean;
+  revision: string; updated_at: number; reused: boolean; replacement_count?: number;
 } };
 
 interface MarkdownDbSchema extends DBSchema {

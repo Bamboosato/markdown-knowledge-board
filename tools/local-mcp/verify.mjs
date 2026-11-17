@@ -52,7 +52,7 @@ try {
   const pairingCode = setup.pairingCode;
   assert.equal(pairingCode, `MKB1|${origin}|${token}`);
   assert.ok(token, 'Server must return setup instructions through the MCP tool');
-  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['connection_status', 'create_note', 'get_note', 'search_notes', 'update_note']);
+  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['append_note', 'connection_status', 'create_note', 'get_note', 'replace_note_text', 'search_notes', 'update_note']);
   pass('MCP initialize and tools/list');
   assert.equal((await call('create_note', sample)).isError, true);
   assert.equal(value(await call('connection_status')).connected, false);
@@ -260,10 +260,34 @@ try {
   assert.deepEqual(current.tags, sample.tags);
   pass('Explicit access opt-in; real MCP search/get/update, metadata preservation, revision conflict and idempotent retry');
 
+  const appendInput = { note_id: receipt.id, expected_revision: current.revision, request_id: 'access-append-001', text: '\nRepeat Repeat\nUnique' };
+  assert.equal(value(await call('append_note', appendInput)).status, 'updated');
+  assert.equal(value(await call('append_note', appendInput)).reused, true);
+  assert.equal(value(await call('append_note', { ...appendInput, request_id: 'append-stale-001' })).error.code, 'CONFLICT');
+  current = value(await call('get_note', { note_id: receipt.id }));
+  assert.equal(current.body, updateInput.body + appendInput.text);
+  const replaceInput = { note_id: receipt.id, expected_revision: current.revision, request_id: 'access-replace-001', search_text: 'Repeat', replacement_text: '$&$1' };
+  assert.equal(value(await call('replace_note_text', replaceInput)).error.code, 'MULTIPLE_MATCHES');
+  assert.equal(value(await call('replace_note_text', { ...replaceInput, search_text: 'Absent' })).error.code, 'TEXT_NOT_FOUND');
+  const allInput = { ...replaceInput, mode: 'all' };
+  assert.equal(value(await call('replace_note_text', allInput)).replacement_count, 2);
+  assert.equal(value(await call('replace_note_text', allInput)).reused, true);
+  assert.equal(value(await call('replace_note_text', { ...allInput, mode: 'single' })).error.code, 'REQUEST_ID_CONFLICT');
+  current = value(await call('get_note', { note_id: receipt.id }));
+  assert.equal(current.body, updateInput.body + '\n$&$1 $&$1\nUnique');
+  const singleInput = { ...replaceInput, expected_revision: current.revision, request_id: 'access-single-001', search_text: 'Unique', replacement_text: '' };
+  assert.equal(value(await call('replace_note_text', singleInput)).replacement_count, 1);
+  assert.equal(value(await call('replace_note_text', { ...singleInput, mode: 'single' })).reused, true);
+  current = value(await call('get_note', { note_id: receipt.id }));
+  assert.deepEqual(current.tags, sample.tags);
+  pass('Real MCP append/single/all, literal replacements, rejection without writes, counts and exact retry');
+
   await page.locator('.note-title', { hasText: sample.title }).click();
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByRole('textbox', { name: 'Body', exact: true }).fill('Uncommitted draft');
   assert.equal(value(await call('update_note', { ...updateInput, expected_revision: current.revision, request_id: 'access-busy-001' })).error.code, 'NOTE_BUSY');
+  assert.equal(value(await call('append_note', { ...appendInput, expected_revision: current.revision, request_id: 'append-busy-001' })).error.code, 'NOTE_BUSY');
+  assert.equal(value(await call('replace_note_text', { ...allInput, expected_revision: current.revision, request_id: 'replace-busy-001', search_text: '$&$1' })).error.code, 'NOTE_BUSY');
   assert.equal(await page.getByRole('textbox', { name: 'Body', exact: true }).textContent(), 'Uncommitted draft');
   await page.getByRole('button', { name: /^Save$/ }).click();
   await page.getByText('Status: Saved', { exact: true }).waitFor();
@@ -296,6 +320,22 @@ try {
   assert.equal(value(await call('update_note', lostUpdate)).reused, true);
   assert.equal(value(await call('get_note', { note_id: receipt.id })).body, lostUpdate.body);
   pass('Lost update ACK and PWA reload preserve permission and durable receipt without repeating update');
+
+  for (const operation of ['append_note', 'replace_note_text']) {
+    current = value(await call('get_note', { note_id: receipt.id }));
+    const input = { note_id: receipt.id, expected_revision: current.revision, request_id: `lost-${operation}-001`,
+      ...(operation === 'append_note' ? { text: '\nEcho Echo' } : { search_text: 'Echo', replacement_text: 'Done', mode: 'all' }) };
+    let committed;
+    await page.route('**/__local_mcp/ack', route => { committed = route.request().postDataJSON().result; return route.abort(); });
+    assert.equal(value(await call(operation, input)).error.code, 'OUTCOME_UNKNOWN');
+    assert.equal(committed?.status, 'updated');
+    await page.unroute('**/__local_mcp/ack');
+    await page.reload();
+    await connect();
+    assert.deepEqual(value(await call(operation, input)), { ...committed, reused: true });
+    assert.equal(value(await call('get_note', { note_id: receipt.id })).body, operation === 'append_note' ? current.body + '\nEcho Echo' : current.body.replaceAll('Echo', 'Done'));
+  }
+  pass('Append and replace-all lost ACK/reload retries preserve the original count and never repeat the write');
 
   await page.locator('.local-mcp-indicator').click();
   await page.getByRole('button', { name: 'Advanced settings', exact: true }).click();

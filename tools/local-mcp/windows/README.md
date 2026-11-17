@@ -5,10 +5,10 @@
 
 ## セットアップ一式の入手
 
-通常は[GitHub Releases：MKB Windows Setup v1.1.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.1.0)のAssetsから、次のファイルをダウンロードしてください。
+通常は[GitHub Releases：MKB Windows Setup v1.2.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.2.0)のAssetsから、次のファイルをダウンロードしてください。
 
-- [MKB-Windows-Setup.zip](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.1.0/MKB-Windows-Setup.zip)：セットアップ一式
-- [MKB-Windows-Setup.zip.sha256](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.1.0/MKB-Windows-Setup.zip.sha256)：対応するZIPのSHA-256チェックサム
+- [MKB-Windows-Setup.zip](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.2.0/MKB-Windows-Setup.zip)：セットアップ一式
+- [MKB-Windows-Setup.zip.sha256](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.2.0/MKB-Windows-Setup.zip.sha256)：対応するZIPのSHA-256チェックサム
 
 Releaseの添付ファイルは30日で自動失効しません。GitHub Actionsの検証用Artifactsに設定された30日間の保持期間とは別です。公開中のReleaseから同じリンクで取得できます。
 

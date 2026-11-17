@@ -1,5 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { accessSchemas, accessResults, accessError } from './note-schema.mjs';
+const brokerCapabilities = ['create_note', ...Object.keys(accessSchemas)];
+function supportedOperations(body) {
+  if (!Object.hasOwn(body, 'supportedOperations')) return body.protocolVersion === 2 ? ['create_note', 'search_notes', 'get_note', 'update_note'] : ['create_note'];
+  if (!Array.isArray(body.supportedOperations) || body.supportedOperations.some(v => typeof v !== 'string')) throw new Error('Invalid capabilities.');
+  return brokerCapabilities.filter(name => body.supportedOperations.includes(name));
+}
 
 // One paired tab, one in-flight write; no note body or token is logged.
 export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [origin], token = randomBytes(32).toString('hex') } = {}) {
@@ -56,7 +62,7 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
         if ((fresh() || job) && client?.id !== body.clientId) {
           return send(409, fail('Another tab is connected. Disconnect it first.'));
         }
-        client = { id: body.clientId, origin: req.headers.origin, seen: Date.now(), protocolVersion: body.protocolVersion === 2 ? 2 : 1, noteAccess: body.noteAccess === true };
+        client = { id: body.clientId, origin: req.headers.origin, seen: Date.now(), protocolVersion: body.protocolVersion === 2 ? 2 : 1, noteAccess: body.noteAccess === true, supportedOperations: supportedOperations(body) };
         return send(200, { connected: true, protocolVersion: 2 });
       }
       if (client?.id !== body.clientId || client.origin !== req.headers.origin) return send(409, fail('Connect this tab first.'));
@@ -66,7 +72,8 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
         return send(200, { updated: true });
       }
       if (req.url === '/__local_mcp/poll') {
-        if (body.protocolVersion === 2) { client.protocolVersion = 2; client.noteAccess = body.noteAccess === true; }
+        const supported = supportedOperations(body);
+        if (body.protocolVersion === 2) { client.protocolVersion = 2; client.noteAccess = body.noteAccess === true; client.supportedOperations = supported; }
         return send(200, { job: job ? { deliveryId: job.deliveryId, operation: job.operation, input: job.input } : null });
       }
       if (req.url === '/__local_mcp/disconnect') {
@@ -104,12 +111,13 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
     token,
     middleware,
     status: () => ({ connected: Boolean(fresh()), busy: Boolean(job), origin, browserOrigin: fresh() ? client.origin : null,
-      protocolVersion: 2, capabilities: fresh() ? ['create_note', ...(client.protocolVersion === 2 && client.noteAccess ? Object.keys(accessSchemas) : [])] : [] }),
+      protocolVersion: 2, brokerCapabilities, capabilities: fresh() ? client.supportedOperations.filter(name => name === 'create_note' || client.protocolVersion === 2 && client.noteAccess) : [] }),
     execute: (operation, input) => {
       const error = (code, message) => Promise.resolve({ error: { code, message } });
       if (!Object.hasOwn(accessSchemas, operation) || !accessSchemas[operation].safeParse(input).success) return error('INVALID_ARGUMENT', 'Invalid note request.');
       if (!fresh()) return error('NOT_CONNECTED', 'Open MKB and reconnect.');
       if (client.protocolVersion !== 2) return error('UPGRADE_REQUIRED', 'Update the MKB PWA.');
+      if (!client.supportedOperations.includes(operation)) return error('UPGRADE_REQUIRED', 'Update the MKB PWA to use this operation.');
       if (!client.noteAccess) return error('ACCESS_DISABLED', 'Enable reading and updating notes in MKB Advanced settings.');
       if (job) return error('BUSY', 'Another operation is in progress.');
       return new Promise(resolve => {
@@ -119,6 +127,7 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
     },
     create: (input) => {
       if (!fresh()) return Promise.resolve(fail('No connected browser. Open the local app and connect first.'));
+      if (!client.supportedOperations.includes('create_note')) return Promise.resolve(fail('Update the MKB PWA to create notes.'));
       if (job) return Promise.resolve(fail('Another save is in progress. Retry later with the same request_id.'));
       return new Promise((resolve) => {
         job = {

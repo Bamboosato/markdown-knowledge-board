@@ -8,6 +8,7 @@ import type { LocalMcpConnection } from '../lib/localMcpConnection';
 import './LocalMcpPanel.css';
 
 type Session = { token: string; clientId: string; origin: string };
+const supportedOperations = ['create_note', 'search_notes', 'get_note', 'update_note', 'append_note', 'replace_note_text'];
 
 async function request(session: Session, operation: string, value = {}, signal?: AbortSignal) {
   const response = await fetch(`${session.origin}/__local_mcp/${operation}`, {
@@ -71,14 +72,14 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        const { job } = await request(session, 'poll', { protocolVersion: 2, noteAccess: noteAccessRef.current }, AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]));
+        const { job } = await request(session, 'poll', { protocolVersion: 2, supportedOperations, noteAccess: noteAccessRef.current }, AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]));
         if (stopped) return;
         if (job) {
           let receipt;
           try {
             if (job.operation && job.operation !== 'create_note') {
               receipt = await executeNoteAccess(job.operation, job.input, () => !stopped && noteAccessRef.current);
-              if (!stopped && job.operation === 'update_note') setStatus('Note update completed.');
+              if (!stopped && ['update_note', 'append_note', 'replace_note_text'].includes(job.operation)) setStatus('Note update completed.');
             } else {
             const saved = await saveLocalMcpNote(job.input);
             window.dispatchEvent(new CustomEvent('local-mcp-note-saved', { detail: saved.note }));
@@ -140,7 +141,7 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
       const allowed = stored?.origin === next.origin && stored?.token === next.token && stored.noteAccess === true;
       noteAccessRef.current = allowed;
       setNoteAccess(allowed);
-      await request(next, 'connect', { protocolVersion: 2, noteAccess: allowed }, AbortSignal.timeout(60000));
+      await request(next, 'connect', { protocolVersion: 2, supportedOperations, noteAccess: allowed }, AbortSignal.timeout(60000));
       if (!mountedRef.current) {
         await request(next, 'disconnect').catch(() => {});
         return;

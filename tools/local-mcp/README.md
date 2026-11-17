@@ -1,7 +1,7 @@
 # ローカルMCPからPWAのノートを操作する
 
 
-## 既存ノートへのアクセス（runtime 0.4.0 / Windows Setup 1.1.0）
+## 既存ノートへのアクセス（runtime 0.5.0 / Windows Setup 1.2.0）
 
 `search_notes`、`get_note`、`update_note`を追加。既存の接続コードを使い、MKBの **Local MCP → Advanced settings → Allow reading and updating notes** を一度オンにする。Remember in this browserで接続を保存していれば許可も保持し、以後はReconnectだけで利用できる。初期値はオフ。Forget connectionや異なるコードへの変更では許可を引き継がない。
 
@@ -10,6 +10,8 @@
 - `search_notes`: title/bodyの部分一致、完全一致のANDタグ、最大50件のページ。query省略は一覧。ページ間のsnapshot固定はしない。
 - `get_note`: ID指定で本文・metadata・revisionを取得。本文128 KiB UTF-8まで。大きい本文は切り詰めずエラー。
 - `update_note`: ID、getで取得したexpected_revision、一意のrequest_idを指定。bodyは全文置換、title/tagsは任意。省略項目とPin/Marp/Custom metadataは保持。body先頭のfrontmatterも文字列として保存。
+- `append_note`: 保存本文の末尾へtextをそのまま追記。改行は必要ならtextに含める。
+- `replace_note_text`: 既定は完全一致1か所だけを置換。明示的なmode=allで1ノート内の非重複一致を全件置換し、replacement_countを返す。0件は更新しない。想定件数の指定は不要。どちらもgetのrevisionとrequest_idが必要。
 - 競合時は再取得して変更を再判断する。未保存の対象ノートには書き込まない。別タブの古いdraftを保存しようとした場合も上書きを拒否し、draftを残す。
 - 応答喪失時は**同じrequest_id・同じ入力**で再送する。receiptはブラウザDBに保持され、後続編集を巻き戻さない。サイトデータ消去・別ブラウザ移行後は再送保証の対象外。
 
@@ -17,7 +19,7 @@
 
 更新時は新版セットアップを実行してCodexを再起動し、MKBも最新版へ再読み込みする。旧brokerが残る場合は全Codexクライアント終了後35秒待つ。DB移行を他のMKB画面が妨げる場合は、未保存内容を保存してからそれらを閉じる。ペアリングは保持される。
 
-要求・応答の定義、全5ツールのJSON例、エラー形式、再送・容量制限は[Local MCP API設計書（確定版）](../../docs/local-mcp-note-access-spec.md)を参照。隔離Chromiumの実MCP通し試験は`node tools/local-mcp/verify.mjs`。別PCや本番PWAの実動作確認とは区別する。
+要求・応答の定義、全7ツールのJSON例、エラー形式、再送・容量制限は[Local MCP API設計書（確定版）](../../docs/local-mcp-note-access-spec.md)を参照。隔離Chromiumの実MCP通し試験は`node tools/local-mcp/verify.mjs`。別PCや本番PWAの実動作確認とは区別する。
 
 ## 新規作成の本番確認記録（2026-11-16）
 
@@ -42,7 +44,7 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 
 ### 他のWindows PCへ配布する
 
-通常の配布先は[GitHub Releases：MKB Windows Setup v1.1.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.1.0)。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.1.0/MKB-Windows-Setup.zip)と[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.1.0/MKB-Windows-Setup.zip.sha256)を取得でき、Releaseの添付ファイルは30日で自動失効しない。
+通常の配布先は[GitHub Releases：MKB Windows Setup v1.2.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.2.0)。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.2.0/MKB-Windows-Setup.zip)と[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.2.0/MKB-Windows-Setup.zip.sha256)を取得でき、Releaseの添付ファイルは30日で自動失効しない。
 
 導入先の利用者向け手順は [Windowsセットアップ手順](windows/README.md)。Node.js 24以上、Codex、ChromeのMKB PWAを準備し、ダウンロードしたZIPをすべて展開して`Setup.cmd`を実行する。依存の取得、MCPの配置・登録、設定ツールの作成を行い、同名の別MCP登録は自動で上書きしない。自動登録にはCodex CLIが必要。CLIを使わない登録と既存環境の移行にも対応する。
 

@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { createBridge } from './bridge.mjs';
+import { accessSchemas } from './note-schema.mjs';
 
 const origin = 'http://127.0.0.1:5186';
 const clientId = '00000000-0000-4000-8000-000000000001';
 const input = { request_id: 'test-request', title: '架空のノート 📝', markdown: '# Synthetic', tags: [] };
+const supported = ['create_note', ...Object.keys(accessSchemas)];
 async function request(bridge, path, body = {}, headers = {}) {
   // Deliberately split UTF-8 characters across chunks, as TCP is allowed to do.
   const req = Readable.from(Array.from(Buffer.from(JSON.stringify({ clientId, ...body })), byte => Buffer.from([byte])));
@@ -131,4 +133,48 @@ test('access disconnect and timeout return structured unknown outcomes', async (
   const pending = bridge.execute('get_note', { note_id: 'x' });
   bridge.close();
   assert.equal((await pending).error.code, 'OUTCOME_UNKNOWN');
+});
+
+test('negotiates old, empty, partial and new PWA capabilities without dispatching unsupported edits', async () => {
+  const bridge = createBridge(origin);
+  const edit = { note_id: 'x', request_id: 'append-0001', expected_revision: `v1-${'a'.repeat(64)}`, text: 'x' };
+  assert.deepEqual(bridge.status().brokerCapabilities, supported);
+  await request(bridge, 'connect', { protocolVersion: 2, noteAccess: true });
+  assert.deepEqual(bridge.status().capabilities, ['create_note', 'search_notes', 'get_note', 'update_note']);
+  assert.equal((await bridge.execute('append_note', edit)).error.code, 'UPGRADE_REQUIRED');
+  assert.equal(bridge.status().busy, false);
+  assert.equal((await request(bridge, 'poll', { protocolVersion: 2, noteAccess: true, supportedOperations: 'invalid' })).status, 400);
+  await request(bridge, 'poll', { protocolVersion: 2, noteAccess: true, supportedOperations: [] });
+  assert.deepEqual(bridge.status().capabilities, []);
+  assert.ok((await bridge.create(input)).error);
+  await request(bridge, 'poll', { protocolVersion: 2, noteAccess: true, supportedOperations: [...supported, 'unknown'] });
+  assert.deepEqual(bridge.status().capabilities, supported);
+  await request(bridge, 'permissions', { noteAccess: false });
+  assert.deepEqual(bridge.status().capabilities, ['create_note']);
+  assert.equal((await bridge.execute('append_note', edit)).error.code, 'ACCESS_DISABLED');
+  bridge.close();
+});
+
+test('validates new mutation receipts, counts and structured errors', async () => {
+  const bridge = createBridge(origin);
+  await request(bridge, 'connect', { protocolVersion: 2, noteAccess: true, supportedOperations: supported });
+  const revision = `v1-${'a'.repeat(64)}`;
+  const edit = { note_id: 'x', request_id: 'replace-0001', expected_revision: revision, search_text: 'a', replacement_text: 'b', mode: 'all' };
+  const pending = bridge.execute('replace_note_text', edit);
+  const { job } = (await request(bridge, 'poll', { protocolVersion: 2, noteAccess: true, supportedOperations: supported })).value;
+  const receipt = { status: 'updated', id: 'x', title: 'Test', previous_revision: revision, revision, updated_at: 1, reused: false };
+  assert.equal((await request(bridge, 'ack', { deliveryId: job.deliveryId, result: receipt })).status, 400);
+  assert.equal((await request(bridge, 'ack', { deliveryId: job.deliveryId, result: { ...receipt, replacement_count: 0 } })).status, 400);
+  const result = { ...receipt, replacement_count: 3 };
+  assert.equal((await request(bridge, 'ack', { deliveryId: job.deliveryId, result })).status, 200);
+  assert.deepEqual(await pending, result);
+  for (const code of ['TEXT_NOT_FOUND', 'MULTIPLE_MATCHES', 'RESULT_TOO_LARGE']) {
+    const failure = bridge.execute('replace_note_text', edit);
+    const { job } = (await request(bridge, 'poll', { protocolVersion: 2, noteAccess: true, supportedOperations: supported })).value;
+    const error = { error: { code, message: 'No update.' } };
+    assert.equal((await request(bridge, 'ack', { deliveryId: job.deliveryId, result: error })).status, 200);
+    assert.deepEqual(await failure, error);
+  }
+  assert.equal((await bridge.execute('replace_note_text', { ...edit, expected_count: 3 })).error.code, 'INVALID_ARGUMENT');
+  bridge.close();
 });

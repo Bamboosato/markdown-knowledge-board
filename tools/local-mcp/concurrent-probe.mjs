@@ -125,6 +125,31 @@ try {
   assert.equal(await readFile(`${corruptDirectory}/identity.json`, 'utf8'), '{broken');
   pass('Corrupt identity is not silently replaced');
 
+  let unsupportedDispatches = 0;
+  const legacy = createHttpServer((req, res) => {
+    if (req.url.endsWith('/execute')) unsupportedDispatches++;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ service: 'mkb-local-broker-v1', value: { protocolVersion: 2, connected: true, capabilities: ['create_note', 'search_notes', 'get_note', 'update_note'] } }));
+  });
+  await new Promise(resolve => legacy.listen(0, '127.0.0.1', resolve));
+  const legacyDirectory = `${directory}/legacy`;
+  await loadIdentity({ directory: legacyDirectory, seed: { port: legacy.address().port } });
+  let legacyClient;
+  try {
+    legacyClient = await start(legacyDirectory);
+    for (const name of ['append_note', 'replace_note_text']) {
+      const args = { note_id: 'x', expected_revision: `v1-${'a'.repeat(64)}`, request_id: 'legacy-check-001',
+        ...(name === 'append_note' ? { text: 'x' } : { search_text: 'a', replacement_text: 'b' }) };
+      assert.equal(unwrap(await legacyClient.callTool({ name, arguments: args })).error.code, 'UPGRADE_REQUIRED');
+    }
+    assert.equal(unsupportedDispatches, 0);
+    pass('New runtime rejects text edits against a legacy broker before dispatch');
+  } finally {
+    await legacyClient?.close();
+    legacy.closeAllConnections();
+    await new Promise(resolve => legacy.close(resolve));
+  }
+
   const occupied = createHttpServer((_req, res) => { res.writeHead(403); res.end(); });
   await new Promise(resolve => occupied.listen(0, '127.0.0.1', resolve));
   const blockedDirectory = `${directory}/occupied`;
