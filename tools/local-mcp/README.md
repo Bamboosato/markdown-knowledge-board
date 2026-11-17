@@ -17,7 +17,7 @@
 
 更新時は新版セットアップを実行してCodexを再起動し、MKBも最新版へ再読み込みする。旧brokerが残る場合は全Codexクライアント終了後35秒待つ。DB移行を他のMKB画面が妨げる場合は、未保存内容を保存してからそれらを閉じる。ペアリングは保持される。
 
-詳細は[既存ノートアクセス仕様](../../docs/local-mcp-note-access-spec.md)。隔離Chromiumの実MCP通し試験は`node tools/local-mcp/verify.mjs`。別PCや本番PWAの実動作確認とは区別する。
+要求・応答の定義、全5ツールのJSON例、エラー形式、再送・容量制限は[Local MCP API設計書（確定版）](../../docs/local-mcp-note-access-spec.md)を参照。隔離Chromiumの実MCP通し試験は`node tools/local-mcp/verify.mjs`。別PCや本番PWAの実動作確認とは区別する。
 
 ## 新規作成の本番確認記録（2026-11-16）
 
