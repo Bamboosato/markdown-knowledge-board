@@ -1,12 +1,12 @@
 # MKB Local MCP API設計書（確定版）
 
 - 更新日：2026-11-17
-- 状態：実装確定。要求・応答と制限を公開済み実装に合わせて記載。
-- 対象実装：`b99e63d4b3f01e5e24907f3689fb554b67b9f574`（[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)）
-- MCPサーバー：`mkb-local-prototype` / runtime `0.4.0`。Codex登録名：`mkb_local_prototype`
-- PWA連携プロトコル：`2`。Windows Setup：`1.1.0`
+- 状態：実装確定。要求・応答と制限を同梱実装に合わせて記載。
+- 対象実装：runtime 0.5.0（末尾追記・単一置換・全件置換）。既存APIの基盤は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)。
+- MCPサーバー：`mkb-local-prototype` / runtime `0.5.0`。Codex登録名：`mkb_local_prototype`
+- PWA連携プロトコル：`2`。Windows Setup：`1.2.0`
 
-本書は従来の既存ノートアクセス仕様案を置き換える。文書のファイル名は既存リンクとの互換性のため維持する。利用手順は[ローカルMCP README](https://github.com/Bamboosato/markdown-knowledge-board/blob/main/tools/local-mcp/README.md)、配布物は[Windows Setup 1.1.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.1.0)を参照する。
+本書は従来の既存ノートアクセス仕様案を置き換える。文書のファイル名は既存リンクとの互換性のため維持する。利用手順は[ローカルMCP README](https://github.com/Bamboosato/markdown-knowledge-board/blob/main/tools/local-mcp/README.md)、配布物は[Windows Setup 1.2.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.2.0)を参照する。
 
 ## 1. 目的・対象・構成
 
@@ -39,7 +39,7 @@ MCP serverとPWAは両方起動している必要がある。共有brokerは`127
 
 ### 2.1 呼び出しと応答の階層
 
-初期化済みのMCP STDIO接続で`tools/list`から5ツールを取得し、`tools/call`で呼び出す。`protocolVersion: 2`はPWAとbrokerの独自プロトコル番号であり、MCP initializeで交渉するプロトコルバージョンとは別である。
+初期化済みのMCP STDIO接続で`tools/list`から7ツールを取得し、`tools/call`で呼び出す。`protocolVersion: 2`はPWAとbrokerの独自プロトコル番号であり、MCP initializeで交渉するプロトコルバージョンとは別である。
 
 JSON-RPC要求の完全な例：
 
@@ -103,18 +103,18 @@ JSON-RPC要求の完全な例：
 | `updated_at`, `pinned_at` | UNIX epochからのミリ秒。ISO日時文字列ではない |
 | `tags`要求 | 最大32要素、各要素をtrimして1〜80コード単位。順序を保持し、重複を自動除去しない |
 | 省略 / null | 任意項目は省略する。入力の`null`は許可しない。出力で明示的にnullを使うのは`browserOrigin`、`next_offset` |
-| 未知の入力キー | `search_notes` / `get_note` / `update_note`は拒否。`connection_status`と`create_note`の現行SDK/Zod処理は余分なキーを除去するが、送信しないこと |
+| 未知の入力キー | `search_notes` / `get_note` / `update_note` / `append_note` / `replace_note_text`は拒否。`connection_status`と`create_note`の現行SDK/Zod処理は余分なキーを除去するが、送信しないこと |
 | 例のデータ | 合成ノート・固定時刻・説明用のアドレス。実在の秘密情報は掲載しない。revision例も本番ノートへ流用しない |
 
 保存済みノートのtitle・tagsは従来データも返すため、応答側には作成要求の文字数・件数制限をそのまま適用していない。
 
 ### 2.3 エラーの3形式
 
-1. 追加3ツールの業務エラー：`{"error":{"code":"...","message":"..."}}`。
+1. 既存ノート用5ツールの業務エラー：`{"error":{"code":"...","message":"..."}}`。
 2. 既存`create_note`の業務エラー：`{"error":"..."}`。互換性維持のためコード付き形式へ変更していない。
 3. SDKの入力検証エラー・ハンドラー例外：`isError: true`で`content[0].text`が**通常の文字列**。必ずしもJSONではない。
 
-現在固定しているMCP SDK `1.32.2`は、入力スキーマ違反もツールエラーとして包装する。JSON-RPC自体の不正や通信切断では別途プロトコルエラー／クライアント例外となり、ツール応答がない場合もある。`isError`を先に確認し、エラーのtextを無条件にJSON.parseしない。messageは英語の説明で、分岐には追加3ツールの`code`を使う。SDKの検証メッセージ全文は安定した外部契約としない。
+現在固定しているMCP SDK `1.32.2`は、入力スキーマ違反もツールエラーとして包装する。JSON-RPC自体の不正や通信切断では別途プロトコルエラー／クライアント例外となり、ツール応答がない場合もある。`isError`を先に確認し、エラーのtextを無条件にJSON.parseしない。messageは英語の説明で、分岐には既存ノート用5ツールの`code`を使う。SDKの検証メッセージ全文は安定した外部契約としない。
 
 ## 3. `connection_status` — 接続確認
 
@@ -136,11 +136,12 @@ JSON-RPC要求の完全な例：
 | `origin` | string。PC上のloopbackサービスのURL |
 | `browserOrigin` | stringまたはnull。接続中PWAのOrigin。未接続ならnull |
 | `protocolVersion` | number。現行brokerは2。古いbrokerでは省略され得る |
-| `capabilities` | string配列。現行brokerは未接続なら空、接続時は`create_note`、PWA v2かつ許可済みなら追加3ツール。古いbrokerでは省略され得る |
+| `brokerCapabilities` | broker自体が対応する6操作。接続・許可状態とは独立。旧brokerでは欠落する |
+| `capabilities` | string配列。brokerと接続PWAの対応操作・現在の許可の共通部分。未接続なら空。古いbrokerでは省略され得る |
 | `persistentPairing` | boolean。本番の共有broker経由ではtrue。開発用直接bridgeでは省略 |
 | `pairingToken` / `pairingCode` | string。未接続時だけ追加。tokenは64桁hex、codeは`MKB1\|origin\|token`。機密情報 |
 
-`connection_status`自身はcapabilitiesに含めない。`tools/list`は5ツールの存在、capabilitiesは現在の接続先で実行可能な操作を表す。`busy: true`でもcapabilitiesは消えず、実行時にBUSYとなる場合がある。`brokerPid`は内部管理用でありMCP応答には含めない。
+`connection_status`自身はcapabilitiesに含めない。`tools/list`は7ツールの存在、capabilitiesは現在の接続先で実行可能な操作を表す。`busy: true`でもcapabilitiesは消えず、実行時にBUSYとなる場合がある。`brokerPid`は内部管理用でありMCP応答には含めない。
 
 接続・アクセス許可済みの例：
 
@@ -152,7 +153,8 @@ JSON-RPC要求の完全な例：
   "origin": "http://127.0.0.1:47831",
   "browserOrigin": "https://mkb.bamboosato.com",
   "protocolVersion": 2,
-  "capabilities": ["create_note", "search_notes", "get_note", "update_note"],
+  "capabilities": ["create_note", "append_note", "replace_note_text", "search_notes", "get_note", "update_note"],
+  "brokerCapabilities": ["create_note", "append_note", "replace_note_text", "search_notes", "get_note", "update_note"],
   "persistentPairing": true
 }
 ```
@@ -168,6 +170,7 @@ JSON-RPC要求の完全な例：
   "browserOrigin": null,
   "protocolVersion": 2,
   "capabilities": [],
+  "brokerCapabilities": ["create_note", "append_note", "replace_note_text", "search_notes", "get_note", "update_note"],
   "persistentPairing": true,
   "pairingToken": "<REDACTED>",
   "pairingCode": "MKB1|http://127.0.0.1:47831|<REDACTED>"
@@ -508,9 +511,195 @@ ACKを待っている間に期限を超えた場合：
 
 CONFLICTではgetをやり直して変更内容を判断する。古い本文のままrevisionだけ差し替えて再送してはならない。OUTCOME_UNKNOWNでは同じrequest_id・同じ入力を使う。接続復旧前に新しいrequest_idを発行して繰り返さない。
 
+## 7A. `append_note` — 末尾追記
+
+### 入力・動作
+
+| 引数 | 必須 | 定義 |
+| --- | --- | --- |
+| `note_id`, `expected_revision`, `request_id` | 必須 | 2.2節の共通形式。getで対象を取得してから送る |
+| `text` | 必須 | 非空string、最大131,072 UTF-16コード単位かつUTF-8で131,072 bytes以下。空白・改行のみも許可 |
+
+保存本文を`oldBody + text`にする。改行・空白を自動挿入せず、trimや改行変換もしない。既存本文が空でも追記できる。本文と変更時のupdatedAtだけを更新し、タイトル・タグ・Pin・Marp・Custom metadata等は保持する。本文取得は引き続き必要で、削減するのは更新要求の本文量である。
+
+更新前・更新後の本文はともに128 KiB以下。初回成功のstatusはupdated。正常応答はupdate_noteと同形でreplacement_countを含めない。異なるrequest_idなら同じ文字列も再度追記する。再送は同じrequest_idと同じ入力を使う。
+
+### 要求・正常応答
+
+例は6節の合成ノートに続きの段落を追記する。
+
+<!-- api-example: append_note request -->
+```json
+{
+  "name": "append_note",
+  "arguments": {
+    "note_id": "note-example-001",
+    "expected_revision": "v1-73e77c13f03b8a526c08812e4fe0f80552963b2483ff1f6655974be458c734e2",
+    "request_id": "api-append-demo-001",
+    "text": "\nMore.\n"
+  }
+}
+```
+
+<!-- api-example: append_note success -->
+```json
+{
+  "status": "updated",
+  "id": "note-example-001",
+  "title": "Memo",
+  "previous_revision": "v1-73e77c13f03b8a526c08812e4fe0f80552963b2483ff1f6655974be458c734e2",
+  "revision": "v1-e53ed976dec25cbfd9fd6ff5f37aedf31a206b9f171058bbdf7c35ad8808b4a8",
+  "updated_at": 1794870001000,
+  "reused": false
+}
+```
+
+### エラー応答
+
+<!-- api-example: append_note error -->
+```json
+{
+  "error": {
+    "code": "RESULT_TOO_LARGE",
+    "message": "Resulting body exceeds 128 KiB."
+  }
+}
+```
+
+<!-- api-example: append_note error -->
+```json
+{
+  "error": {
+    "code": "CONFLICT",
+    "message": "Note changed. Get the latest note before updating."
+  }
+}
+```
+
+共通エラーと8節の定義も適用する。失敗した追記を部分保存しない。
+
+## 7B. `replace_note_text` — 単一置換・全件置換
+
+### 入力・動作
+
+| 引数 | 必須 | 定義 |
+| --- | --- | --- |
+| `note_id`, `expected_revision`, `request_id` | 必須 | 2.2節の共通形式。getで対象を取得してから送る |
+| `search_text` | 必須 | 非空string、最大131,072 UTF-16コード単位かつUTF-8で131,072 bytes以下 |
+| `replacement_text` | 必須 | string、同じ長さ・byte上限。空文字は該当部分を削除 |
+| `mode` | 任意 | `single`（既定）または`all`。null不可 |
+
+想定一致件数の引数は設けない。未知キーを拒否する。対象は指定1ノートの保存本文のみで、タイトル・タグ・その他metadataを保持する。
+
+- 完全一致、大小文字・空白・改行・Unicodeを区別する。正規表現・正規化・Markdown構文解析は行わない。replacement_textの`## 8. エラー一覧と検証境界`、`$1`、バックスラッシュもそのまま挿入する。
+- singleは重なりも数えて一致が1か所だけなら実行する。0か所はTEXT_NOT_FOUND、2か所以上はMULTIPLE_MATCHESで更新しない。`aaa`から`aa`を探すと2か所なので拒否する。
+- allは元の本文を左から右へ非重複で照合し、全件を1回のtransactionで置換する。`aaa`の`aa`→`X`は`Xa`（1件）、`aaaa`なら`XX`（2件）。挿入文字列や置換後に新しく生じる一致を再処理しない。0か所は更新しない。
+- allは利用者が全件置換を明示したときだけ選ぶ。singleの複数一致エラーを理由に自動でallへ変更しない。
+- 同一文字列への置換でも一致数を検証する。成功はunchanged、revision・updated_atを維持し、receiptを保存する。replacement_countは処理対象の一致数（1以上）であり、実際に本文が変わったかはstatusで判別する。
+- 両modeとも成功時に`replacement_count`（正の整数）を必須で返す。その他はupdate_noteと同形。再送時も元の件数を返す。容量・競合・編集中拒否・再送保証は追記と共通。
+
+### 単一置換の要求・正常応答
+
+6節の合成ノートでMemoをManualへ置換する（他の例とは独立）。
+
+<!-- api-example: replace_note_text request -->
+```json
+{
+  "name": "replace_note_text",
+  "arguments": {
+    "note_id": "note-example-001",
+    "expected_revision": "v1-73e77c13f03b8a526c08812e4fe0f80552963b2483ff1f6655974be458c734e2",
+    "request_id": "api-replace-single-001",
+    "search_text": "Memo",
+    "replacement_text": "Manual"
+  }
+}
+```
+
+<!-- api-example: replace_note_text success -->
+```json
+{
+  "status": "updated",
+  "id": "note-example-001",
+  "title": "Memo",
+  "previous_revision": "v1-73e77c13f03b8a526c08812e4fe0f80552963b2483ff1f6655974be458c734e2",
+  "revision": "v1-5f7f67ae3d493e184a0a53ab666ff5934c7bbcf743fbf544d5f32dcd3720bea0",
+  "updated_at": 1794870001000,
+  "reused": false,
+  "replacement_count": 1
+}
+```
+
+### 全件置換の要求・正常応答
+
+同じ合成ノートの小文字mを大文字Mへ全件置換する。一致が1か所でもallを明示でき、想定件数は指定しない。複数一致の例は上記aaa/aaaaの規則に従う。
+
+<!-- api-example: replace_note_text request -->
+```json
+{
+  "name": "replace_note_text",
+  "arguments": {
+    "note_id": "note-example-001",
+    "expected_revision": "v1-73e77c13f03b8a526c08812e4fe0f80552963b2483ff1f6655974be458c734e2",
+    "request_id": "api-replace-all-001",
+    "search_text": "m",
+    "replacement_text": "M",
+    "mode": "all"
+  }
+}
+```
+
+<!-- api-example: replace_note_text success -->
+```json
+{
+  "status": "updated",
+  "id": "note-example-001",
+  "title": "Memo",
+  "previous_revision": "v1-73e77c13f03b8a526c08812e4fe0f80552963b2483ff1f6655974be458c734e2",
+  "revision": "v1-a3254ae0f2c3c3f26f90e91b8477a6e9c2b6db20d3e8915600a7c90284f67c21",
+  "updated_at": 1794870001000,
+  "reused": false,
+  "replacement_count": 1
+}
+```
+
+### エラー応答
+
+<!-- api-example: replace_note_text error -->
+```json
+{
+  "error": {
+    "code": "TEXT_NOT_FOUND",
+    "message": "Search text not found."
+  }
+}
+```
+
+<!-- api-example: replace_note_text error -->
+```json
+{
+  "error": {
+    "code": "MULTIPLE_MATCHES",
+    "message": "More than one match. Narrow the search or explicitly choose all mode."
+  }
+}
+```
+
+<!-- api-example: replace_note_text error -->
+```json
+{
+  "error": {
+    "code": "RESULT_TOO_LARGE",
+    "message": "Resulting body exceeds 128 KiB."
+  }
+}
+```
+
+いずれもNoteとreceiptを保存しない。共通のCONFLICT、NOTE_BUSY、REQUEST_ID_CONFLICT等は8節を参照。
+
 ## 8. エラー一覧と検証境界
 
-### 8.1 追加3ツールの業務エラー
+### 8.1 既存ノート用5ツールの業務エラー
 
 | code | 主な発生元・条件 | 対応 |
 | --- | --- | --- |
@@ -519,12 +708,15 @@ CONFLICTではgetをやり直して変更内容を判断する。古い本文の
 | `UPGRADE_REQUIRED` | 古い共有brokerまたはPWA | runtime/PWAを更新し再起動 |
 | `UNSUPPORTED_OPERATION` | PWAに未知のoperationを配送 | 対応版へ更新。公開ツール名は固定 |
 | `INVALID_ARGUMENT` | bridge/PWAの入力再検証 | 入力を修正。SDKで先に拒否される場合は別形式 |
-| `NOT_FOUND` | get/update対象が存在しない | 再検索。自動新規作成しない |
+| `NOT_FOUND` | get/更新対象が存在しない | 再検索。自動新規作成しない |
 | `BUSY` | 共通処理枠が使用中 | 先行処理終了後に再試行 |
-| `NOTE_BUSY` | update対象の未保存編集、タグ入力、保存中等 | 編集・保存を終えてから再取得 |
+| `NOTE_BUSY` | 更新対象の未保存編集、タグ入力、保存中等 | 編集・保存を終えてから再取得 |
 | `CONFLICT` | revision不一致／DB commit直前のsnapshot不一致 | 最新内容を取得して再判断 |
 | `REQUEST_ID_CONFLICT` | 同じ更新request_idで入力digestが異なる | 別操作なら新しいID。結果不明の再送は元の入力 |
-| `NOTE_TOO_LARGE` | get/update対象の保存本文が131,072 bytes超 | MCPでの取得・更新対象外。MKB UI等で扱う |
+| `NOTE_TOO_LARGE` | get/更新対象の保存本文が131,072 bytes超 | MCPでの取得・更新対象外。MKB UI等で扱う |
+| `TEXT_NOT_FOUND` | 置換対象が0件 | 最新本文を確認して検索文字列を修正。更新なし |
+| `MULTIPLE_MATCHES` | singleで重なりも含め2件以上 | 検索文字列を絞る。全件置換への変更は利用者の明示意図に従う |
+| `RESULT_TOO_LARGE` | 追記・置換後の本文が131,072 bytes超 | 入力を見直す。部分更新・receipt保存はしない |
 | `RESPONSE_TOO_LARGE` | search/get結果のJSONが1,000,000 bytes超 | searchは件数を減らす。本文やmetadataを切り詰めて成功扱いしない |
 | `STORAGE_UNAVAILABLE` | IndexedDBを利用できない | PWAの保存状態・他タブの更新状況を確認 |
 | `SAVE_FAILED` | 上記専用エラーでないPWA処理例外 | 保存結果を確認。現行コードでは読み取り中の未分類例外にも使う |
@@ -578,9 +770,11 @@ IndexedDB `markdown-knowledge-board` version 2に`notes`と`mcpReceipts`を置�
 
 | receipt項目 | 内容 |
 | --- | --- |
-| `key` | `update:` + request_id |
-| `digest` | 省略項目の有無も含む正規化済み更新入力のSHA-256。expected_revisionとnote_idも含む |
-| `result` | 元のupdate成功応答。本文や接続tokenは含まない |
+| `key` | updateは`update:`、appendは`append:`、replaceは`replace:` + request_id |
+| `digest` | updateは従来の正規化済み入力のSHA-256を維持。append/replaceは`{operation,input}`のSHA-256。expected_revisionとnote_idも含む |
+| `result` | 元の成功応答。replaceはreplacement_countも保存。本文や接続tokenは含まない |
+
+replaceのmode省略はsingleへ正規化するため、明示singleとの再送は同一入力。singleとallの変更は1か所だけの置換でもREQUEST_ID_CONFLICT。最終本文からdigestを作らず、元の操作引数から作る。receipt照合は現在本文・revision・一致件数・編集状態の確認より先に行い、再送で件数を再計算しない。エラー時はNoteもreceiptも保存せず、unchanged成功時はreceiptを保存する。DB versionは2のまま、既存update receiptも有効。
 
 同じ要求の再送ではNoteを書き直さず、更新時刻も動かさない。後続編集や削除があっても巻き戻し・復活させない。receiptは「その更新が確定した」証拠であり、現在の内容の証明ではない。最新状態はgetで確認する。
 
@@ -612,8 +806,8 @@ receiptは自動期限切れにせず、通常のノートバックアップに�
 
 | 区間 / endpoint | 要求body | 応答bodyの要点 |
 | --- | --- | --- |
-| PWA `/__local_mcp/connect` | `{clientId, protocolVersion:2, noteAccess:boolean}` | `{connected:true, protocolVersion:2}` |
-| PWA `/__local_mcp/poll` | `{clientId, protocolVersion:2, noteAccess:boolean}` | `{job:null}`または`{job:{deliveryId, operation, input}}` |
+| PWA `/__local_mcp/connect` | `{clientId, protocolVersion:2, noteAccess:boolean, supportedOperations:string[]}` | `{connected:true, protocolVersion:2}` |
+| PWA `/__local_mcp/poll` | `{clientId, protocolVersion:2, noteAccess:boolean, supportedOperations:string[]}` | `{job:null}`または`{job:{deliveryId, operation, input}}` |
 | PWA `/__local_mcp/permissions` | `{clientId, noteAccess:boolean}` | `{updated:true}` |
 | PWA `/__local_mcp/ack` | `{clientId, deliveryId, result}` | `{acknowledged:true}` |
 | PWA `/__local_mcp/disconnect` | `{clientId}` | `{connected:false}` |
@@ -632,7 +826,7 @@ PWA用tokenでは管理APIを呼べない。管理APIはOriginヘッダのある
 | PWA→broker ACKのHTTP body | 1,048,576 bytes以下。clientId/deliveryId等の包装を含む |
 | MCP側→broker HTTP body | 1,048,576 bytes以下 |
 | その他PWA→broker HTTP body | 4,096 bytes以下 |
-| 同時処理 | create/search/get/updateを通じて1件。statusは処理枠を使わない |
+| 同時処理 | create/search/get/update/append/replaceを通じて1件。statusは処理枠を使わない |
 | brokerのACK待ち | 15,000 ms。期限切れは保存取り消しではない |
 | MCP側RPC待ち | status通常2,000 ms、create/execute 20,000 ms |
 | PWA poll | 処理完了後400 ms間隔、poll要求timeout 5,000 ms |
@@ -644,15 +838,22 @@ PWA用tokenでは管理APIを呼べない。管理APIはOriginヘッダのある
 
 ## 12. 互換性・配布・検証記録
 
-旧PWAや旧共有brokerには追加操作を実行せずUPGRADE_REQUIRED等を返す。createの契約は維持する。旧brokerのstatusにはprotocolVersion/capabilitiesがない場合があるので、欠落を追加機能対応と解釈しない。
+プロトコル番号は2を維持し、対応操作を明示して互換性を判定する。
+
+- 新PWAはconnect/pollでsupportedOperationsに6操作を送る。brokerは既知操作との共通部分を保持する。未知名は無視、配列以外・非文字列要素はHTTP 400。明示空配列は対応なし。
+- フィールド欠落時、PWA v2は従来4操作（create/search/get/update）、v1はcreateのみと解釈する。
+- capabilitiesはbroker対応・PWA対応・noteAccessの共通部分。create以外はv2かつnoteAccess=trueが必要。
+- 新runtimeはappend/replaceの配送前にbrokerCapabilitiesを検査する。旧brokerで欠落または未対応ならUPGRADE_REQUIREDで止め、HTTP executeを送らない。
+- 新brokerと旧PWAは従来4操作を維持し、新操作はUPGRADE_REQUIRED。旧brokerと新PWAは追加フィールドを無視して従来操作を継続する。旧runtimeに新ツールは現れない。
+- createの応答契約と既存updateのfingerprint・receiptは維持する。
 
 更新時は全Codexクライアントを終了して35秒待ち、必要に応じ新版Setup.cmdを実行してCodexを再起動する。PWAも再読み込みし、Update availableがあればRestart to updateを使う。通常のReconnectでコードを再発行しない。DB移行が他タブに妨げられたら、未保存内容を保存してそのタブを閉じる。DB version 2移行後、version 1を指定する古いクライアントはVersionErrorとなる。
 
-対象実装の確認済み範囲（詳細・結果は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)）：
+基盤runtime 0.4.0の過去の確認済み範囲（詳細・結果は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)）：
 
 - 単体287件、bridge 8件、実MCP＋隔離Chromium 22項目、対象インポート・復元E2E 40件、Windowsセットアップ6項目。必須CI成功。
 - 本番PWAで既存102件を保持し、専用確認ノートを1件追加。検索・取得・更新・再取得・同一更新の再送、Saved表示と本文同期を確認。
 - PWA再読み込みで許可を保持し、Codex完全終了・再起動後もコードの再入力なしでReconnect。このチャットの専用MCP5ツールを確認し、追加3ツールで本番ノートを検索・取得・更新・再取得。
 - Windows Setup 1.1.0公開ZIPのダウンロードとSHA-256一致を確認。既存のRelease assetは変更していない。
 
-PC自体の再起動、他PCの本番PWA接続・保存はこの確認に含めない。合成試験やbuild成功を実機検証の代用としない。本書の確定化ではAPI動作を変更せず、実装照合とJSON例の構文・スキーマ確認を行う。
+PC自体の再起動、他PCの本番PWA接続・保存はこの確認に含めない。合成試験やbuild成功を実機検証の代用としない。runtime 0.5.0では追記・置換の単体試験、bridge能力交渉、旧brokerへの配送防止、実MCP＋隔離Chromiumでの編集中拒否・ACK喪失再送を追加する。今回の実行結果と公開状況は対応PRの検証欄を参照する。

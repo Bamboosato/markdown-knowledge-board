@@ -10,7 +10,12 @@ export const noteSchema = z.object(noteShape);
 
 const noteId = z.string().min(1).max(65536);
 const tagList = z.array(z.string().trim().min(1).max(80)).max(32);
+const text = z.string().max(131072).refine(v => Buffer.byteLength(v) <= 131072);
+const nonemptyText = z.string().min(1).max(131072).refine(v => Buffer.byteLength(v) <= 131072);
+const editFields = { note_id: noteId, request_id: noteShape.request_id, expected_revision: z.string().regex(/^v1-[a-f0-9]{64}$/) };
 export const accessSchemas = {
+  append_note: z.object({ ...editFields, text: nonemptyText }).strict(),
+  replace_note_text: z.object({ ...editFields, search_text: nonemptyText, replacement_text: text, mode: z.enum(['single', 'all']).optional() }).strict(),
   search_notes: z.object({ query: z.string().max(200).optional(), scope: z.enum(['title', 'title_body']).optional(),
     tags: tagList.optional(), limit: z.number().int().min(1).max(50).optional(), offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional() }).strict(),
   get_note: z.object({ note_id: noteId }).strict(),
@@ -33,5 +38,8 @@ export const accessResults = {
   update_note: z.object({ status: z.enum(['updated', 'unchanged']), id: noteId, title: z.string(), previous_revision: revision,
     revision, updated_at: z.number(), reused: z.boolean() }).strict(),
 };
+accessResults.append_note = accessResults.update_note;
+accessResults.replace_note_text = accessResults.update_note.extend({ replacement_count: z.number().int().positive() });
 export const accessError = z.object({ error: z.object({ code: z.enum(['ACCESS_DISABLED', 'INVALID_ARGUMENT', 'NOT_FOUND',
-  'STORAGE_UNAVAILABLE', 'SAVE_FAILED', 'CONFLICT', 'NOTE_BUSY', 'REQUEST_ID_CONFLICT', 'NOTE_TOO_LARGE', 'RESPONSE_TOO_LARGE', 'UNSUPPORTED_OPERATION']), message: z.string().max(500) }).strict() }).strict();
+  'STORAGE_UNAVAILABLE', 'SAVE_FAILED', 'CONFLICT', 'NOTE_BUSY', 'REQUEST_ID_CONFLICT', 'NOTE_TOO_LARGE', 'RESPONSE_TOO_LARGE', 'UNSUPPORTED_OPERATION',
+  'TEXT_NOT_FOUND', 'MULTIPLE_MATCHES', 'RESULT_TOO_LARGE']), message: z.string().max(500) }).strict() }).strict();

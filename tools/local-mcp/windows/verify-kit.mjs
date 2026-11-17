@@ -62,7 +62,7 @@ async function probe() {
   transport.stderr.on('data', () => {});
   try {
     await client.connect(transport);
-    assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['connection_status', 'create_note', 'get_note', 'search_notes', 'update_note']);
+    assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['append_note', 'connection_status', 'create_note', 'get_note', 'replace_note_text', 'search_notes', 'update_note']);
     const result = await client.callTool({ name: 'connection_status', arguments: {} });
     assert.notEqual(result.isError, true);
     const status = JSON.parse(result.content[0].text);
