@@ -1,6 +1,25 @@
-# ローカルMCPからPWAへ新規ノートを保存する
+# ローカルMCPからPWAのノートを操作する
 
-## 現在の状態（2026-11-16）
+
+## 既存ノートへのアクセス（runtime 0.4.0 / Windows Setup 1.1.0）
+
+`search_notes`、`get_note`、`update_note`を追加。既存の接続コードを使い、MKBの **Local MCP → Advanced settings → Allow reading and updating notes** を一度オンにする。Remember in this browserで接続を保存していれば許可も保持し、以後はReconnectだけで利用できる。初期値はオフ。Forget connectionや異なるコードへの変更では許可を引き継がない。
+
+検索・取得した内容はCodexへ渡され、チャット処理の入力になる。同じPCのこのMCPを利用するCodexチャットが対象で、ノート別・チャット別の権限分離はない。オフへ戻すと検索・取得・更新を止めるが、新規作成は継続できる。未保存draftは取得しない。
+
+- `search_notes`: title/bodyの部分一致、完全一致のANDタグ、最大50件のページ。query省略は一覧。ページ間のsnapshot固定はしない。
+- `get_note`: ID指定で本文・metadata・revisionを取得。本文128 KiB UTF-8まで。大きい本文は切り詰めずエラー。
+- `update_note`: ID、getで取得したexpected_revision、一意のrequest_idを指定。bodyは全文置換、title/tagsは任意。省略項目とPin/Marp/Custom metadataは保持。body先頭のfrontmatterも文字列として保存。
+- 競合時は再取得して変更を再判断する。未保存の対象ノートには書き込まない。別タブの古いdraftを保存しようとした場合も上書きを拒否し、draftを残す。
+- 応答喪失時は**同じrequest_id・同じ入力**で再送する。receiptはブラウザDBに保持され、後続編集を巻き戻さない。サイトデータ消去・別ブラウザ移行後は再送保証の対象外。
+
+例: 「MKBのMCP連携の説明ノートを検索して、Windows導入手順を追記してください」。候補が複数で対象が不明なら確認し、タイトル一致だけで更新先を決めない。
+
+更新時は新版セットアップを実行してCodexを再起動し、MKBも最新版へ再読み込みする。旧brokerが残る場合は全Codexクライアント終了後35秒待つ。DB移行を他のMKB画面が妨げる場合は、未保存内容を保存してからそれらを閉じる。ペアリングは保持される。
+
+詳細は[既存ノートアクセス仕様](../../docs/local-mcp-note-access-spec.md)。隔離Chromiumの実MCP通し試験は`node tools/local-mcp/verify.mjs`。別PCや本番PWAの実動作確認とは区別する。
+
+## 新規作成の本番確認記録（2026-11-16）
 
 Codexの専用MCPツールから、このPCで起動している本番PWAへの新規ノート作成・保存・再読み込み後の保持まで確認済み。本番PWA用の受信パネルを追加し、Codex接続の競合を修正した。
 
@@ -23,7 +42,7 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 
 ### 他のWindows PCへ配布する
 
-通常の配布先は[GitHub Releases：MKB Windows Setup v1.0.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.0.0)。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.0.0/MKB-Windows-Setup.zip)と[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.0.0/MKB-Windows-Setup.zip.sha256)を取得でき、Releaseの添付ファイルは30日で自動失効しない。
+通常の配布先は[GitHub Releases：MKB Windows Setup v1.1.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.1.0)。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.1.0/MKB-Windows-Setup.zip)と[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.1.0/MKB-Windows-Setup.zip.sha256)を取得でき、Releaseの添付ファイルは30日で自動失効しない。
 
 導入先の利用者向け手順は [Windowsセットアップ手順](windows/README.md)。Node.js 24以上、Codex、ChromeのMKB PWAを準備し、ダウンロードしたZIPをすべて展開して`Setup.cmd`を実行する。依存の取得、MCPの配置・登録、設定ツールの作成を行い、同名の別MCP登録は自動で上書きしない。自動登録にはCodex CLIが必要。CLIを使わない登録と既存環境の移行にも対応する。
 
@@ -81,8 +100,8 @@ enabled = true
 - 許可Originは`https://mkb.bamboosato.com`と`https://markdown-knowledge-board.vercel.app`だけ。正確なHost、Origin、Bearerトークン、JSON POSTを検証する。接続したOriginとタブに配送を限定する。
 - 接続情報は通常PWAのメモリだけに保持。Rememberを選んだ場合のみ、成功したアドレス・トークンを同じOriginのlocalStorage（`mkb-local-mcp-connection-v1`）に保存する。クラウドバックアップには含めず、共有端末では記憶しない。保存できない場合も接続を維持し、パネルで通知する。読み出した情報も接続前にループバックURLとトークン形式を再検証する。
 - 本文・トークン・接続コードをサーバーログへ記録しない。診断ファイル`output/local-mcp/startup-<PID>.json`には起動時刻・PID・段階・失敗理由だけを残す。
-- 新規保存だけを提供し、既存ノートを上書きしない。一覧に追加するが編集中のノートを切り替えない。成功応答はIndexedDBトランザクション完了後。
-- `request_id`からIDを決める。同一内容の再送は既存ノートを返す。別内容・編集後の衝突は拒否する。保存応答を失った場合は同じID・内容を再送する。
+- `create_note`は新規保存専用で、既存ノートを上書きしない。既存ノートの変更は許可後の`update_note`で行う。一覧に追加するが編集中のノートを切り替えない。成功応答はIndexedDBトランザクション完了後。
+- 新規作成は`request_id`からIDを決める。同一内容の再送は既存ノートを返す。別内容・編集後の衝突は拒否する。保存応答を失った場合は同じID・内容を再送する。
 - 本文128 KiB（UTF-8）、タイトル200文字、タグ32件・各80文字。処理中の保存は1件、応答待ちは15秒。バックグラウンド抑制・スリープ中の到達は保証しない。
 - ノートは接続したブラウザプロファイル・OriginのIndexedDBに保存される。ディスクの`.md`ファイル保存や他ブラウザへの同期は含まない。必要なら既存のMarkdownエクスポートを使う。
 

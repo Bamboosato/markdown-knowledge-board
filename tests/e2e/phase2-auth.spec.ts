@@ -208,7 +208,7 @@ test.describe('Phase 2 optional GitHub authentication', () => {
       .click()
     await expect.poll(() => startRequest !== null).toBe(true)
     const stored = await page.evaluate(async () => {
-      const request = indexedDB.open('markdown-knowledge-board', 1)
+      const request = indexedDB.open('markdown-knowledge-board')
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
         request.onsuccess = () => resolve(request.result)
         request.onerror = () => reject(request.error)

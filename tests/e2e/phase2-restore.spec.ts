@@ -129,7 +129,7 @@ async function expectCount(
 async function seedNote(page: Page, note: Note) {
   await page.evaluate(async (value) => {
     await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.open('markdown-knowledge-board', 1)
+      const request = indexedDB.open('markdown-knowledge-board')
       request.onupgradeneeded = () => {
         if (!request.result.objectStoreNames.contains('notes')) {
           request.result.createObjectStore('notes', { keyPath: 'id' })
@@ -152,7 +152,7 @@ async function seedNote(page: Page, note: Note) {
 async function readNote(page: Page, id: string): Promise<Note | undefined> {
   return page.evaluate(async (noteId) => {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('markdown-knowledge-board', 1)
+      const request = indexedDB.open('markdown-knowledge-board')
       request.onerror = () => reject(request.error)
       request.onsuccess = () => {
         const get = request.result.transaction('notes').objectStore('notes').get(noteId)
@@ -312,4 +312,23 @@ test.describe('Phase 2 safe cloud restore', () => {
     await expectCount(result, 'Conflicted', 1)
     expect(await readNote(page, 'shared-note')).toMatchObject(localNote)
   })
+
+  test('requires a new review when metadata changes after preview without a timestamp change', async ({ page }) => {
+    const local: Note = { id: 'metadata-race', title: 'Original', body: 'Local', tags: [], updatedAt: 100 };
+    const cloud: Note = { ...local, body: 'Cloud', updatedAt: 200 };
+    await stubSignedInRestore(page, [cloud]);
+    await page.goto('/?cloudTest=1');
+    await seedNote(page, local);
+    await page.reload();
+    await beginRestore(page);
+    await submitRestorePassphrase(page, passphrase);
+    const preview = page.getByRole('dialog', { name: 'Review Cloud Restore' });
+    await expectCount(preview, 'Updated', 1);
+    const concurrent = { ...local, pinnedAt: 123 };
+    await seedNote(page, concurrent);
+    await preview.getByRole('button', { name: 'Apply Safe Merge' }).click();
+    await expect(page.getByText('Local notes changed. Review the updated restore preview before applying it.')).toBeVisible();
+    expect(await readNote(page, local.id)).toMatchObject(concurrent);
+    await expect(preview).toBeVisible();
+  });
 })

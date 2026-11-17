@@ -31,7 +31,7 @@ const sample = {
 async function notes(page) {
   return page.evaluate(async () => {
     const db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open('markdown-knowledge-board', 1);
+      const request = indexedDB.open('markdown-knowledge-board');
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -52,7 +52,7 @@ try {
   const pairingCode = setup.pairingCode;
   assert.equal(pairingCode, `MKB1|${origin}|${token}`);
   assert.ok(token, 'Server must return setup instructions through the MCP tool');
-  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['connection_status', 'create_note']);
+  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['connection_status', 'create_note', 'get_note', 'search_notes', 'update_note']);
   pass('MCP initialize and tools/list');
   assert.equal((await call('create_note', sample)).isError, true);
   assert.equal(value(await call('connection_status')).connected, false);
@@ -90,6 +90,7 @@ try {
     if (await page.locator('.local-mcp-indicator').getAttribute('aria-expanded') === 'false') {
       await page.locator('.local-mcp-indicator').click();
     }
+    await page.getByRole('complementary', { name: 'Local MCP', exact: true }).waitFor({ state: 'visible' });
     if (await page.getByRole('button', { name: 'Reconnect', exact: true }).isVisible()) {
       await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
     } else {
@@ -129,7 +130,7 @@ try {
   assert.deepEqual(stored.find(n => n.id === receipt.id).tags, sample.tags);
   assert.equal(stored.find(n => n.title === '既存ノート').body, '保存済みの本文');
   assert.equal(await page.getByLabel('Title', { exact: true }).inputValue(), '既存ノート');
-  assert.equal(await page.getByRole('textbox', { name: 'Body', exact: true }).evaluate(el => el.value), '未保存の編集中本文');
+  assert.equal(await page.getByRole('textbox', { name: 'Body', exact: true }).evaluate(el => el.value ?? el.textContent), '未保存の編集中本文');
   pass('Real MCP create -> browser save receipt; Unicode, tags, existing data and unsaved editor preserved');
   const editorStatusBounds = await page.getByLabel('Editor status', { exact: true }).boundingBox();
   const mcpBounds = await page.locator('.local-mcp-indicator').boundingBox();
@@ -236,6 +237,75 @@ try {
   assert.equal(recovered.reused, true);
   assert.equal((await notes(page)).length, 3);
   pass('Lost save receipt is not reported as success; retry does not duplicate');
+
+  assert.equal(value(await call('search_notes', {})).error.code, 'ACCESS_DISABLED');
+  await page.locator('.local-mcp-indicator').click();
+  await page.getByRole('button', { name: 'Advanced settings', exact: true }).click();
+  await page.getByLabel('Allow reading and updating notes', { exact: true }).check();
+  await page.keyboard.press('Escape');
+  for (let attempt = 0; !value(await call('connection_status')).capabilities.includes('get_note'); attempt++) {
+    assert.ok(attempt < 30); await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  const found = value(await call('search_notes', { query: 'MCP試作', scope: 'title', tags: ['MCP'], limit: 1 }));
+  assert.equal(found.total, 1);
+  assert.equal(found.items[0].id, receipt.id);
+  let current = value(await call('get_note', { note_id: receipt.id }));
+  assert.equal(current.body, sample.markdown);
+  const updateInput = { note_id: receipt.id, expected_revision: current.revision, request_id: 'access-update-001', body: 'Updated through MCP 📝' };
+  assert.equal(value(await call('update_note', updateInput)).status, 'updated');
+  assert.equal(value(await call('update_note', updateInput)).reused, true);
+  assert.equal(value(await call('update_note', { ...updateInput, request_id: 'access-stale-001' })).error.code, 'CONFLICT');
+  current = value(await call('get_note', { note_id: receipt.id }));
+  assert.equal(current.body, updateInput.body);
+  assert.deepEqual(current.tags, sample.tags);
+  pass('Explicit access opt-in; real MCP search/get/update, metadata preservation, revision conflict and idempotent retry');
+
+  await page.locator('.note-title', { hasText: sample.title }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Body', exact: true }).fill('Uncommitted draft');
+  assert.equal(value(await call('update_note', { ...updateInput, expected_revision: current.revision, request_id: 'access-busy-001' })).error.code, 'NOTE_BUSY');
+  assert.equal(await page.getByRole('textbox', { name: 'Body', exact: true }).textContent(), 'Uncommitted draft');
+  await page.getByRole('button', { name: /^Save$/ }).click();
+  await page.getByText('Status: Saved', { exact: true }).waitFor();
+  const otherTab = await context.newPage();
+  await otherTab.goto(origin, { waitUntil: 'domcontentloaded' });
+  await otherTab.locator('.note-title', { hasText: sample.title }).click();
+  await otherTab.getByRole('button', { name: 'Edit', exact: true }).click();
+  await otherTab.getByRole('textbox', { name: 'Body', exact: true }).fill('Other tab draft');
+  current = value(await call('get_note', { note_id: receipt.id }));
+  const crossTab = { ...updateInput, expected_revision: current.revision, request_id: 'cross-tab-001', body: 'Latest saved revision' };
+  assert.equal(value(await call('update_note', crossTab)).status, 'updated');
+  await page.getByRole('textbox', { name: 'Body', exact: true }).filter({ hasText: crossTab.body }).waitFor();
+  await otherTab.getByRole('button', { name: /^Save$/ }).click();
+  await otherTab.getByText('This note changed elsewhere. Your edits are kept. Reopen the latest note before saving.').first().waitFor();
+  assert.equal(await otherTab.getByRole('textbox', { name: 'Body', exact: true }).textContent(), 'Other tab draft');
+  assert.equal(value(await call('get_note', { note_id: receipt.id })).body, crossTab.body);
+  await otherTab.close();
+  pass('Dirty editor rejects update; clean editor refreshes; stale other-tab Save preserves draft and rejects overwrite');
+
+  current = value(await call('get_note', { note_id: receipt.id }));
+  const lostUpdate = { ...crossTab, expected_revision: current.revision, request_id: 'lost-update-001', body: 'Committed before lost ACK' };
+  let lostReceipt;
+  await page.route('**/__local_mcp/ack', route => { lostReceipt = route.request().postDataJSON().result; return route.abort(); });
+  assert.equal(value(await call('update_note', lostUpdate)).error.code, 'OUTCOME_UNKNOWN');
+  assert.equal(lostReceipt?.status, 'updated', JSON.stringify(lostReceipt));
+  await page.unroute('**/__local_mcp/ack');
+  await page.reload();
+  await connect();
+  assert.ok(value(await call('connection_status')).capabilities.includes('get_note'));
+  assert.equal(value(await call('update_note', lostUpdate)).reused, true);
+  assert.equal(value(await call('get_note', { note_id: receipt.id })).body, lostUpdate.body);
+  pass('Lost update ACK and PWA reload preserve permission and durable receipt without repeating update');
+
+  await page.locator('.local-mcp-indicator').click();
+  await page.getByRole('button', { name: 'Advanced settings', exact: true }).click();
+  await page.getByLabel('Allow reading and updating notes', { exact: true }).uncheck();
+  await page.keyboard.press('Escape');
+  for (let attempt = 0; value(await call('connection_status')).capabilities.includes('get_note'); attempt++) {
+    assert.ok(attempt < 30); await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.equal(value(await call('get_note', { note_id: receipt.id })).error.code, 'ACCESS_DISABLED');
+  pass('Access can be revoked while create-only connection remains active');
 
   await page.locator('.local-mcp-indicator').click();
   await page.getByRole('button', { name: 'Disconnect local MCP', exact: true }).click();

@@ -45,7 +45,7 @@ async function seedSavedNotes(
   await page.goto("/");
   await page.evaluate(async (items) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("markdown-knowledge-board", 1);
+      const request = indexedDB.open("markdown-knowledge-board");
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result);
     });

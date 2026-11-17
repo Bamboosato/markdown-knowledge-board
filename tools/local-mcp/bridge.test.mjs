@@ -101,3 +101,34 @@ test('production CORS allows only configured origins, and binds pairing to its o
   }
   bridge.close();
 });
+
+test('existing note access requires upgraded browser and explicit permission', async () => {
+  const bridge = createBridge(origin);
+  assert.equal((await bridge.execute('search_notes', {})).error.code, 'NOT_CONNECTED');
+  await request(bridge, 'connect');
+  assert.equal((await bridge.execute('search_notes', {})).error.code, 'UPGRADE_REQUIRED');
+  await request(bridge, 'poll', { protocolVersion: 2, noteAccess: false });
+  assert.equal((await bridge.execute('search_notes', {})).error.code, 'ACCESS_DISABLED');
+  await request(bridge, 'permissions', { noteAccess: true });
+  assert.ok(bridge.status().capabilities.includes('get_note'));
+  assert.equal((await bridge.execute('get_note', { note_id: 'x', extra: true })).error.code, 'INVALID_ARGUMENT');
+  const pending = bridge.execute('get_note', { note_id: 'ordinary-id' });
+  assert.equal((await bridge.execute('search_notes', {})).error.code, 'BUSY');
+  const { job } = (await request(bridge, 'poll', { protocolVersion: 2, noteAccess: true })).value;
+  const result = { id: 'ordinary-id', title: 'Existing', body: 'あ'.repeat(10000), tags: [], updated_at: 1, revision: `v1-${'a'.repeat(64)}`, body_bytes: 30000 };
+  assert.equal((await request(bridge, 'ack', { deliveryId: job.deliveryId, result: { ...result, id: 'wrong' } })).status, 400);
+  assert.equal((await request(bridge, 'ack', { deliveryId: job.deliveryId, result })).status, 200);
+  assert.deepEqual(await pending, result);
+  await request(bridge, 'permissions', { noteAccess: false });
+  assert.equal((await bridge.execute('search_notes', {})).error.code, 'ACCESS_DISABLED');
+  bridge.close();
+});
+
+test('access disconnect and timeout return structured unknown outcomes', async () => {
+  const bridge = createBridge(origin, { timeoutMs: 20 });
+  await request(bridge, 'connect', { protocolVersion: 2, noteAccess: true });
+  assert.equal((await bridge.execute('search_notes', {})).error.code, 'OUTCOME_UNKNOWN');
+  const pending = bridge.execute('get_note', { note_id: 'x' });
+  bridge.close();
+  assert.equal((await pending).error.code, 'OUTCOME_UNKNOWN');
+});

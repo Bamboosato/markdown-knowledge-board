@@ -55,6 +55,15 @@ export async function connectBroker() {
         return { error: 'Service unavailable. Save outcome may be unknown; reconnect and retry the same request_id.' };
       }
     },
+    async execute(operation, input) {
+      try {
+        await ensure();
+        if ((await rpc('status')).protocolVersion !== 2) return { error: { code: 'UPGRADE_REQUIRED', message: 'Close all Codex clients, wait 35 seconds, then restart to update the shared service.' } };
+        return await rpc('execute', { operation, input }, 20000);
+      } catch {
+        return { error: { code: 'OUTCOME_UNKNOWN', message: 'Service unavailable. Reconnect; retry an update with exactly the same request_id and input.' } };
+      }
+    },
     close() { clearInterval(heartbeat); },
   };
 }

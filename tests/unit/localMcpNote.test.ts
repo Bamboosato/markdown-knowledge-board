@@ -29,7 +29,7 @@ describe('local MCP create-only save', () => {
   it('rejects reused IDs with changed content and protects user edits', async () => {
     const saved = await saveLocalMcpNote(input('conflict-001'));
     await expect(saveLocalMcpNote({ ...input('conflict-001'), markdown: 'Changed' })).rejects.toThrow('Nothing was overwritten');
-    await saveNote({ ...saved.note, body: 'User edit' });
+    await saveNote({ ...saved.note, body: 'User edit' }, saved.note);
     await expect(saveLocalMcpNote(input('conflict-001'))).rejects.toThrow('Nothing was overwritten');
     expect((await getNote(saved.note.id))?.body).toBe('User edit');
   });

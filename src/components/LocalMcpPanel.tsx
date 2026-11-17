@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { saveLocalMcpNote } from '../lib/localMcpNote';
+import { executeNoteAccess } from '../lib/localMcpAccess';
+import { NoteAccessError } from '../lib/noteRevision';
 import { LOCAL_MCP_CONNECTION_KEY, parseLocalMcpCode, readLocalMcpConnection, validateLocalMcpConnection } from '../lib/localMcpConnection';
 import type { LocalMcpConnection } from '../lib/localMcpConnection';
 import './LocalMcpPanel.css';
@@ -37,6 +39,8 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
   const [token, setToken] = useState('');
   const [code, setCode] = useState('');
   const [savedConnection, setSavedConnection] = useState(readLocalMcpConnection);
+  const [noteAccess, setNoteAccess] = useState(() => readLocalMcpConnection()?.noteAccess === true);
+  const noteAccessRef = useRef(noteAccess);
   const [showSetup, setShowSetup] = useState(!savedConnection);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [remember, setRemember] = useState(Boolean(savedConnection));
@@ -67,17 +71,25 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        const { job } = await request(session, 'poll', {}, AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]));
+        const { job } = await request(session, 'poll', { protocolVersion: 2, noteAccess: noteAccessRef.current }, AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]));
         if (stopped) return;
         if (job) {
           let receipt;
           try {
+            if (job.operation && job.operation !== 'create_note') {
+              receipt = await executeNoteAccess(job.operation, job.input, () => !stopped && noteAccessRef.current);
+              if (!stopped && job.operation === 'update_note') setStatus('Note update completed.');
+            } else {
             const saved = await saveLocalMcpNote(job.input);
             window.dispatchEvent(new CustomEvent('local-mcp-note-saved', { detail: saved.note }));
             receipt = { id: saved.note.id, title: saved.note.title, reused: saved.reused };
             if (!stopped) setStatus(`${saved.reused ? 'Already saved' : 'Saved'}: ${saved.note.title}`);
+            }
           } catch (error) {
-            receipt = { error: 'SAVE_FAILED' };
+            receipt = !job.operation || job.operation === 'create_note' ? { error: 'SAVE_FAILED' } : {
+              error: { code: error instanceof NoteAccessError ? error.code : 'SAVE_FAILED',
+                message: error instanceof NoteAccessError ? error.message : 'MKB could not complete this operation.' },
+            };
             if (!stopped) setStatus(error instanceof Error ? error.message : 'Save failed.');
           }
           if (stopped) return;
@@ -104,6 +116,9 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
   function forgetConnection() {
     try {
       localStorage.removeItem(LOCAL_MCP_CONNECTION_KEY);
+      noteAccessRef.current = false;
+      setNoteAccess(false);
+      if (session) void request(session, 'permissions', { noteAccess: false }).catch(() => {});
       setSavedConnection(null);
       setShowSetup(true);
       setRemember(false);
@@ -121,7 +136,11 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
       const credentials = saved ? validateLocalMcpConnection(saved.origin, saved.token)
         : manual ? validateLocalMcpConnection(address, token) : parseLocalMcpCode(code);
       const next = { ...credentials, clientId: crypto.randomUUID() };
-      await request(next, 'connect', {}, AbortSignal.timeout(60000));
+      const stored = readLocalMcpConnection();
+      const allowed = stored?.origin === next.origin && stored?.token === next.token && stored.noteAccess === true;
+      noteAccessRef.current = allowed;
+      setNoteAccess(allowed);
+      await request(next, 'connect', { protocolVersion: 2, noteAccess: allowed }, AbortSignal.timeout(60000));
       if (!mountedRef.current) {
         await request(next, 'disconnect').catch(() => {});
         return;
@@ -132,8 +151,9 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
       let remembered = true;
       try {
         if (remember) {
-          localStorage.setItem(LOCAL_MCP_CONNECTION_KEY, JSON.stringify(credentials));
-          setSavedConnection(credentials);
+          const rememberedConnection = { ...credentials, noteAccess: allowed };
+          localStorage.setItem(LOCAL_MCP_CONNECTION_KEY, JSON.stringify(rememberedConnection));
+          setSavedConnection(rememberedConnection);
           setShowSetup(false);
         } else {
           localStorage.removeItem(LOCAL_MCP_CONNECTION_KEY);
@@ -155,6 +175,20 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
     } finally {
       setConnecting(false);
     }
+  }
+
+  function changeNoteAccess(allowed: boolean) {
+    noteAccessRef.current = allowed;
+    setNoteAccess(allowed);
+    try {
+      if (savedConnection) {
+        const next = { ...savedConnection, noteAccess: allowed };
+        localStorage.setItem(LOCAL_MCP_CONNECTION_KEY, JSON.stringify(next));
+        setSavedConnection(next);
+      }
+      setStorageWarning('');
+    } catch { setStorageWarning('Could not remember access settings.'); }
+    if (session) void request(session, 'permissions', { noteAccess: allowed }).catch(() => {});
   }
 
   const setupForm = <form onSubmit={event => { event.preventDefault(); void connect(); }}>
@@ -199,13 +233,16 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
         setStatus('Disconnected.');
       }}>Disconnect local MCP</button>}
     </div>
-    {savedConnection && <div className="local-mcp-advanced">
+    {(savedConnection || session) && <div className="local-mcp-advanced">
       <button type="button" className="local-mcp-disclosure" aria-expanded={advancedOpen} aria-controls="local-mcp-advanced-content"
         onClick={() => { setAdvancedOpen(value => !value); if (advancedOpen) setShowSetup(false); }}>
         <span aria-hidden="true">{advancedOpen ? '▾' : '▸'}</span> Advanced settings
       </button>
       <div id="local-mcp-advanced-content" hidden={!advancedOpen}>
-        <p>Server: {savedConnection.origin}</p>
+        <p>Server: {savedConnection?.origin ?? session?.origin}</p>
+        <label className="local-mcp-remember"><input type="checkbox" checked={noteAccess} disabled={connecting}
+          onChange={event => changeNoteAccess(event.target.checked)} />Allow reading and updating notes</label>
+        <small>Applies to Codex chats on this PC.</small>
         <div className="local-mcp-settings-actions">
           {!session && <button type="button" disabled={connecting} aria-expanded={showSetup}
             onClick={() => setShowSetup(value => !value)}>{showSetup ? 'Cancel setup' : 'Use a new code'}</button>}

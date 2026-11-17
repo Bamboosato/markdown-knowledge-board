@@ -1,6 +1,6 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
-import { EditorState, Transaction } from "@codemirror/state";
+import { Annotation, EditorState, Transaction } from "@codemirror/state";
 import {
   EditorView,
   keymap,
@@ -20,6 +20,8 @@ import {
 } from "../lib/markdownEditorSync";
 import { markdownHighlightExtension } from "../lib/markdownHighlightExtension";
 import { markdownMarkerDecorations } from "../lib/markdownMarkerDecorations";
+
+const externalValue = Annotation.define<boolean>();
 
 export type EditorSelectionSnapshot = {
   noteId: string | null;
@@ -216,7 +218,7 @@ export const MarkdownBodyEditor = forwardRef<
               if (change) {
                 view.dispatch({
                   changes: change,
-                  annotations: Transaction.addToHistory.of(false),
+                  annotations: [Transaction.addToHistory.of(false), externalValue.of(true)],
                 });
               }
             });
@@ -225,7 +227,7 @@ export const MarkdownBodyEditor = forwardRef<
         }),
         placeholderExtension(placeholder),
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
+          if (update.docChanged && !update.transactions.every(transaction => transaction.annotation(externalValue))) {
             onChangeRef.current(update.state.doc.toString());
           }
 
@@ -379,7 +381,7 @@ export const MarkdownBodyEditor = forwardRef<
       if (change) {
         view.dispatch({
           changes: change,
-          annotations: Transaction.addToHistory.of(false),
+          annotations: [Transaction.addToHistory.of(false), externalValue.of(true)],
         });
       }
     }

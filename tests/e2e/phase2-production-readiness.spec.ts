@@ -219,7 +219,7 @@ test.describe('Phase 2 Production readiness', () => {
     const savedBodies = await page.evaluate(
       () =>
         new Promise<string[]>((resolve, reject) => {
-          const request = indexedDB.open('markdown-knowledge-board', 1)
+          const request = indexedDB.open('markdown-knowledge-board')
           request.onerror = () => reject(request.error)
           request.onsuccess = () => {
             const getAll = request.result

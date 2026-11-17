@@ -96,6 +96,10 @@ jobs:
           uname -a
           node --input-type=module -e "import { chromium } from '@playwright/test'; const browser = await chromium.launch(); console.log('Chromium', browser.version()); await browser.close();"
       - run: npm run test:e2e:smoke
+      - name: Verify local MCP note access in Chromium
+        run: |
+          npm ci --prefix tools/local-mcp --ignore-scripts
+          node tools/local-mcp/verify.mjs
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

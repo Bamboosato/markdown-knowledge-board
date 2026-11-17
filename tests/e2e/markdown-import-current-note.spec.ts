@@ -31,7 +31,7 @@ async function seedSavedNote(page: Page, note: StoredNote) {
   await expect(page.getByText("Status: Saved")).toBeVisible();
   await page.evaluate(async (item) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("markdown-knowledge-board", 1);
+      const request = indexedDB.open("markdown-knowledge-board");
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result);
     });
@@ -53,7 +53,7 @@ async function seedSavedNote(page: Page, note: StoredNote) {
 async function readStoredNotes(page: Page): Promise<StoredNote[]> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("markdown-knowledge-board", 1);
+      const request = indexedDB.open("markdown-knowledge-board");
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result);
     });
