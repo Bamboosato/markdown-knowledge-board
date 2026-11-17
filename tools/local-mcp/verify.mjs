@@ -396,6 +396,67 @@ try {
   assert.equal((await notes(page)).find(n => n.id === receipt.id).customMetadata.find(e => e.key === 'nullable').value, null);
   pass('MCP null metadata survives opening the metadata editor, Apply and Save');
 
+  assert.deepEqual(value(await call('connection_status')).metadataActions, ['add', 'update', 'upsert', 'remove']);
+  const beforeRemoval = await notes(page);
+  const removal = await metadataPreview([{ action: 'remove', key: 'nullable' }, { action: 'remove', key: 'absent' }]);
+  assert.equal(removal.changed_notes, 2, JSON.stringify(removal));
+  assert.equal(removal.items[0].changes[0].before.value, null);
+  assert.deepEqual(removal.items[0].changes[0].after, { exists: false });
+  assert.equal(removal.items[0].changes[1].result, 'key_missing');
+  assert.deepEqual(await notes(page), beforeRemoval);
+  const removed = await metadataApply(removal, 'metadata-remove-001');
+  assert.equal(removed.removed_fields, 2, JSON.stringify(removed));
+  for (const id of [receipt.id, recovered.id]) {
+    const prior = beforeRemoval.find(n => n.id === id);
+    const saved = (await notes(page)).find(n => n.id === id);
+    assert.deepEqual(saved, { ...prior, updatedAt: saved.updatedAt, customMetadata: prior.customMetadata.filter(e => e.key !== 'nullable') });
+  }
+  const allMissing = await metadataPreview([{ action: 'remove', key: 'nullable' }]);
+  assert.equal(allMissing.status, 'no_changes'); assert.equal(allMissing.skipped_notes, 2);
+  const readdPlan = await metadataPreview([{ action: 'upsert', key: 'nullable', value: 're-added' }]);
+  const readded = await metadataApply(readdPlan, 'metadata-readd-001');
+  assert.equal(Object.hasOwn(readded, 'removed_fields'), false);
+  const afterReadd = await notes(page);
+  assert.deepEqual(await metadataApply(removal, 'metadata-remove-001'), { ...removed, reused: true });
+  assert.deepEqual(await notes(page), afterReadd);
+  pass('Remove deletes keys, skips absence, preserves other data and never removes a re-added key on replay');
+
+  const conflictingRemoval = await metadataPreview([{ action: 'remove', key: 'review_status' }]);
+  const removalCurrent = value(await call('get_note', { note_id: receipt.id }));
+  assert.equal(value(await call('append_note', { note_id: receipt.id, expected_revision: removalCurrent.revision, request_id: 'remove-conflict-edit-001', text: '\nRevision change' })).status, 'updated');
+  const beforeRemovalConflict = await notes(page);
+  assert.equal((await metadataApply(conflictingRemoval, 'remove-conflict-001')).error.code, 'CONFLICT');
+  assert.deepEqual(await notes(page), beforeRemovalConflict);
+  const freshRemoval = await metadataPreview([{ action: 'remove', key: 'review_status' }]);
+  assert.equal((await metadataApply(freshRemoval, 'remove-fresh-001')).removed_fields, 2);
+  const finalRemoval = await metadataPreview([{ action: 'remove', key: 'nullable' }]);
+  let removalReceipt;
+  await page.route('**/__local_mcp/ack', route => { removalReceipt = route.request().postDataJSON().result; return route.abort(); });
+  assert.equal((await metadataApply(finalRemoval, 'remove-lost-001')).error.code, 'OUTCOME_UNKNOWN');
+  assert.equal(removalReceipt?.removed_fields, 2);
+  await page.unroute('**/__local_mcp/ack');
+  await page.reload(); await connect();
+  assert.deepEqual(await metadataApply(finalRemoval, 'remove-lost-001'), { ...removalReceipt, reused: true });
+  for (const id of [receipt.id, recovered.id]) assert.deepEqual((await notes(page)).find(n => n.id === id).customMetadata, []);
+  pass('Removal is all-or-none on conflict; removing the last fields and lost ACK/reload replay preserve the original count');
+
+  // Simulate a broker that has metadata tools but does not advertise Remove support.
+  await page.route('**/__local_mcp/poll', async route => {
+    // APIRequestContext does not synthesize the browser's Origin header.
+    const response = await route.fetch({ headers: { ...await route.request().allHeaders(), Origin: origin } });
+    assert.equal(response.status(), 200, 'The legacy-response fixture must preserve authenticated polling.');
+    const payload = await response.json(); delete payload.brokerMetadataActions;
+    await route.fulfill({ response, json: payload });
+  });
+  const beforeLegacy = await notes(page);
+  assert.equal((await metadataPreview([{ action: 'remove', key: 'nullable' }])).error.code, 'UPGRADE_REQUIRED');
+  assert.equal((await metadataApply(finalRemoval, 'remove-lost-001')).error.code, 'UPGRADE_REQUIRED');
+  const compatible = await metadataPreview([{ action: 'upsert', key: 'legacy_compatible', value: true }]);
+  assert.equal((await metadataApply(compatible, 'legacy-metadata-001')).updated_notes, 2);
+  assert.equal(beforeLegacy.length, (await notes(page)).length);
+  await page.unroute('**/__local_mcp/poll');
+  pass('New PWA rejects removal and removal receipt replay without broker support, while legacy metadata operations still work');
+
   const revokedMetadataPlan = await metadataPreview([{ action: 'upsert', key: 'review_status', value: 'revoked' }]);
 
   await page.locator('.local-mcp-indicator').click();

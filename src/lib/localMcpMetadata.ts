@@ -4,19 +4,19 @@ import { acquireNoteUpdate, notifyNotesChanged } from './noteEvents';
 import { assertFrontmatterExpansion, normalizeFrontmatterValue, serializeFrontmatterValue, RESERVED_FRONTMATTER_KEYS, UNSAFE_FRONTMATTER_KEYS } from './frontmatter';
 import type { CustomMetadataEntry, FrontmatterValue, Note } from './types';
 
-type Action = 'add' | 'update' | 'upsert';
-type Change = { action: Action; key: string; value: FrontmatterValue };
+type ValueAction = 'add' | 'update' | 'upsert';
+type Change = { action: ValueAction; key: string; value: FrontmatterValue } | { action: 'remove'; key: string };
 type Condition = { key: string; op: 'exists' | 'missing' | 'equals' | 'contains'; value?: FrontmatterValue };
 type Filter = { note_ids?: string[]; query?: string; scope?: 'title' | 'title_body'; tags?: string[];
   updated_at?: { gte?: number; lt?: number }; custom_metadata?: Condition[]; all_notes?: true };
 type Presence = { exists: false } | { exists: true; value: FrontmatterValue };
-type Diff = Pick<Change, 'action' | 'key'> & { result: 'added' | 'updated' | 'same_value' | 'key_exists' | 'key_missing'; before: Presence; after: Presence };
+type Diff = Pick<Change, 'action' | 'key'> & { result: 'added' | 'updated' | 'removed' | 'same_value' | 'key_exists' | 'key_missing'; before: Presence; after: Presence };
 type Item = { id: string; title: string; expected_revision: string; status: 'changed' | 'unchanged' | 'skipped'; changes: Diff[] };
 type Counts = { matched_notes: number; unchanged_notes: number; skipped_notes: number };
 export type MetadataPreviewResult = Counts & { status: 'ready' | 'no_matches' | 'no_changes'; plan_id: string | null;
   expires_at?: number; changed_notes: number; items: Item[] };
 export type MetadataApplyResult = Counts & { status: 'applied'; plan_id: string; updated_notes: number;
-  added_fields: number; updated_fields: number; reused: boolean;
+  added_fields: number; updated_fields: number; removed_fields?: number; reused: boolean;
   items: { id: string; status: 'updated' | 'unchanged' | 'skipped'; previous_revision: string; revision: string; updated_at: number }[] };
 type Plan = { expiresAt: number; items: Item[]; metadata: Map<string, CustomMetadataEntry[]>; bytes: number; applied: boolean };
 
@@ -73,10 +73,14 @@ function parsePreview(raw: unknown): { filter: Filter; changes: Change[] } {
     return { key, op, value };
   });
   if (!Object.keys(filter).length) invalid();
-  const changes = list(input.changes, 20).map(raw => {
+  const changes: Change[] = list(input.changes, 20).map(raw => {
     const c = object(raw); keys(c, ['action', 'key', 'value']);
+    if (c.action === 'remove') {
+      if ('value' in c) invalid();
+      return { action: 'remove', key: writeKey(c.key) };
+    }
     if (!['add', 'update', 'upsert'].includes(c.action as string)) invalid();
-    return { action: c.action as Action, key: writeKey(c.key), value: inputValue(c.value) };
+    return { action: c.action as ValueAction, key: writeKey(c.key), value: inputValue(c.value) };
   });
   if (new Set(changes.map(c => c.key)).size !== changes.length) invalid();
   // Clone so callers cannot mutate an in-flight request or a stored plan.
@@ -126,6 +130,10 @@ function propose(entries: CustomMetadataEntry[], changes: Change[]) {
   const diffs: Diff[] = changes.map(c => {
     const index = next.findIndex(e => e.key === c.key);
     const before: Presence = index < 0 ? { exists: false } : { exists: true, value: next[index].value };
+    if (c.action === 'remove') {
+      if (index >= 0) next.splice(index, 1);
+      return { action: c.action, key: c.key, result: index < 0 ? 'key_missing' : 'removed', before, after: { exists: false } };
+    }
     let result: Diff['result'];
     if (index >= 0 && c.action === 'add') result = 'key_exists';
     else if (index < 0 && c.action === 'update') result = 'key_missing';
@@ -136,7 +144,7 @@ function propose(entries: CustomMetadataEntry[], changes: Change[]) {
     return { action: c.action, key: c.key, result, before, after: changed ? { exists: true, value: c.value } : before };
   });
   validateResult(next);
-  const status: Item['status'] = diffs.some(d => d.result === 'added' || d.result === 'updated') ? 'changed'
+  const status: Item['status'] = diffs.some(d => ['added', 'updated', 'removed'].includes(d.result)) ? 'changed'
     : diffs.some(d => d.result === 'same_value') ? 'unchanged' : 'skipped';
   return { next, diffs, status };
 }
@@ -154,14 +162,18 @@ export function createMetadataSession() {
   return {
     clear,
     close() { closed = true; clear(); },
-    async execute(operation: string, raw: unknown, allowed: () => boolean): Promise<MetadataPreviewResult | MetadataApplyResult> {
+    async execute(operation: string, raw: unknown, allowed: () => boolean, supportsRemove: () => boolean = () => false): Promise<MetadataPreviewResult | MetadataApplyResult> {
       const epoch = generation;
       const authorize = () => {
         if (closed || generation !== epoch || !allowed()) fail('ACCESS_DISABLED', 'Enable reading and updating notes and preview again.');
       };
       authorize();
+      const requireRemove = () => {
+        if (!supportsRemove()) fail('UPGRADE_REQUIRED', 'Update the local MCP service to remove Custom metadata or replay a removal.');
+      };
       if (operation === 'preview_custom_metadata_changes') {
         const { filter, changes } = parsePreview(raw);
+        if (changes.some(c => c.action === 'remove')) requireRemove();
         const db = await requireDb();
         const notes = await db.getAll('notes');
         if (filter.note_ids?.some(id => !notes.some(n => n.id === id))) fail('NOT_FOUND', 'A specified note ID was not found.');
@@ -212,6 +224,7 @@ export function createMetadataSession() {
       const fingerprint = await digest({ operation, plan_id: planId });
       const reuse = (receipt: McpReceipt): MetadataApplyResult => {
         if (receipt.digest !== fingerprint || receipt.result.status !== 'applied') fail('REQUEST_ID_CONFLICT', 'Request ID already used for different input.');
+        if (receipt.result.removed_fields !== undefined) requireRemove();
         return { ...receipt.result, reused: true };
       };
       const db = await requireDb();
@@ -219,6 +232,8 @@ export function createMetadataSession() {
       if (prior) { authorize(); return reuse(prior); }
       const plan = plans.get(planId);
       if (!plan) return fail('PLAN_NOT_FOUND', 'Plan not found. Preview again.');
+      const hasRemove = plan.items.some(i => i.changes.some(c => c.action === 'remove'));
+      if (hasRemove) requireRemove();
       if (plan.expiresAt <= Date.now()) return fail('PLAN_EXPIRED', 'Plan expired. Preview again.');
       if (plan.applied) return fail('PLAN_ALREADY_APPLIED', 'Plan already applied. Retry the original request_id.');
       const snapshots: Note[] = [];
@@ -238,7 +253,8 @@ export function createMetadataSession() {
         updated_notes: items.filter(i => i.status === 'updated').length, unchanged_notes: items.filter(i => i.status === 'unchanged').length,
         skipped_notes: items.filter(i => i.status === 'skipped').length,
         added_fields: plan.items.flatMap(i => i.changes).filter(c => c.result === 'added').length,
-        updated_fields: plan.items.flatMap(i => i.changes).filter(c => c.result === 'updated').length, reused: false, items });
+        updated_fields: plan.items.flatMap(i => i.changes).filter(c => c.result === 'updated').length,
+        ...(hasRemove ? { removed_fields: plan.items.flatMap(i => i.changes).filter(c => c.result === 'removed').length } : {}), reused: false, items });
       const receipt: MetadataReceipt = { key, digest: fingerprint, result };
       authorize();
       const releases: (() => void)[] = [];
@@ -253,6 +269,7 @@ export function createMetadataSession() {
           if (existing) { authorize(); committed = reuse(existing); }
           else {
             authorize();
+            if (hasRemove) requireRemove();
             if (plan.applied) fail('PLAN_ALREADY_APPLIED', 'Plan already applied. Retry the original request_id.');
             if (plan.expiresAt <= Date.now()) fail('PLAN_EXPIRED', 'Plan expired. Preview again.');
             for (const snapshot of snapshots) assertSnapshot(await tx.objectStore('notes').get(snapshot.id), snapshot);

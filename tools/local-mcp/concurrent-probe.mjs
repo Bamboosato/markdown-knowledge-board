@@ -126,10 +126,11 @@ try {
   pass('Corrupt identity is not silently replaced');
 
   let unsupportedDispatches = 0;
+  let legacyStatus = { protocolVersion: 2, connected: true, capabilities: ['create_note', 'search_notes', 'get_note', 'update_note'] };
   const legacy = createHttpServer((req, res) => {
     if (req.url.endsWith('/execute')) unsupportedDispatches++;
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ service: 'mkb-local-broker-v1', value: { protocolVersion: 2, connected: true, capabilities: ['create_note', 'search_notes', 'get_note', 'update_note'] } }));
+    res.end(JSON.stringify({ service: 'mkb-local-broker-v1', value: req.url.endsWith('/execute') ? { status: 'no_matches', plan_id: null, items: [], matched_notes: 0, changed_notes: 0, unchanged_notes: 0, skipped_notes: 0 } : legacyStatus }));
   });
   await new Promise(resolve => legacy.listen(0, '127.0.0.1', resolve));
   const legacyDirectory = `${directory}/legacy`;
@@ -146,6 +147,15 @@ try {
     }
     assert.equal(unsupportedDispatches, 0);
     pass('New runtime rejects text and metadata edits against a legacy broker before dispatch');
+    legacyStatus = { ...legacyStatus, brokerCapabilities: ['create_note', 'preview_custom_metadata_changes', 'apply_custom_metadata_changes'], capabilities: ['create_note', 'preview_custom_metadata_changes', 'apply_custom_metadata_changes'] };
+    const removal = { filter: { all_notes: true }, changes: [{ action: 'remove', key: 'source' }] };
+    assert.equal(unwrap(await legacyClient.callTool({ name: 'preview_custom_metadata_changes', arguments: removal })).error.code, 'UPGRADE_REQUIRED');
+    assert.equal(unsupportedDispatches, 0);
+    assert.deepEqual((await status(legacyClient)).metadataActions, ['add', 'update', 'upsert']);
+    const existing = { ...removal, changes: [{ action: 'upsert', key: 'source', value: null }] };
+    assert.equal(unwrap(await legacyClient.callTool({ name: 'preview_custom_metadata_changes', arguments: existing })).status, 'no_matches');
+    assert.equal(unsupportedDispatches, 1);
+    pass('Runtime rejects remove against a 0.6 broker while preserving existing metadata actions');
   } finally {
     await legacyClient?.close();
     legacy.closeAllConnections();

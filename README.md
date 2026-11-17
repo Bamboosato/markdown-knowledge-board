@@ -4,10 +4,10 @@ Local-only Markdown knowledge board built with React + Vite + TypeScript.
 
 ## Windows向けローカルMCPセットアップ
 
-CodexからMKB PWAへノートを作成・検索・更新するセットアップ一式は、[GitHub Releases：MKB Windows Setup v1.3.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.3.0)から入手できます。Custom metadataの条件付きAdd / Update / Upsertにも対応します。Releaseの添付ファイルは30日で自動失効しません。
+CodexからMKB PWAへノートを作成・検索・更新するセットアップ一式は、[GitHub Releases：MKB Windows Setup v1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)から入手できます。Custom metadataの条件付きAdd / Update / Upsert / Removeにも対応します。Releaseの添付ファイルは30日で自動失効しません。
 
-- [セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.3.0/MKB-Windows-Setup.zip)
-- [SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.3.0/MKB-Windows-Setup.zip.sha256)
+- [セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip)
+- [SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip.sha256)
 - [導入手順書](./tools/local-mcp/windows/README.md)
 - [Local MCP API設計書（要求・応答定義とJSON例）](./docs/local-mcp-note-access-spec.md)
 

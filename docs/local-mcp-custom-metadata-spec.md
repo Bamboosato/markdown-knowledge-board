@@ -1,15 +1,17 @@
-# MKB Local MCP：Custom metadataの条件付き追加・更新・Upsert仕様
+# MKB Local MCP：Custom metadataの条件付きAdd / Update / Upsert / Remove仕様
 
 - 更新日：2026-11-17
-- 状態：実装確定。runtime 0.6.0 / Windows Setup 1.3.0の追加仕様。
+- 状態：実装確定。runtime 0.7.0 / Windows Setup 1.4.0の追加仕様。
 - 基盤：`817b95316a032b5b61a5acc542e40f08dbd89748`（runtime 0.5.0）。追加実装は`src/lib/localMcpMetadata.ts`、要求・応答のschemaは`tools/local-mcp/metadata-schema.mjs`。
 - 現行契約：[Local MCP API設計書](./local-mcp-note-access-spec.md)
 
+1〜11節は共通契約、12節はRemoveの詳細と旧版との互換性を定義する。MCPツールは計9個を維持する。
+
 ## 1. 目的・範囲
 
-条件に合う保存済みノートを選び、**Custom metadataだけ**を追加・更新する。タイトル・本文・タグ・ID・Pin・Marp等は変更しない。実際に変更したノートの`updatedAt`は、保存管理上の更新として進める。利用者からupdatedAtを指定する機能は設けない。値が同じなら更新日時とrevisionを維持する。
+条件に合う保存済みノートを選び、**Custom metadataだけ**を追加・更新・削除する。タイトル・本文・タグ・ID・Pin・Marp等は変更しない。実際に変更したノートの`updatedAt`は、保存管理上の更新として進める。利用者からupdatedAtを指定する機能は設けない。値が同じなら更新日時とrevisionを維持する。
 
-対象は現在接続したPWA・Origin・ブラウザプロファイルのIndexedDB。未保存draft・外部Markdown・バックアップ・別PCは対象外。今回の案にはキー削除・キー名変更・ネスト内の部分更新・配列要素への追記・複数ノートへの別々の値の自動計算を含めない。配列やオブジェクトは、指定キーの値全体として置き換える。
+対象は現在接続したPWA・Origin・ブラウザプロファイルのIndexedDB。未保存draft・外部Markdown・バックアップ・別PCは対象外。キー名変更・ネスト内の部分更新・配列要素への追記・複数ノートへの別々の値の自動計算は対象外。配列やオブジェクトは、指定キーの値全体として置き換える。
 
 現行実装では`get_note`が`custom_metadata`を返すが、`update_note`はtitle/body/tagsのみ受け付ける。本文中のfrontmatterを書き換えて代用せず、保存Noteの`customMetadata`を専用操作で更新する。
 
@@ -17,7 +19,7 @@
 
 | ツール | 入力の役割 | ノートへの書き込み |
 | --- | --- | --- |
-| `preview_custom_metadata_changes` | ノート条件と追加・更新・Upsert内容を指定し、対象・差分・除外理由を取得 | なし。短命の実行計画を作る |
+| `preview_custom_metadata_changes` | ノート条件とAdd / Update / Upsert / Remove内容を指定し、対象・差分・除外理由を取得 | なし。短命の実行計画を作る |
 | `apply_custom_metadata_changes` | 確認済み`plan_id`と再送用`request_id`を指定 | 固定した対象だけを一括更新 |
 
 1. 利用者の依頼から条件と変更内容を組み立てる。
@@ -60,13 +62,13 @@ Custom metadata条件：
 - `equals`：value必須。JSONの型を区別し、数値1と文字列"1"は別。配列は順序を区別、オブジェクトはプロパティ順を無視する深い一致。nullとの一致はキーが存在して値がnullの場合だけ。
 - `contains`：valueは非空string。保存値もstringの場合に限り、大小文字を区別した文字列部分一致。配列所属検索やオブジェクトの文字列化検索には使わない。
 
-キーは大小文字を区別する。`owner.name`はその名前のトップレベルキーであり、パス指定ではない。条件用キーは1〜100コード単位の保存キーを完全一致で扱い、黙ってtrimしない。containsのvalueは最大10,000コード単位。note_idsの各IDは1〜65,536コード単位。query/tagsの文字数上限はtrim前にも適用する。add/update/upsertに使うキーの制約は5節に従う。
+キーは大小文字を区別する。`owner.name`はその名前のトップレベルキーであり、パス指定ではない。条件用キーは1〜100コード単位の保存キーを完全一致で扱い、黙ってtrimしない。containsのvalueは最大10,000コード単位。note_idsの各IDは1〜65,536コード単位。query/tagsの文字数上限はtrim前にも適用する。add/update/upsert/removeに使うキーの制約は5節に従う。
 
 ノート条件は更新前の保存snapshotへ適用する。例えば「MKBタグがあり、status=draftのノートをstatus=reviewedにする」なら、tagsとmetadataのequalsを指定する。
 
-## 4. Add・Update・Upsertの区別
+## 4. Add・Update・Upsert・Removeの区別
 
-`changes`は1〜20件。各項目は`{action, key, value}`。同一要求内で同じkeyを複数回指定できない。各選択ノートに同じchangesを適用する。
+`changes`は1〜20件。Add / Update / Upsertは`{action, key, value}`、Removeは`{action: "remove", key}`。Removeのvalueはnullも含めて指定不可。同一要求内で同じkeyを複数回指定できない。各選択ノートに同じchangesを適用する。
 
 | action | 対象キーの状態 | 動作 |
 | --- | --- | --- |
@@ -78,6 +80,8 @@ Custom metadata条件：
 | `upsert` | 存在しない | 新規entryを末尾へ追加。`added` |
 | `upsert` | 存在し値が違う | そのentryの値全体を更新。位置とキー名を保持。`updated` |
 | `upsert` | 存在し値が同じ | `same_value`。書き換えなし |
+| `remove` | 存在する | entry全体を削除。`removed` |
+| `remove` | 存在しない | `key_missing`としてskip。失敗ではない |
 
 skipは事前に定義した非対象で、処理エラーではない。例えば2キー指定で1キーだけ既存なら、previewに片方の追加と片方のskipを表示する。既存キーだけを上書きする場合はupdate、キーがなければ作成し、あれば上書きする場合はupsertを明示する。actionに既定値はなく、addを自動的にupsertへ変更しない。
 
@@ -88,8 +92,8 @@ skipは事前に定義した非対象で、処理エラーではない。例え�
 ## 5. 値・キー・容量の検証
 
 - 値はJSON値（string / 有限number / boolean / null / array / object）。YAML文字列をAPIに渡して再parseしない。型を保持する。
-- 追加・更新用キーは前後空白なし、1〜100 UTF-16コード単位。非正規キーを黙ってtrimして別キーへ更新しない。キー名の大小文字は区別する。
-- アプリ管理キー`id/title/tags/updatedAt/marp/theme/size/paginate/headingDivider`はCustom操作の対象外。`pinnedAt`も管理属性と誤認させないため追加・更新用キーでは拒否する（現行予約集合への追加とは別のMCP入力制約）。
+- 追加・更新・削除用キーは前後空白なし、1〜100 UTF-16コード単位。非正規キーを黙ってtrimして別キーへ更新しない。キー名の大小文字は区別する。
+- アプリ管理キー`id/title/tags/updatedAt/marp/theme/size/paginate/headingDivider`はCustom操作の対象外。`pinnedAt`も管理属性と誤認させないため追加・更新・削除用キーでは拒否する（現行予約集合への追加とは別のMCP入力制約）。
 - 危険キー`__proto__/prototype/constructor`はトップレベル・ネスト内とも拒否する。
 - 結果のCustom metadataは1ノート最大100項目。既存UIと同じserializerによる1値のYAML表現を10,000コード単位以内に収める。JSON文字数とYAML入力欄の長さを同一視しない。
 - 現行の値深度20、配列・object各1,000要素、全体展開10,000値／1,000,000文字の検証を共用する。更新後のCustom metadata全体に適用する。
@@ -282,7 +286,7 @@ planは永続化せず、DB version 2を維持する。既存`UpdateReceipt`と�
 
 また、現行の100項目上限は主にUIの追加ボタン制御であり、インポート済み全データがこの件数以内とは限らない。MCPの検証をUI制御だけに依存させない。範囲外の既存値・重複キーは黙って正規化せず拒否する。
 
-### ローカル検証結果（2026-11-17）
+### Add / Update / Upsert公開時の検証結果（2026-11-17、runtime 0.6.0）
 
 - 関連単体試験84件：`localMcpMetadata`、`localMcpAccess`、`frontmatter`、`backup`。50件成功・51件拒否、型保持、競合、全件rollback、権限解除、期限、並行再送を含む。
 - `node --test tools/local-mcp/bridge.test.mjs`：12件成功。入力・応答schemaと旧PWAへの配送防止。
@@ -295,6 +299,191 @@ planは永続化せず、DB version 2を維持する。既存`UpdateReceipt`と�
 
 ## 11. 提供状態
 
-条件はAND、操作はadd/update/upsertを明示、既存キーへのaddと欠落キーへのupdateはskip、preview必須、対象固定、最大50ノート、一括transaction、既存のrevision・再送保証を継承する。キー削除・rename・複雑な条件式は今回含めない。
+### Remove追加時の検証（2026-11-17、runtime 0.7.0）
 
-本仕様はruntime 0.6.0と対応PWAを対象とする。[Windows Setup 1.3.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.3.0)へ更新し、Codex再起動とPWA更新・Reconnectで利用する。旧Setup 1.2.0（runtime 0.5.0）には含まれない。接続コードの再発行は不要。ローカル検証と本番確認の範囲は分けて扱う。
+- `localMcpMetadata`・`localMcpAccess`の関連単体70件、bridge 14件成功。削除対象の厳密な検証、値型・残存順序、最後のキー、混在操作、全件rollback、旧receipt、キー再追加後の再送を確認。
+- 実MCP STDIO＋隔離Chromiumで31項目成功。削除件数、欠落skip、競合時の全件拒否、ACK喪失・再読み込み後の元の削除結果の再送、新PWAによる旧broker応答の検出を確認。
+- ライフサイクル試験9項目、Windows配布試験6群成功。旧brokerへのRemove配送防止と既存3操作の維持、ZIP導入後の9ツール起動、再インストール時のペアリング保持を確認。
+- 型チェックを含むbuild、lint、差分チェック、本文のJSON例のschema照合を実施。依存追加・DB移行なし。
+- 新旧混在試験で、旧brokerのACKがUPGRADE_REQUIREDを受理しないことを検出。内部では旧版対応のUNSUPPORTED_OPERATIONを使い、新runtimeで変換するよう修正して成功。旧版応答は隔離環境で再現し、本番データへの障害注入は行っていない。
+- この記録はローカル検証であり、本番PWAでのRemove実行、他PCでの実PWA、全E2Eの成功を示すものではない。
+
+### 利用バージョン
+
+条件はAND、操作はadd/update/upsert/removeを明示、既存キーへのaddと欠落キーへのupdateはskip、preview必須、対象固定、最大50ノート、一括transaction、既存のrevision・再送保証を継承する。rename・複雑な条件式・ノート自体の削除は含めない。
+
+本仕様はruntime 0.7.0と対応PWAを対象とする。[Windows Setup 1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)へ更新し、Codex再起動とPWA更新・Reconnectで利用する。旧Setup 1.3.0（runtime 0.6.0）はAdd / Update / Upsertまでで、Removeには対応しない。接続コードの再発行は不要。ローカル検証と本番確認の範囲は分けて扱う。
+
+## 12. Remove：Custom metadataのキー削除
+
+runtime 0.7.0 / Windows Setup 1.4.0で追加。既存のpreview / applyへ統合し、新たな権限や画面操作は追加しない。
+
+### 12.1 対象とAPI
+
+既存の`preview_custom_metadata_changes`と`apply_custom_metadata_changes`を拡張し、`changes`へ`action: "remove"`を追加する。新しいMCPツールは増やさず、計9ツールを維持する。Removeは指定したトップレベルCustom metadataキーとその値を削除する操作であり、ノート自体は削除しない。
+
+- removeの入力は`{action: "remove", key}`。`value`は指定不可。`value: null`もINVALID_ARGUMENT。Add / Update / Upsertでは従来どおりvalue必須。
+- キーは大文字小文字を区別する完全一致。前後空白なし・1〜100 UTF-16コード単位、既存の管理キー・危険キーの禁止を継承する。
+- `owner.name`はその名前のトップレベルキー。ネスト内の部分削除、キーのワイルドカード、全Custom metadataの無条件消去、ノート削除、キー名変更は対象外。
+- filter、AND条件、note_ids、tags、更新日時、metadata条件、明示的なall_notesは既存契約のまま。条件は削除前の保存snapshotへ適用する。
+- changesは合計1〜20件。同じkeyを複数回指定することは、異なるactionの組み合わせでもINVALID_ARGUMENT。異なるキーならAdd / Update / Upsert / Removeを同一planへ混在できる。ただし利用者が依頼した操作だけを含める。
+
+### 12.2 存在・欠落と保存結果
+
+| キーの状態 | result | 動作 |
+| --- | --- | --- |
+| 存在する | `removed` | entryを削除。値がnull・空文字・false・0でも削除する |
+| 存在しない | `key_missing` | 正常なスキップ。新規entryを作らず、失敗扱いにしない |
+
+`upsert`でnullを保存する動作は変更しない。nullは値であり、キー削除の省略記法にはしない。
+
+1項目以上added / updated / removedがあればノートはchanged、変更がなくsame_valueがあればunchanged、それ以外はskipped。全件欠落なら`status: "no_changes"`、plan_id=nullでapply不要。0件一致は従来のno_matches。
+
+削除しないentryの値と順序、本文・タイトル・タグ・ID・Pin・Marp・その他の属性を維持する。最後のentryを削除した場合は`customMetadata: []`として保存する。実際に変更したノートだけupdatedAtとrevisionを更新し、欠落キーをスキップしただけのノートは両方を維持する。
+
+不正な既存metadata（重複キー、禁止キー、不正値等）を削除機能で修復しない。INVALID_METADATAとして拒否する。既存の入力値検証と変更後metadataの項目数・容量・展開上限を継承する。本文128 KiB、最大50ノート、応答1,000,000 UTF-8 bytesの上限も変更しない。
+
+### 12.3 previewと実行の意思
+
+previewは必須。対象ID・タイトル・件数に加え、削除するキーと削除前の値を返す。削除前の値もCodexへ渡るため、既存の読み取り・更新許可を使う。
+
+削除予定は`before: {exists: true, value: ...}`、`after: {exists: false}`、`result: "removed"`。欠落によるスキップはbefore/afterとも`{exists: false}`、resultはkey_missing。
+
+「条件XのノートからキーYを削除して」と明示され、previewがその範囲に一致する場合は、その依頼をapplyの許可として扱う。「削除できるか」「まず対象を確認」「仕様を検討」ではapplyしない。previewが依頼範囲を超えた場合は条件を見直し、必要な確認を行う。削除専用の恒常的な追加権限や、毎回必須の再確認ダイアログは設けない。
+
+### 12.4 要求・応答例
+
+タグMKBを持ち、review_statusがreviewedのノートからreview_statusを削除するpreviewのarguments：
+
+```json
+{
+  "filter": {
+    "tags": ["MKB"],
+    "custom_metadata": [{ "key": "review_status", "op": "equals", "value": "reviewed" }]
+  },
+  "changes": [{ "action": "remove", "key": "review_status" }]
+}
+```
+
+previewの正常応答。ID・revision・時刻は説明用の架空値。
+
+```json
+{
+  "status": "ready",
+  "plan_id": "cmdp_b930f35f-5f96-43cb-a89e-08fa4384d4d1",
+  "expires_at": 1794884400000,
+  "matched_notes": 1,
+  "changed_notes": 1,
+  "unchanged_notes": 0,
+  "skipped_notes": 0,
+  "items": [
+    {
+      "id": "example-note-001",
+      "title": "MKB導入手順",
+      "expected_revision": "v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": "changed",
+      "changes": [
+        {
+          "action": "remove",
+          "key": "review_status",
+          "result": "removed",
+          "before": {
+            "exists": true,
+            "value": "reviewed"
+          },
+          "after": {
+            "exists": false
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+applyの入力は従来どおりplan_idとrequest_idだけ。
+
+```json
+{
+  "plan_id": "cmdp_b930f35f-5f96-43cb-a89e-08fa4384d4d1",
+  "request_id": "metadata-remove-example-001"
+}
+```
+
+1件のノートからキーを1個削除した正常応答：
+
+```json
+{
+  "status": "applied",
+  "plan_id": "cmdp_b930f35f-5f96-43cb-a89e-08fa4384d4d1",
+  "matched_notes": 1,
+  "updated_notes": 1,
+  "unchanged_notes": 0,
+  "skipped_notes": 0,
+  "added_fields": 0,
+  "updated_fields": 0,
+  "removed_fields": 1,
+  "reused": false,
+  "items": [
+    {
+      "id": "example-note-001",
+      "status": "updated",
+      "previous_revision": "v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "revision": "v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "updated_at": 1794883800000
+    }
+  ]
+}
+```
+
+brokerが削除未対応の場合のエラー応答（content[0].text内）。ノートは更新しない。MCP包装はisError: true。
+
+```json
+{
+  "error": {
+    "code": "UPGRADE_REQUIRED",
+    "message": "Update the local MCP service to remove Custom metadata or replay a removal."
+  }
+}
+```
+
+preview後に固定対象が変わった場合は8節のCONFLICT。removeにvalueを指定した要求はSDK入力検証で拒否する。内部配送で直接受けた不正要求はINVALID_ARGUMENTとなる。キー欠落はエラーではなくkey_missingを返す。
+
+removed_fieldsは全対象で実際に削除したentry数。欠落によるskipは含めない。ノートの保存結果は引き続きupdatedであり、ノート削除を意味するdeletedにはしない。itemsには固定対象全件のID・状態・前後revision・更新日時を返す。
+
+### 12.5 一括保存・競合・再送
+
+既存の10分のplan、保持上限、セッション束縛、全Note revision、同一transactionによるnotesとreceiptの保存を継承する。
+
+- preview後に新しく条件へ一致したノートを追加しない。固定対象が本文編集・キー追加・値変更・キー削除・ノート削除等で変われば、skip予定ノートも含めてCONFLICT。実行時に「もう消えているので成功」と読み替えない。
+- 1件でも競合・編集中・保存失敗なら全件を取り消す。部分成功は返さない。
+- 同じplan_id/request_idを再送した場合は、planの存在・期限・現在のノート状態より先に永続receiptを照合し、元の削除件数をreused:trueで返す。後から同じキーが追加されていても再削除しない。
+- 異なるplan_idで同じrequest_idはREQUEST_ID_CONFLICT。成功済みplanに別request_idを使う場合やplan失効の扱いも既存契約のまま。
+- receiptへ削除前の値を新たに永続保存しない。自動Undo・復元専用APIは今回追加しない。既存バックアップ機能とは別の操作として扱う。
+
+### 12.6 旧版との互換性
+
+各版の実装はactionとACK応答を厳密に検証している。特に旧brokerは未知のremoved_fieldsを拒否するため、単にenumや件数項目を追加するだけでは、保存後にACKを受け取れない組み合わせを作ってしまう。
+
+互換性契約は次のとおり。全体のPWA protocolVersion=2、ツール名、接続コード、DB version 2は維持する。
+
+1. ツール名の対応有無に加え、metadataのactionを交渉する。内部connect/pollでPWAの`supportedMetadataActions`、connect / poll応答とstatusで`brokerMetadataActions`を通知し、connection_statusの`metadataActions`は両者が対応し、許可もあるactionだけを返す。削除対応版はadd/update/upsert/removeを通知する。
+2. action情報がない現行0.6.0は、metadataツール自体の対応が確認できる場合に限りadd/update/upsert対応と解釈する。remove対応とは推測しない。未接続・未許可では実行可能actionは空。
+3. removeを含むpreviewはruntime・broker・PWAの対応を確認し、未対応なら配送・保存の前にUPGRADE_REQUIRED。新PWAもbrokerの対応を確認し、未確認のままremoveを実行しない。
+4. planにはremoveを含むかどうかを固定する。applyの入力にはactionがないため、PWAはplanまたは既存receiptからremoveの有無を判定する。removeのplan実行・receipt返却時はbrokerの対応を確認し、未対応ならUPGRADE_REQUIREDで保存しない。接続変更時のplan破棄も維持する。
+5. **removed_fieldsはremoveを含むplanのapply結果にだけ返す**（実削除0件なら0）。Add / Update / Upsertだけのplanと旧receiptは従来の応答形式を維持する。受信側ではremoved_fieldsの省略を0件として扱う。旧receiptを書き換えたり、再送のために新しいplanを強制したりしない。
+6. 新brokerは新旧両形式のACKを検証する。removeのdiffとremoved_fieldsを認識する。PWAは実行結果を同じ形式でreceiptへ保存する。新PWAと旧brokerの組み合わせでは、remove結果返却でタイムアウトさせず、対応不足を先に検出する。
+7. PWAからbrokerへ対応不足を返す内部ACKは、0.6.0も受理する`UNSUPPORTED_OPERATION`を使う。0.7.0 runtimeはmetadataツールのこの応答を公開エラー`UPGRADE_REQUIRED`へ変換する。旧runtimeは`UNSUPPORTED_OPERATION`と更新案内をそのまま返す。これは保存前の拒否であり、`OUTCOME_UNKNOWN`にはしない。
+
+現行0.6.0と削除対応版の混在ではAdd / Update / Upsertを維持し、Removeだけを対応版どうしに限定する。runtime→broker、PWA→brokerの両方向と、更新後の旧receipt再送を試験する。
+
+PWAとbrokerを両方とも未改修の0.6.0へ戻した場合、削除receiptの再送互換性は保証できない。旧コードに対応判定がなく、未知のremoved_fieldsをACKで拒否するためである。削除の結果を照合する場合は削除対応版へ戻して、元のplan_id/request_idで再送する。ダウングレード対応のために永続receiptを削除・変換したり、新しい要求として再実行したりしない。
+
+### 12.7 Removeの検証観点
+
+- 既存キー削除、欠落skip、最後の1項目の削除、null等の値の削除、他のentryの値・順序と本文・管理属性の保持。
+- filterのANDと削除前評価、複数キー、異なるactionとの混在、同一キーの重複拒否、value指定の拒否、管理キー・危険キーの拒否。
+- 0件・全skip・一部skip、removed_fieldsの実件数、no_changes時の更新日時とrevisionの維持。
+- preview後の変更・削除・キー再追加、全件rollback、再送後に再追加されたキーを消さないこと、古いreceiptの再利用。
+- 新旧runtime／broker／PWAの組み合わせで、既存3操作の互換性とRemoveの事前拒否。ACK喪失・PWA再読み込み後も元の削除件数を返すこと。
+- 対象試験とAPI設計書・配布手順の整合を確認する。本番でのRemove実行結果はローカル検証と区別し、Codex再起動・PWA更新後に確認する。

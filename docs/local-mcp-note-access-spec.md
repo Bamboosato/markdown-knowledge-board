@@ -2,11 +2,11 @@
 
 - 更新日：2026-11-17
 - 状態：実装確定。要求・応答と制限を同梱実装に合わせて記載。
-- 対象実装：runtime 0.6.0（Custom metadataの条件付きAdd / Update / Upsertを追加）。既存APIの基盤は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)。
-- MCPサーバー：`mkb-local-prototype` / runtime `0.6.0`。Codex登録名：`mkb_local_prototype`
-- PWA連携プロトコル：`2`。Windows Setup `1.3.0`はruntime `0.6.0`を同梱。旧Setup `1.2.0`はruntime `0.5.0`で、新metadata操作を含まない。
+- 対象実装：runtime 0.7.0（Custom metadataのRemoveを追加。Add / Update / Upsertは0.6.0から提供）。既存APIの基盤は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)。
+- MCPサーバー：`mkb-local-prototype` / runtime `0.7.0`。Codex登録名：`mkb_local_prototype`
+- PWA連携プロトコル：`2`。Windows Setup `1.4.0`はruntime `0.7.0`を同梱。旧Setup `1.3.0`はruntime `0.6.0`で、Removeを含まない。
 
-本書は従来の既存ノートアクセス仕様案を置き換える。文書のファイル名は既存リンクとの互換性のため維持する。利用手順は[ローカルMCP README](https://github.com/Bamboosato/markdown-knowledge-board/blob/main/tools/local-mcp/README.md)、配布物は[Windows Setup 1.3.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.3.0)を参照する。
+本書は従来の既存ノートアクセス仕様案を置き換える。文書のファイル名は既存リンクとの互換性のため維持する。利用手順は[ローカルMCP README](https://github.com/Bamboosato/markdown-knowledge-board/blob/main/tools/local-mcp/README.md)、配布物は[Windows Setup 1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)を参照する。
 
 ## 1. 目的・対象・構成
 
@@ -137,8 +137,10 @@ JSON-RPC要求の完全な例：
 | `origin` | string。PC上のloopbackサービスのURL |
 | `browserOrigin` | stringまたはnull。接続中PWAのOrigin。未接続ならnull |
 | `protocolVersion` | number。現行brokerは2。古いbrokerでは省略され得る |
-| `brokerCapabilities` | broker自体が対応する6操作。接続・許可状態とは独立。旧brokerでは欠落する |
+| `brokerCapabilities` | broker自体が対応する8操作。接続・許可状態とは独立。旧brokerでは欠落する |
 | `capabilities` | string配列。brokerと接続PWAの対応操作・現在の許可の共通部分。未接続なら空。古いbrokerでは省略され得る |
+| `brokerMetadataActions` | brokerが対応するmetadata action配列。0.7.0はadd/update/upsert/remove。接続状態とは独立 |
+| `metadataActions` | 接続PWA・broker双方で対応し、現在許可されているmetadata action配列。未接続・未許可は空。0.6.0の情報欠落時はmetadata対応が確認できた場合のみ既存3操作と解釈 |
 | `persistentPairing` | boolean。本番の共有broker経由ではtrue。開発用直接bridgeでは省略 |
 | `pairingToken` / `pairingCode` | string。未接続時だけ追加。tokenは64桁hex、codeは`MKB1\|origin\|token`。機密情報 |
 
@@ -698,18 +700,20 @@ CONFLICTではgetをやり直して変更内容を判断する。古い本文の
 
 いずれもNoteとreceiptを保存しない。共通のCONFLICT、NOTE_BUSY、REQUEST_ID_CONFLICT等は8節を参照。
 
-## 7C. Custom metadata — 条件付きAdd / Update / Upsert
+## 7C. Custom metadata — 条件付きAdd / Update / Upsert / Remove
 
-runtime 0.6.0で`preview_custom_metadata_changes`と`apply_custom_metadata_changes`を追加する。要求・正常応答・エラーJSON例、全フィールド定義は[Custom metadata API仕様](./local-mcp-custom-metadata-spec.md)に集約する。MCP共通の包装は本書2節と同じ。
+runtime 0.6.0で`preview_custom_metadata_changes`と`apply_custom_metadata_changes`を追加し、0.7.0で同じツールへRemoveを加えた。要求・正常応答・エラーJSON例、全フィールド定義は[Custom metadata API仕様](./local-mcp-custom-metadata-spec.md)に集約する。MCP共通の包装は本書2節と同じ。
 
 - previewはAND条件で最大50件を選び、キーごとの変更前後・スキップ理由と10分有効のplan_idを返す。既存ノートの読み取り・更新許可を使い、ノートは保存しない。
 - Addは欠落キーだけ追加、Updateは既存キーだけ更新、Upsertは欠落なら追加・既存なら更新。同値の更新は保存日時もrevisionも維持する。
+- Removeは`{action:"remove",key}`でトップレベルCustom metadataキーと値を削除する。valueは禁止（nullも不可）。キー欠落は正常なskip、最後のキーを削除した場合は空配列を保存する。
+- Removeを含むplanだけapply結果に`removed_fields`を返す（実削除0件なら0）。既存3操作と旧receiptの形式は維持する。再送時に後から再追加されたキーを削除しない。
 - applyはplan_idとrequest_idだけを受け取り、対象全件のrevisionと編集状態を確認し、変更ノートとreceiptを同じtransactionで保存する。タイトル・本文・タグ・Marp・Pinは維持する。
 - 正常なskipは失敗ではない。競合・編集中・保存失敗は全件取り消し。応答喪失時は同じplan_id/request_idを再送する。成功receiptはplan期限・再接続より先に照合する。
 - メモリ上のplanは接続解除・権限解除・PWA再読み込みで破棄する。本文更新用の9節に対するmetadata専用の詳細は上記仕様を優先する。
 - 新エラーは`TOO_MANY_MATCHES`、`INVALID_METADATA`、`METADATA_LIMIT_EXCEEDED`、`PLAN_NOT_FOUND`、`PLAN_EXPIRED`、`PLAN_ALREADY_APPLIED`、`PLAN_LIMIT_EXCEEDED`。共通エラーも継承する。未知の要求フィールドを拒否する。
 
-Windows Setup 1.3.0と対応PWAで利用する。旧Setup 1.2.0には含まれない。更新後はCodex再起動、PWA更新・Reconnectが必要。接続コードは維持する。
+Windows Setup 1.4.0と対応PWAで利用する。RemoveにはruntimeとPWA両方の対応が必要で、旧Setup 1.3.0は既存3操作まで。更新後はCodex再起動、PWA更新・Reconnectが必要。接続コードは維持する。
 
 ## 8. エラー一覧と検証境界
 
@@ -820,8 +824,8 @@ receiptは自動期限切れにせず、通常のノートバックアップに�
 
 | 区間 / endpoint | 要求body | 応答bodyの要点 |
 | --- | --- | --- |
-| PWA `/__local_mcp/connect` | `{clientId, protocolVersion:2, noteAccess:boolean, supportedOperations:string[]}` | `{connected:true, protocolVersion:2}` |
-| PWA `/__local_mcp/poll` | `{clientId, protocolVersion:2, noteAccess:boolean, supportedOperations:string[]}` | `{job:null}`または`{job:{deliveryId, operation, input}}` |
+| PWA `/__local_mcp/connect` | `{clientId, protocolVersion:2, noteAccess:boolean, supportedOperations:string[], supportedMetadataActions:string[]}` | `{connected:true, protocolVersion:2, brokerMetadataActions:string[]}` |
+| PWA `/__local_mcp/poll` | `{clientId, protocolVersion:2, noteAccess:boolean, supportedOperations:string[], supportedMetadataActions:string[]}` | `{brokerMetadataActions:string[], job:null}`または同フィールドと`job:{deliveryId, operation, input}` |
 | PWA `/__local_mcp/permissions` | `{clientId, noteAccess:boolean}` | `{updated:true}` |
 | PWA `/__local_mcp/ack` | `{clientId, deliveryId, result}` | `{acknowledged:true}` |
 | PWA `/__local_mcp/disconnect` | `{clientId}` | `{connected:false}` |

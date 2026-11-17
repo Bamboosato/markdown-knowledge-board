@@ -31,7 +31,8 @@ function isMetadataValue(value) {
 const value = z.unknown().refine(isMetadataValue, 'Expected a bounded JSON metadata value.');
 const key = z.string().min(1).max(100);
 const writeKey = key.refine(k => k.trim() === k && !managedKeys.has(k) && !unsafeKeys.has(k));
-const action = z.enum(['add', 'update', 'upsert']);
+export const metadataActions = ['add', 'update', 'upsert', 'remove'];
+const action = z.enum(metadataActions);
 const noteId = z.string().min(1).max(65536);
 const revision = z.string().regex(/^v1-[a-f0-9]{64}$/);
 const planId = z.string().regex(/^cmdp_[a-f0-9-]{36}$/);
@@ -50,14 +51,18 @@ const filter = z.object({
 }).strict().refine(v => Object.keys(v).length > 0 && (!v.scope || v.query) && (!v.all_notes || Object.keys(v).length === 1));
 export const metadataSchemas = {
   preview_custom_metadata_changes: z.object({ filter,
-    changes: z.array(z.object({ action, key: writeKey, value }).strict()).min(1).max(20)
+    changes: z.array(z.union([
+      z.object({ action: z.enum(['add', 'update', 'upsert']), key: writeKey, value }).strict(),
+      z.object({ action: z.literal('remove'), key: writeKey }).strict(),
+    ])).min(1).max(20)
       .refine(v => new Set(v.map(c => c.key)).size === v.length),
   }).strict(),
   apply_custom_metadata_changes: z.object({ plan_id: planId, request_id: z.string().regex(/^[a-zA-Z0-9_-]{8,80}$/) }).strict(),
 };
 
 const presence = z.union([z.object({ exists: z.literal(false) }).strict(), z.object({ exists: z.literal(true), value }).strict()]);
-const diff = z.object({ action, key: writeKey, result: z.enum(['added', 'updated', 'same_value', 'key_exists', 'key_missing']), before: presence, after: presence }).strict();
+const diff = z.object({ action, key: writeKey, result: z.enum(['added', 'updated', 'removed', 'same_value', 'key_exists', 'key_missing']), before: presence, after: presence }).strict()
+  .refine(v => v.action === 'remove' ? !v.after.exists && (v.before.exists ? v.result === 'removed' : v.result === 'key_missing') : v.result !== 'removed');
 const counts = { matched_notes: count.max(50), unchanged_notes: count.max(50), skipped_notes: count.max(50) };
 export const metadataResults = {
   preview_custom_metadata_changes: z.object({ ...counts, status: z.enum(['ready', 'no_matches', 'no_changes']),
@@ -71,7 +76,7 @@ export const metadataResults = {
     (v.status === 'ready' ? v.plan_id !== null && v.expires_at !== undefined && v.changed_notes > 0 :
       v.plan_id === null && v.expires_at === undefined && v.changed_notes === 0 && (v.status === 'no_matches' ? v.matched_notes === 0 : v.matched_notes > 0))),
   apply_custom_metadata_changes: z.object({ ...counts, status: z.literal('applied'), plan_id: planId,
-    updated_notes: count.max(50), added_fields: count.max(1000), updated_fields: count.max(1000), reused: z.boolean(),
+    updated_notes: count.max(50), added_fields: count.max(1000), updated_fields: count.max(1000), removed_fields: count.max(1000).optional(), reused: z.boolean(),
     items: z.array(z.object({ id: noteId, status: z.enum(['updated', 'unchanged', 'skipped']),
       previous_revision: revision, revision, updated_at: z.number() }).strict()).min(1).max(50),
   }).strict().refine(v => v.items.length === v.matched_notes && new Set(v.items.map(i => i.id)).size === v.items.length &&

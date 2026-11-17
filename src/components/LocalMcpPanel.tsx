@@ -8,8 +8,10 @@ import { LOCAL_MCP_CONNECTION_KEY, parseLocalMcpCode, readLocalMcpConnection, va
 import type { LocalMcpConnection } from '../lib/localMcpConnection';
 import './LocalMcpPanel.css';
 
-type Session = { token: string; clientId: string; origin: string };
+type Session = { token: string; clientId: string; origin: string; brokerMetadataActions?: string[] };
 const metadataOperations = ['preview_custom_metadata_changes', 'apply_custom_metadata_changes'];
+const supportedMetadataActions = ['add', 'update', 'upsert', 'remove'];
+const brokerActions = (value: unknown): string[] => Array.isArray(value) ? supportedMetadataActions.filter(action => value.includes(action)) : [];
 const supportedOperations = ['create_note', 'search_notes', 'get_note', 'update_note', 'append_note', 'replace_note_text', ...metadataOperations];
 
 async function request(session: Session, operation: string, value = {}, signal?: AbortSignal) {
@@ -74,17 +76,19 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
     metadataSessionRef.current = metadataSession;
     const controller = new AbortController();
     let stopped = false;
+    let actions = session.brokerMetadataActions ?? [];
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        const { job } = await request(session, 'poll', { protocolVersion: 2, supportedOperations, noteAccess: noteAccessRef.current }, AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]));
+        const { job, brokerMetadataActions } = await request(session, 'poll', { protocolVersion: 2, supportedOperations, supportedMetadataActions, noteAccess: noteAccessRef.current }, AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]));
         if (stopped) return;
+        actions = brokerActions(brokerMetadataActions);
         if (job) {
           let receipt;
           try {
             if (job.operation && job.operation !== 'create_note') {
               receipt = metadataOperations.includes(job.operation)
-                ? await metadataSession.execute(job.operation, job.input, () => !stopped && noteAccessRef.current)
+                ? await metadataSession.execute(job.operation, job.input, () => !stopped && noteAccessRef.current, () => actions.includes('remove'))
                 : await executeNoteAccess(job.operation, job.input, () => !stopped && noteAccessRef.current);
               if (!stopped && ['update_note', 'append_note', 'replace_note_text', 'apply_custom_metadata_changes'].includes(job.operation)) setStatus('Note update completed.');
             } else {
@@ -94,8 +98,11 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
             if (!stopped) setStatus(`${saved.reused ? 'Already saved' : 'Saved'}: ${saved.note.title}`);
             }
           } catch (error) {
+            // Runtime 0.6 brokers accept UNSUPPORTED_OPERATION, but not UPGRADE_REQUIRED in ACKs.
+            // New runtimes translate this metadata-only refusal into the public upgrade error.
+            const code = error instanceof NoteAccessError ? error.code : 'SAVE_FAILED';
             receipt = !job.operation || job.operation === 'create_note' ? { error: 'SAVE_FAILED' } : {
-              error: { code: error instanceof NoteAccessError ? error.code : 'SAVE_FAILED',
+              error: { code: code === 'UPGRADE_REQUIRED' && metadataOperations.includes(job.operation) ? 'UNSUPPORTED_OPERATION' : code,
                 message: error instanceof NoteAccessError ? error.message : 'MKB could not complete this operation.' },
             };
             if (!stopped) setStatus(error instanceof Error ? error.message : 'Save failed.');
@@ -151,12 +158,12 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
       const allowed = stored?.origin === next.origin && stored?.token === next.token && stored.noteAccess === true;
       noteAccessRef.current = allowed;
       setNoteAccess(allowed);
-      await request(next, 'connect', { protocolVersion: 2, supportedOperations, noteAccess: allowed }, AbortSignal.timeout(60000));
+      const connected = await request(next, 'connect', { protocolVersion: 2, supportedOperations, supportedMetadataActions, noteAccess: allowed }, AbortSignal.timeout(60000));
       if (!mountedRef.current) {
         await request(next, 'disconnect').catch(() => {});
         return;
       }
-      setSession(next);
+      setSession({ ...next, brokerMetadataActions: brokerActions(connected.brokerMetadataActions) });
       setToken('');
       setCode('');
       let remembered = true;
