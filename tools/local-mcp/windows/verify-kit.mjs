@@ -22,7 +22,7 @@ const ps = code => execFileSync('powershell.exe', ['-NoProfile', '-Command', `$E
 const checks = [];
 const pass = name => { checks.push(name); console.log(`PASS ${name}`); };
 const bundle = JSON.parse(execFileSync(process.execPath, ['tools/local-mcp/windows/build-kit.mjs'], { cwd: root, encoding: 'utf8', windowsHide: true }));
-ps(`Expand-Archive -LiteralPath ${quote(bundle.archive)} -DestinationPath ${quote(work)}`);
+ps(`Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::ExtractToDirectory(${quote(bundle.archive)}, ${quote(work)})`);
 const kit = join(work, 'MKB-Windows-Setup');
 const manifest = JSON.parse(await readFile(join(kit, 'manifest.json'), 'utf8'));
 assert.equal(manifest.files.length, 14);
