@@ -105,7 +105,7 @@ node tools/local-mcp/windows/verify-kit.mjs
 
 **Manual connection** は自動接続が未設定のときに表示します。登録後は **Local MCP** の自動接続欄で現在の接続状態を確認し、一時停止・再開できます。
 
-1. **Manual connection** を開き、初回接続コードを入力して **Connect local MCP** を選びます。アドレスとトークンを個別に入力する場合は、先に **Advanced settings → Enter address and token** を選びます。
+1. **Manual connection** を開き、**Connection code** に初回接続コードを貼り付けて **Connect local MCP** を選びます。
 2. **Remember in this browser** を選ぶと、次回から **Manual connection → Reconnect** で再接続できます。
 3. **Close** または Esc でパネルを閉じても接続は続きます。保存先を確認するにはMCPクライアントの `connection_status` を使います。
 4. **Advanced settings** では接続コードの入れ直し（**Use a new code**）や登録解除（**Forget connection**）ができます。
