@@ -1,5 +1,21 @@
 # ローカルMCPからPWAのノートを操作する
 
+## WindowsでMKBを自動で開く（runtime 0.8.0）
+
+対応するPWAとローカルランタイムの両方を更新します。既存brokerが動作中なら、MCPクライアントをすべて閉じ、35秒後に起動します。以前のペアリング設定はそのまま使用できます。
+
+1. 保存先に使うChromeまたはEdgeでMKBを開き、アプリメニューの **Local MCP** を選びます。
+2. 初回は接続コードを入力し、**Remember in this browser** と **Open this profile automatically for save requests** を選びます。登録済みなら **Reconnect** の後、**Advanced settings** で **Enable automatic opening** を選べます。
+3. 使用中のブラウザと、Chromeの `chrome://version` またはEdgeの `edge://version` の **Profile Path** の末尾（例：`Default`、`Profile 1`）を指定して登録します。標準のWindowsユーザーデータフォルダーが対象です。
+4. MKBを閉じても、次の明示的な保存依頼でこのプロファイルを開きます。ブラウザ側に記憶した識別情報とOriginを確認してから本文を送ります。通常の状態照会では起動しません。別プロファイルや起動失敗は保存前に停止します。
+5. **Disconnect local MCP** で自動起動を休止し、同じプロファイルで **Reconnect** すると再開します。保存先を変更するときは、元のプロファイルで **Forget connection** を実行してから新しい保存先を登録します。
+
+エージェントは明示的な保存依頼の際、`ensure_connection` で準備した後に接続先を確認できます。`create_note` も必要に応じて起動を待ちます。保存応答が失われた場合は、従来どおり同一の保存先・引数・要求IDで照合してください。
+
+登録したプロファイル自体を削除して **Forget connection** ができなくなった場合は、全MCPクライアントを閉じて35秒待ち、brokerの設定フォルダー（標準は `%LOCALAPPDATA%\MarkdownKnowledgeBoard\mcp`）で `auto-open.json` をバックアップ名に変更します。次にMCPクライアントを起動し、保存先を確認して登録し直します。ペアリング情報は別ファイル `identity.json` にあります。
+
+自動起動の回帰試験は `npm run build` の後、`node tools/local-mcp/verify-auto-open.mjs` を実行します。Windowsに標準インストールしたブラウザの起動も確認する場合は `--native-chrome` または `--native-edge` を付けます。試験は一時プロファイルで合成ノートを使います。
+
 ## Custom metadata操作（runtime 0.7.0 / Windows Setup 1.4.0）
 
 `preview_custom_metadata_changes`で条件に合うノートと差分を確認し、`apply_custom_metadata_changes`で確認済みplanを一括保存する。Addは欠落キーのみ追加、Updateは既存キーのみ更新、Upsertはキーがなければ追加・あれば更新。Removeは指定キーと値を削除し、キー欠落は正常なskipとする。Removeにvalueは指定しない。同値は変更しない。本文・タイトル・タグ等は保持する。
@@ -86,7 +102,7 @@ enabled = true
 3. 初回だけMKB Connection Setupの**Copy connection code**でコードを取得する。専用MCPの`connection_status`が返す`pairingCode`も使える。コードは当該利用者の接続設定専用で、共有・公開しない。ペアリングはPC単位で保持し、同じOSユーザーで起動した複数のCodexチャットが、同じペアリング済みPWAを利用する。
 4. 保存先のPWAでアプリメニュー → **Local MCP** を開き、**Connection code**へ1回貼り付け、**Connect local MCP**。従来の個別入力は **Enter address and token** から利用できる。ChromeがこのPCへの接続許可を求めた場合は利用者が許可する。
    初回の許可待ちは最大60秒。許可前にタイムアウトした場合は、許可後にもう一度 **Connect local MCP** を押す。
-   個人用端末では **Remember in this browser** を選ぶと、成功した接続情報だけをこのブラウザに記憶する。次回はメニュー → Local MCP → **Reconnect**。自動接続はせず、通常のDisconnectでは記憶を残す。**Forget connection** は記憶だけを削除し、現在の接続は維持する。
+   個人用端末では **Remember in this browser** でペアリングを記憶できる。手動接続を選んだ場合、次回はメニュー → Local MCP → **Reconnect**。自動起動を有効にした場合は冒頭の手順に従う。
 5. `connection_status`の`browserOrigin`が意図した本番サイトであることを確認してから`create_note`を呼ぶ。
 6. 接続成功時にパネルは自動で隠れ、ヘッダに緑の「MCP connected」を表示する。インジケータまたはアプリメニューからパネルを開き直せる。「Close」・Escでは接続を維持する。
 7. 明示的な **Disconnect local MCP**、PWA再読み込み・終了、共有サービスの終了で接続が終了する。Codex/MCPやPCの再起動後も、Codexを起動してPWAの **Reconnect** を押すだけでよい。コードは変わらない。Codexを短時間で再起動し共有サービスが動き続けている場合は、既存の接続も維持する。

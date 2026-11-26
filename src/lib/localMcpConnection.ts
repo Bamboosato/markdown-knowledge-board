@@ -1,4 +1,5 @@
-export type LocalMcpConnection = { origin: string; token: string; noteAccess?: boolean };
+export type AutoProfile = {key:string; browser:'chrome'|'edge'; profile:string; paused:boolean};
+export type LocalMcpConnection = { origin: string; token: string; noteAccess?: boolean; auto?:AutoProfile };
 
 export const LOCAL_MCP_CONNECTION_KEY = 'mkb-local-mcp-connection-v1';
 
@@ -28,7 +29,13 @@ export function readLocalMcpConnection(): LocalMcpConnection | null {
     const value = JSON.parse(localStorage.getItem(LOCAL_MCP_CONNECTION_KEY) ?? 'null');
     if (typeof value?.origin !== 'string' || typeof value?.token !== 'string') return null;
     const connection = validateLocalMcpConnection(value.origin, value.token);
-    return value.noteAccess === true ? { ...connection, noteAccess: true } : connection;
+    if (value.noteAccess===true) connection.noteAccess=true;
+    const auto=value.auto;
+    if (auto && typeof auto.key==='string' && typeof auto.profile==='string' && /^[a-f0-9]{64}$/.test(auto.key) && ['chrome','edge'].includes(auto.browser) &&
+        /^(?:Default|Profile [1-9][0-9]{0,3})$/.test(auto.profile) && typeof auto.paused==='boolean') {
+      connection.auto={key:auto.key,browser:auto.browser,profile:auto.profile,paused:auto.paused};
+    }
+    return connection;
   } catch {
     return null;
   }

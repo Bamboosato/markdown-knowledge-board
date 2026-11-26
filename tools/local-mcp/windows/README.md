@@ -86,7 +86,7 @@ Codexで「MKBにタイトル『接続確認』、本文『このPCからの保�
 
 ### 既存ノートを検索・更新する
 
-Setup 1.4.0はruntime 0.7.0を同梱し、計9ツールを提供します。本文の追記・単一置換・全件置換に加え、Custom metadataの条件付きAdd / Update / Upsert / Removeを利用できます。
+公開済みのSetup 1.4.0はruntime 0.7.0を同梱します。このソースからビルドしたキットではruntime 0.8.0が自動起動に対応します。対応するPWAで、Local MCPの初回接続時にRememberと自動起動を選び、使用中のChrome／Edgeとプロファイルディレクトリを指定します。Disconnectで自動起動を休止し、同じプロファイルのReconnectで再開します。
 
 1. MKBのLocal MCPを開き、Advanced settingsの **Allow reading and updating notes** をオンにします。
 2. 接続をRemember in this browserで保存していれば、許可も保持されます。次回はReconnectだけで接続します。

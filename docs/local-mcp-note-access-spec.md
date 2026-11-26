@@ -1,9 +1,9 @@
 # MKB Local MCP API設計書（確定版）
 
-- 更新日：2026-11-17
+- 更新日：2026-11-26
 - 状態：実装確定。要求・応答と制限を同梱実装に合わせて記載。
-- 対象実装：runtime 0.7.0（Custom metadataのRemoveを追加。Add / Update / Upsertは0.6.0から提供）。既存APIの基盤は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)。
-- MCPサーバー：`mkb-local-prototype` / runtime `0.7.0`。Codex登録名：`mkb_local_prototype`
+- 対象実装：runtime 0.8.0で保存時のWindowsブラウザ起動を追加。Custom metadataのRemoveは0.7.0、Add / Update / Upsertは0.6.0から提供。既存APIの基盤は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)。
+- MCPサーバー：`mkb-local-prototype` / runtime `0.8.0`。Codex登録名：`mkb_local_prototype`
 - PWA連携プロトコル：`2`。Windows Setup `1.4.0`はruntime `0.7.0`を同梱。旧Setup `1.3.0`はruntime `0.6.0`で、Removeを含まない。
 
 本書は従来の既存ノートアクセス仕様案を置き換える。文書のファイル名は既存リンクとの互換性のため維持する。利用手順は[ローカルMCP README](https://github.com/Bamboosato/markdown-knowledge-board/blob/main/tools/local-mcp/README.md)、配布物は[Windows Setup 1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)を参照する。
@@ -40,7 +40,7 @@ MCP serverとPWAは両方起動している必要がある。共有brokerは`127
 
 ### 2.1 呼び出しと応答の階層
 
-初期化済みのMCP STDIO接続で`tools/list`から9ツールを取得し、`tools/call`で呼び出す。runtime 0.5.0の7ツールに、新規2ツール（7C節）を加える。`protocolVersion: 2`はPWAとbrokerの独自プロトコル番号であり、MCP initializeで交渉するプロトコルバージョンとは別である。
+初期化済みのMCP STDIO接続で`tools/list`から10ツールを取得し、`tools/call`で呼び出す。0.8.0では保存先の準備用に`ensure_connection`を追加した。`protocolVersion: 2`はPWAとbrokerの独自プロトコル番号であり、MCP initializeで交渉するプロトコルバージョンとは別である。
 
 JSON-RPC要求の完全な例：
 
@@ -134,6 +134,7 @@ JSON-RPC要求の完全な例：
 | --- | --- |
 | `connected` | boolean。直近5秒以内にPWAから通信があった接続 |
 | `busy` | boolean。brokerに未完了jobがある |
+| `automatic` | `off`、`enabled`、`paused`のいずれか。0.8.0以降のbrokerが返す。状態照会でブラウザは起動しない。 |
 | `origin` | string。PC上のloopbackサービスのURL |
 | `browserOrigin` | stringまたはnull。接続中PWAのOrigin。未接続ならnull |
 | `protocolVersion` | number。現行brokerは2。古いbrokerでは省略され得る |
@@ -144,7 +145,7 @@ JSON-RPC要求の完全な例：
 | `persistentPairing` | boolean。本番の共有broker経由ではtrue。開発用直接bridgeでは省略 |
 | `pairingToken` / `pairingCode` | string。未接続時だけ追加。tokenは64桁hex、codeは`MKB1\|origin\|token`。機密情報 |
 
-`connection_status`自身はcapabilitiesに含めない。`tools/list`は9ツールの存在、capabilitiesは現在の接続先で実行可能な操作を表す。`busy: true`でもcapabilitiesは消えず、実行時にBUSYとなる場合がある。`brokerPid`は内部管理用でありMCP応答には含めない。0.6.0同士の接続では`preview_custom_metadata_changes`と`apply_custom_metadata_changes`もbrokerCapabilitiesおよび許可後のcapabilitiesへ加わる。以下の6操作の例は0.5.0接続の例。
+`connection_status`と`ensure_connection`はcapabilitiesに含めない。`tools/list`はランタイムが提供するツール一覧、capabilitiesは現在のPWAで実行できる操作を表す。`busy: true`でもcapabilitiesは消えず、実行時にBUSYとなる場合がある。`brokerPid`は内部管理用でありMCP応答には含めない。以下は0.5.0接続の例。
 
 接続・アクセス許可済みの例：
 
@@ -193,6 +194,12 @@ JSON-RPC要求の完全な例：
   "isError": true
 }
 ```
+
+### `ensure_connection`（0.8.0）
+
+引数は `{}`。明示的な保存依頼に限って使う。自動起動が有効なら、登録Originとプロファイル識別情報が一致するタブから新しいポーリングを待つ。閉じていればWindowsのChrome／Edgeを一度開く。応答には接続状態を返し、ノート本文は渡さない。LDPのように保存前に接続を検査する呼び出し元では、この操作を先に実行してから `browserOrigin` を確認する。
+
+未設定かつ未接続は `NOT_CONNECTED`、休止中は `AUTO_PAUSED`、起動不可は `AUTO_LAUNCH_FAILED`、登録先から応答がなければ `AUTO_CONNECT_TIMEOUT`、待機中の登録変更は `AUTO_REGISTRATION_CHANGED`。これらは本文の送信前に停止した結果である。自動起動を登録した場合は `create_note` 自体も同じ準備処理を行う。保存要求の送信後に確定応答が失われた場合の再送規則は従来どおり。
 
 ## 4. `create_note` — 新規作成
 

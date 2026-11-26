@@ -28,14 +28,18 @@ if (dev) {
   origin = bridge.origin;
   closeHttp = async () => {};
 }
-const mcp = new McpServer({ name: 'mkb-local-prototype', version: '0.7.0' });
+const mcp = new McpServer({ name: 'mkb-local-prototype', version: '0.8.0' });
 const result = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }], isError: Boolean(value.error) });
 mcp.registerTool('connection_status', {
-  description: 'Check this PC shared Markdown Knowledge Board connection. Pairing survives Codex and PC restarts: use Reconnect in the paired PWA. If disconnected, returns a private pairingCode for first setup only. Share it only with this user, never publish it. Multiple Codex chats on this PC share the paired PWA. Check browserOrigin before creating a note.',
+  description: 'Read the shared MKB connection without opening a browser. For an explicit save, ensure_connection can open the registered profile. A paused destination needs manual Reconnect. If disconnected this tool also returns private pairing credentials for initial setup. Check browserOrigin before saving.',
   inputSchema: {}, annotations: { readOnlyHint: true },
 }, async () => { const status = await bridge.status(); return result({ ...status, ...(!status.connected ? {
   pairingToken: bridge.token, pairingCode: `MKB1|${origin}|${bridge.token}`,
 } : {}) }); });
+mcp.registerTool('ensure_connection', {
+  description: 'Only for an explicit save request: connect to the registered MKB destination, opening its browser profile when enabled. Returns connection status or an error, without sending note content.',
+  inputSchema:{},annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false},
+},async()=>{const error=await bridge.ensureConnection();return result(error?{error}:await bridge.status());});
 mcp.registerTool('create_note', {
   description: 'Create a NEW note in the explicitly paired Markdown Knowledge Board PWA on this PC. Returns saved only after IndexedDB commit. Reuse exactly the same request_id and input after uncertain delivery. Never replaces existing notes or switches the active editor.',
   inputSchema: noteShape,

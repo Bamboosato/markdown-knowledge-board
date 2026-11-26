@@ -9,6 +9,7 @@ CodexからMKB PWAへノートを作成・検索・更新するセットアッ�
 - [セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip)
 - [SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip.sha256)
 - [導入手順書](./tools/local-mcp/windows/README.md)
+- [runtime 0.8.0で保存時にMKBを自動起動する設定](./tools/local-mcp/README.md)
 - [Local MCP API設計書（要求・応答定義とJSON例）](./docs/local-mcp-note-access-spec.md)
 
 導入先でNode.js 24以上、Codex、ChromeのMKB PWAを準備し、ZIPをすべて展開して`Setup.cmd`を実行します。自動MCP登録にはCodex CLIも必要です。手動登録・初回接続・保存確認は導入手順書を参照してください。
