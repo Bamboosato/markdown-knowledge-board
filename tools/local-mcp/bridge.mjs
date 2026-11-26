@@ -68,6 +68,26 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
       if (typeof body.clientId !== 'string' || !/^[a-f0-9-]{36}$/.test(body.clientId)) {
         return send(400, fail('Invalid client.'));
       }
+      if (req.url === '/__local_mcp/destination') {
+        if (!auto) return send(400,fail('Update the local Windows MCP runtime to register a save destination.'));
+        try {
+          const origin=req.headers.origin;
+          if (body.action==='options') return send(200,auto.options(origin,body));
+          if (body.action==='verify') {
+            await auto.verify(origin,body);
+            return send(200,{opened:true});
+          }
+          if (body.action==='commit') {
+            if (job) return send(409,fail('A note operation is in progress. Try again after it finishes.'));
+            auto.commit(origin,body);
+            client=null;
+            return send(200,{registered:true});
+          }
+          return send(400,fail('Unknown destination action.'));
+        } catch (error) {
+          return send(409,fail(error.code ? 'Could not access the local save destination settings.' : error.message));
+        }
+      }
       if (req.url === '/__local_mcp/auto') {
         if (!auto) return send(400,fail('Automatic opening is unavailable.'));
         const ownsSession=client?.id===body.clientId && client.origin===req.headers.origin && fresh();

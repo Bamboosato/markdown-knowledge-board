@@ -2,8 +2,8 @@
 
 - 更新日：2026-11-26
 - 状態：実装確定。要求・応答と制限を同梱実装に合わせて記載。
-- 対象実装：runtime 0.8.0で保存時のWindowsブラウザ起動を追加。Custom metadataのRemoveは0.7.0、Add / Update / Upsertは0.6.0から提供。既存APIの基盤は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)。
-- MCPサーバー：`mkb-local-prototype` / runtime `0.8.0`。Codex登録名：`mkb_local_prototype`
+- 対象実装：runtime 0.9.0で保存先プロファイルの照合・変更、0.8.0で保存時のWindowsブラウザ起動を追加。Custom metadataのRemoveは0.7.0、Add / Update / Upsertは0.6.0から提供。既存APIの基盤は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)。
+- MCPサーバー：`mkb-local-prototype` / runtime `0.9.0`。Codex登録名：`mkb_local_prototype`
 - PWA連携プロトコル：`2`。Windows Setup `1.4.0`はruntime `0.7.0`を同梱。旧Setup `1.3.0`はruntime `0.6.0`で、Removeを含まない。
 
 本書は従来の既存ノートアクセス仕様案を置き換える。文書のファイル名は既存リンクとの互換性のため維持する。利用手順は[ローカルMCP README](https://github.com/Bamboosato/markdown-knowledge-board/blob/main/tools/local-mcp/README.md)、配布物は[Windows Setup 1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)を参照する。
@@ -119,7 +119,7 @@ JSON-RPC要求の完全な例：
 
 ## 3. `connection_status` — 接続確認
 
-読み取り専用。引数なし。新規作成や読み取りの前に`browserOrigin`を確認する。未接続は正常な状態でありエラーではない。
+読み取り専用。通常は引数なし。接続中に利用者が別プロファイルのペアリングコードを求めた場合は `include_pairing_code: true` を指定する。新規作成や読み取りの前に`browserOrigin`を確認する。未接続は正常な状態でありエラーではない。
 
 ### 要求
 
@@ -143,7 +143,7 @@ JSON-RPC要求の完全な例：
 | `brokerMetadataActions` | brokerが対応するmetadata action配列。0.7.0はadd/update/upsert/remove。接続状態とは独立 |
 | `metadataActions` | 接続PWA・broker双方で対応し、現在許可されているmetadata action配列。未接続・未許可は空。0.6.0の情報欠落時はmetadata対応が確認できた場合のみ既存3操作と解釈 |
 | `persistentPairing` | boolean。本番の共有broker経由ではtrue。開発用直接bridgeでは省略 |
-| `pairingToken` / `pairingCode` | string。未接続時だけ追加。tokenは64桁hex、codeは`MKB1\|origin\|token`。機密情報 |
+| `pairingToken` / `pairingCode` | string。未接続時または `include_pairing_code: true` で追加。tokenは64桁hex、codeは`MKB1\|origin\|token`。機密情報 |
 
 `connection_status`と`ensure_connection`はcapabilitiesに含めない。`tools/list`はランタイムが提供するツール一覧、capabilitiesは現在のPWAで実行できる操作を表す。`busy: true`でもcapabilitiesは消えず、実行時にBUSYとなる場合がある。`brokerPid`は内部管理用でありMCP応答には含めない。以下は0.5.0接続の例。
 

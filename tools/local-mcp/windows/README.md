@@ -5,7 +5,7 @@
 
 ## セットアップ一式の入手
 
-この手順はruntime 0.8.0の本体のみを含むZIPに対応します。以前の[公開版 v1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)は、デスクトップの設定アプリもインストールします。
+この手順はruntime 0.9.0の本体のみを含むZIPに対応します。以前の[公開版 v1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)は、デスクトップの設定アプリもインストールします。
 
 ダウンロードしたセットアップZIPを一度「すべて展開」すると、`MKB-Windows-Setup`フォルダー内に`README.md`と`Setup.cmd`があります。以下の準備・インストール手順に進んでください。今後の更新版は[Releases一覧](https://github.com/Bamboosato/markdown-knowledge-board/releases)で **MKB Windows Setup** を確認します。セットアップ一式とMKB Webアプリのバージョンは別管理です。
 
@@ -50,9 +50,9 @@ Codexを手動設定する場合は、`%LOCALAPPDATA%\MarkdownKnowledgeBoard\cod
 
 ## 3. 初回の接続
 
-1. 保存先に使うブラウザでMKBを開き、**Local MCP → Set up automatic connection** を選びます。
+1. 保存先に使うブラウザでMKBを開き、**Local MCP → Use this profile for saves** を選びます。
 2. 初回はローカルエージェントに「MKBの初回接続コードを表示してください」と依頼し、`connection_status` が返すコードを入力します。記憶済みなら再入力は不要です。
-3. ChromeまたはEdgeを選び、`chrome://version` または `edge://version` の **Profile Path** の末尾（例 `Default`）を入力し、**Register save destination** を選びます。
+3. **Find profiles** でこのブラウザの候補を表示します。複数なら `chrome://version` または `edge://version` の **Profile Path** の末尾と同じ候補を選びます。**Register save destination** で照合・登録します。
 4. ブラウザがこのPCへの接続許可を求めたら許可し、設定画面で **Enabled** と保存先を確認します。**Manual connection** は自動接続が未設定のときに表示します。登録後は自動接続欄で接続状態を確認し、一時停止・再開できます。
 
 ローカルエージェントに「MKBにタイトル『接続確認』、本文『このPCからの保存確認です。』の新規ノートを作成してください」と依頼し、意図したPWAの一覧と本文に表示されることを確認してください。
@@ -63,7 +63,7 @@ Codexを手動設定する場合は、`%LOCALAPPDATA%\MarkdownKnowledgeBoard\cod
 
 - 自動起動を有効にすると、MKBを閉じていても保存依頼時に登録先が開きます。手動接続を選んだ場合は **Local MCP → Manual connection → Reconnect** で接続します。
 - **Close / Esc** はパネルを閉じます。**Pause automatic connection** で自動起動を休止し、同じプロファイルの **Resume automatic connection** で再開します。
-- 自動起動の保存先を変える場合は、元のプロファイルの **Advanced settings → Forget connection** で登録を解除します。
+- 自動起動の保存先を変える場合は、新しいプロファイルの **Use this profile for saves → Find profiles** で候補を選び、旧・新の保存先を確認して **Change save destination** を押します。既存ノートは移動しません。
 - **Advanced settings → Use a new code** は未接続時に接続情報を入れ直す操作です。新しいコードを発行する操作ではありません。
 - 新規ノートの保存に加え、明示的な許可後は保存済みノートの検索・取得・更新ができます。対象は接続したPWAのブラウザ内データです。
 
