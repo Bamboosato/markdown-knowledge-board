@@ -25,7 +25,8 @@ const bundle = JSON.parse(execFileSync(process.execPath, ['tools/local-mcp/windo
 ps(`Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::ExtractToDirectory(${quote(bundle.archive)}, ${quote(work)})`);
 const kit = join(work, 'MKB-Windows-Setup');
 const manifest = JSON.parse(await readFile(join(kit, 'manifest.json'), 'utf8'));
-assert.equal(manifest.files.length, 14);
+assert.equal(manifest.files.length, 15);
+assert.ok(manifest.files.some(f=>f.path==='tools/local-mcp/pairing.mjs'));
 assert.ok(manifest.files.every(f => !/ConnectionSetup|WindowsShortcut|install-connection-setup|setup-code|\.lnk$/i.test(f.path)));
 assert.ok(manifest.files.some(f=>f.path==='tools/local-mcp/auto-open.mjs'));
 assert.ok(manifest.files.some(f => f.path === 'tools/local-mcp/metadata-schema.mjs'));

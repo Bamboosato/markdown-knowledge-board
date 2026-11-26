@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { accessSchemas, accessResults, accessError } from './note-schema.mjs';
 import { metadataActions as brokerMetadataActions } from './metadata-schema.mjs';
+import {pairingOperations} from './pairing.mjs';
 const brokerCapabilities = ['create_note', ...Object.keys(accessSchemas)];
 function supportedOperations(body) {
   if (!Object.hasOwn(body, 'supportedOperations')) return body.protocolVersion === 2 ? ['create_note', 'search_notes', 'get_note', 'update_note'] : ['create_note'];
@@ -69,10 +70,11 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
         return send(400, fail('Invalid client.'));
       }
       if (req.url === '/__local_mcp/destination') {
-        if (!auto) return send(400,fail('Update the local Windows MCP runtime to register a save destination.'));
+        if (body.action==='capabilities') return send(200,{pairingOperations:pairingOperations(Boolean(auto))});
+        if (!auto) return send(400,fail('Profile registration requires the Windows local MCP service.'));
         try {
           const origin=req.headers.origin;
-          if (body.action==='options') return send(200,auto.options(origin,body));
+          if (body.action==='options') return send(200,{...auto.options(origin,body),pairingOperations:pairingOperations(true)});
           if (body.action==='verify') {
             await auto.verify(origin,body);
             return send(200,{opened:true});
@@ -161,6 +163,7 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
     token,
     middleware, ensureConnection,
     status: () => ({ connected: Boolean(fresh()), busy: Boolean(job), origin, browserOrigin: fresh() ? client.origin : null,
+      pairingOperations: pairingOperations(Boolean(auto)),
       automatic: auto?.state ?? 'off', protocolVersion: 2, brokerCapabilities, brokerMetadataActions,
       metadataActions: fresh() && client.protocolVersion === 2 && client.noteAccess ? client.metadataActions : [],
       capabilities: fresh() ? client.supportedOperations.filter(name => name === 'create_note' || client.protocolVersion === 2 && client.noteAccess) : [] }),

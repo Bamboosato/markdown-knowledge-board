@@ -73,6 +73,7 @@ export function autoOpen({directory,origins,launch=openWindowsProfile,listProfil
   const matches = (origin,key)=>Boolean(target && target.origin===origin && target.key===key);
   return {
     get state(){return !target?'off':target.paused?'paused':'enabled';},
+    get working(){return Boolean(pending || (verification && verification.expires > Date.now()));},
     options(origin,body) {
       return {revision, profiles:listProfiles(body.browser), owner:matches(origin,body.key),
         destination:target && {origin:target.origin,browser:target.browser,profile:target.profile,paused:target.paused}};

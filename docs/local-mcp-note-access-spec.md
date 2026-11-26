@@ -3,10 +3,10 @@
 - 更新日：2026-11-26
 - 状態：実装確定。要求・応答と制限を同梱実装に合わせて記載。
 - 対象実装：runtime 0.9.0で保存先プロファイルの照合・変更、0.8.0で保存時のWindowsブラウザ起動を追加。Custom metadataのRemoveは0.7.0、Add / Update / Upsertは0.6.0から提供。既存APIの基盤は[PR #72](https://github.com/Bamboosato/markdown-knowledge-board/pull/72)。
-- MCPサーバー：`mkb-local-prototype` / runtime `0.9.0`。Codex登録名：`mkb_local_prototype`
+- MCPサーバー：`mkb-local-prototype` / runtime `0.10.0`。Codex登録名：`mkb_local_prototype`。初回接続コードは実行中のサービスの対応機能を確認してから返す。切り替え条件は[ローカルMCPの手順](../tools/local-mcp/README.md)を参照。
 - PWA連携プロトコル：`2`。Windows Setup `1.4.0`はruntime `0.7.0`を同梱。旧Setup `1.3.0`はruntime `0.6.0`で、Removeを含まない。
 
-本書は従来の既存ノートアクセス仕様案を置き換える。文書のファイル名は既存リンクとの互換性のため維持する。利用手順は[ローカルMCP README](https://github.com/Bamboosato/markdown-knowledge-board/blob/main/tools/local-mcp/README.md)、配布物は[Windows Setup 1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)を参照する。
+本書は従来の既存ノートアクセス仕様案を置き換える。文書のファイル名は既存リンクとの互換性のため維持する。利用手順は[ローカルMCP README](https://github.com/Bamboosato/markdown-knowledge-board/blob/main/tools/local-mcp/README.md)、配布物は[Windows Setup 1.5.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.5.0)を参照する。
 
 ## 1. 目的・対象・構成
 

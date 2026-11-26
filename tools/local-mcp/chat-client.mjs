@@ -23,8 +23,9 @@ try {
       const command = JSON.parse(line);
       if (command.name === 'close_client') break;
       if (command.name === 'pairing_setup') {
-        const status = JSON.parse((await client.callTool({ name: 'connection_status', arguments: {} })).content[0].text);
-        console.log(JSON.stringify({ origin: status.origin, token: status.pairingToken }));
+        const status = JSON.parse((await client.callTool({ name: 'connection_status', arguments: {include_pairing_code:true} })).content[0].text);
+        console.log(JSON.stringify(status.error ? {error:status.error} :
+          { origin: status.origin, token: status.pairingToken, pairingCode:status.pairingCode }));
       } else console.log(JSON.stringify(await client.callTool(command)));
     } catch (error) { console.log(JSON.stringify({ error: error.message })); }
   }

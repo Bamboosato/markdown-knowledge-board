@@ -4,13 +4,24 @@ import { createBridge } from './bridge.mjs';
 import { loadIdentity, stateDirectory } from './identity.mjs';
 import { autoOpen } from './auto-open.mjs';
 import { noteSchema, accessSchemas } from './note-schema.mjs';
+import {randomUUID} from 'node:crypto';
+import {pairingOperations,supportsPairing} from './pairing.mjs';
 
 export const SERVICE = 'mkb-local-broker-v1';
+export const availablePairingOperations = pairingOperations(process.platform === 'win32');
 export function startBroker(identity,allowedOrigins,auto) {
   const origin = `http://127.0.0.1:${identity.port}`;
   const bridge=createBridge(origin,{token:identity.browserToken,allowedOrigins,auto});
+  const instance = randomUUID();
+  let requests = 0;
+  let retiring = false;
   let lastMcpActivity = Date.now();
   const http = createServer((req, res) => {
+    if (retiring) { res.writeHead(503,{'Connection':'close'}); res.end(); return; }
+    if (!['/__local_mcp_admin/status','/__local_mcp_admin/retire-for-pairing'].includes(req.url)) {
+      requests++;
+      res.once('close', () => { requests--; });
+    }
     if (!req.url?.startsWith('/__local_mcp_admin/')) {
       void bridge.middleware(req, res, () => { res.writeHead(404); res.end(); });
       return;
@@ -35,7 +46,19 @@ export function startBroker(identity,allowedOrigins,auto) {
         const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         lastMcpActivity = Date.now();
         if (req.url === '/__local_mcp_admin/status') {
-          send(200, { ...bridge.status(), brokerPid: process.pid });
+          send(200, { ...bridge.status(), brokerPid: process.pid, handoffInstance:instance });
+        } else if (req.url === '/__local_mcp_admin/retire-for-pairing') {
+          const status = bridge.status();
+          if (input.instance !== instance || !Array.isArray(input.required) ||
+              supportsPairing(status.pairingOperations,input.required)) return send(200,{retired:false});
+          if (requests || status.connected || status.busy || auto?.working) return send(200,{busy:true});
+          // Close admission before replying. Never discard an operation or an uncommitted profile proof.
+          retiring = true;
+          clearInterval(idleTimer);
+          res.setHeader('Connection','close');
+          http.close();
+          bridge.close();
+          send(200,{retired:true});
         } else if (req.url === '/__local_mcp_admin/ensure') {
           const error=await bridge.ensureConnection();
           send(200,error ? {error} : bridge.status());
@@ -71,7 +94,7 @@ export function startBroker(identity,allowedOrigins,auto) {
   }
   // Browser polling does not keep the service running after every Codex client exits.
   const idleTimer = setInterval(() => {
-    if (Date.now() - lastMcpActivity > 30000 && !bridge.status().busy) stop();
+    if (Date.now() - lastMcpActivity > 30000 && !requests && !bridge.status().busy && !auto?.working) stop();
   }, 5000);
   return {http,stop};
 }
