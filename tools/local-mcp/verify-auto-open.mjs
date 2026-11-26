@@ -139,11 +139,31 @@ try {
   assert.equal(launches,0);
   await openProfile('registered');
   await panel();
-  await page.getByLabel('Connection code',{exact:true}).fill(setup.pairingCode);
+  const setUp = page.getByRole('button', {name:'Set up automatic connection'});
+  const register = page.getByRole('button', {name:'Register save destination'});
+  await setUp.click();
+  await page.getByLabel('Connection code', {exact:true}).fill(setup.pairingCode);
+  await register.click();
+  await page.getByText('Enabled', {exact:true}).waitFor();
+  assert.equal((await call('connection_status')).automatic,'enabled');
+
+  // A profile paired before automatic opening can enroll while disconnected.
+  await page.getByRole('button',{name:'Advanced settings'}).click();
+  await page.getByRole('button',{name:'Forget connection'}).click();
+  await setUp.waitFor();
+  await page.locator('summary').filter({hasText:'Manual connection'}).click();
+  await page.getByLabel('Connection code', {exact:true}).fill(setup.pairingCode);
   await page.getByLabel('Remember in this browser').check();
-  await page.getByLabel('Open this profile automatically for save requests').check();
   await page.getByRole('button',{name:'Connect local MCP',exact:true}).click();
-  await page.getByRole('button',{name:'MCP connected: connection settings'}).waitFor();
+  await page.locator('#local-mcp-panel').waitFor({state:'hidden'});
+  await closeBrowser();
+  await openProfile('registered');
+  await panel();
+  assert.equal((await call('connection_status')).automatic,'off');
+  await page.getByRole('button',{name:'Set up automatic connection'}).click();
+  assert.equal(await page.getByLabel('Connection code',{exact:true}).isVisible(),false);
+  await page.getByRole('button',{name:'Register save destination'}).click();
+  await page.getByText('Enabled',{exact:true}).waitFor();
   assert.equal((await call('connection_status')).automatic,'enabled');
   await closeBrowser();
   await stop();
@@ -168,13 +188,13 @@ try {
   assert.equal(await stored(saved.id),note.markdown);
   console.log('PASS: closing a recently connected app with the broker still running reopens the same profile.');
 
-  await page.getByRole('button',{name:'MCP connected: connection settings'}).click();
-  await page.getByRole('button',{name:'Disconnect local MCP'}).click();
-  await page.getByRole('button',{name:'Reconnect',exact:true}).waitFor();
+  await panel();
+  await page.getByRole('button',{name:'Pause automatic connection'}).click();
+  await page.getByRole('button',{name:'Resume automatic connection',exact:true}).waitFor();
   assert.equal((await call('create_note',note)).error,'AUTO_PAUSED');
   assert.equal(launches,2);
-  await page.getByRole('button',{name:'Reconnect',exact:true}).click();
-  await page.getByRole('button',{name:'MCP connected: connection settings'}).waitFor();
+  await page.getByRole('button',{name:'Resume automatic connection',exact:true}).click();
+  await page.getByText('Enabled',{exact:true}).waitFor();
   assert.equal((await call('ensure_connection')).connected,true);
   await closeBrowser();
   await stop();
@@ -190,6 +210,7 @@ try {
     await new Promise(resolve=>setTimeout(resolve,50));
   }
   await panel();
+  await page.locator('summary').filter({hasText:'Manual connection'}).click();
   await page.getByLabel('Connection code',{exact:true}).fill(setup.pairingCode);
   await page.getByRole('button',{name:'Connect local MCP',exact:true}).click();
   await page.getByRole('status').filter({hasText:'registered profile'}).waitFor();

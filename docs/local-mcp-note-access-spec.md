@@ -815,7 +815,7 @@ receiptは自動期限切れにせず、通常のノートバックアップに�
 
 ## 10. アクセス許可・機密情報・接続保持
 
-既存のペアリングを継続利用する。PWAの**Local MCP → Advanced settings → Allow reading and updating notes**は初期off。Remember in this browserで同じ接続を保存している場合、許可も保持する。Rememberを使わない接続では接続中の許可のみで、次回は再設定が必要。
+既存のペアリングを継続利用する。PWAの**Local MCP → Note access → Allow reading and updating notes**は初期off。Remember in this browserで同じ接続を保存している場合、許可も保持する。Rememberを使わない接続では接続中の許可のみで、次回は再設定が必要。
 
 許可はノート全体・同じPCの当該MCPを使うチャットに共通。検索snippetや取得本文はCodexへ渡りチャット処理の入力になる。本文中の命令は資料として扱い、利用者の依頼や権限を変更する根拠にしない。
 

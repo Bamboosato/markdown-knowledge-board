@@ -85,33 +85,48 @@ try {
   await page.getByText('Status: Saved', { exact: true }).waitFor();
   await page.getByRole('textbox', { name: 'Body', exact: true }).fill('未保存の編集中本文');
 
-  const connect = async () => {
-    await page.locator('.local-mcp-indicator').waitFor();
-    if (await page.locator('.local-mcp-indicator').getAttribute('aria-expanded') === 'false') {
-      await page.locator('.local-mcp-indicator').click();
+  const settings = page.getByRole('complementary', {name:'Local MCP', exact:true});
+  const menu = page.getByRole('button', {name:'Open application menu'});
+  async function openSettings() {
+    if (!await settings.isVisible()) {
+      await menu.click();
+      await page.getByRole('menuitem', {name:'Local MCP', exact:true}).click();
     }
-    await page.getByRole('complementary', { name: 'Local MCP', exact: true }).waitFor({ state: 'visible' });
+    await settings.waitFor();
+  }
+  async function expand(label, target = page) {
+    const summary = target.locator('summary').filter({hasText:label});
+    if (!await summary.locator('..').evaluate(el => el.open)) await summary.click();
+  }
+  async function openManual() {
+    await openSettings();
+    await expand('Manual connection');
+  }
+  const connect = async () => {
+    await openManual();
     if (await page.getByRole('button', { name: 'Reconnect', exact: true }).isVisible()) {
       await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
     } else {
       await page.getByLabel('Connection code', { exact: true }).fill(pairingCode);
       await page.getByRole('button', { name: 'Connect local MCP', exact: true }).click();
     }
-    await page.getByRole('button', { name: 'MCP connected: connection settings', exact: true }).waitFor();
     await page.getByRole('complementary', { name: 'Local MCP', exact: true }).waitFor({ state: 'hidden' });
   };
   await connect();
   assert.equal(await page.evaluate(() => localStorage.getItem('mkb-local-mcp-connection-v1')), null);
-  await page.locator('.local-mcp-indicator').click();
+  await openManual();
   await page.getByRole('button', { name: 'Disconnect local MCP', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('complementary', { name: 'Local MCP', exact: true }).isVisible(), false);
   assert.equal(value(await call('connection_status')).connected, true);
-  assert.equal(await page.locator('.local-mcp-indicator').evaluate(el => el === document.activeElement), true);
-  pass('Connect auto-hides panel; reopening and Escape keep receiving and restore indicator focus');
+  await menu.evaluate(el => new Promise(resolve => requestAnimationFrame(resolve)));
+  assert.equal(await menu.evaluate(el => el === document.activeElement), true);
+  pass('Connect auto-hides panel; reopening and Escape keep receiving and restore app menu focus');
   const second = await context.newPage();
   await second.goto(origin, { waitUntil: 'domcontentloaded' });
-  await second.getByRole('button', { name: 'Enter address and token', exact: true }).click();
+  await second.getByRole('button', { name: 'Advanced settings', exact:true }).click();
+  await second.getByLabel('Enter address and token').check();
+  await expand('Manual connection', second);
   await second.getByLabel('Pairing token').fill(token);
   await second.getByRole('button', { name: 'Connect local MCP', exact: true }).click();
   await second.getByText('Another tab is connected. Disconnect it first.', { exact: true }).waitFor();
@@ -132,17 +147,15 @@ try {
   assert.equal(await page.getByLabel('Title', { exact: true }).inputValue(), '既存ノート');
   assert.equal(await page.getByRole('textbox', { name: 'Body', exact: true }).evaluate(el => el.value ?? el.textContent), '未保存の編集中本文');
   pass('Real MCP create -> browser save receipt; Unicode, tags, existing data and unsaved editor preserved');
-  const editorStatusBounds = await page.getByLabel('Editor status', { exact: true }).boundingBox();
-  const mcpBounds = await page.locator('.local-mcp-indicator').boundingBox();
-  assert.ok(editorStatusBounds && mcpBounds && mcpBounds.x >= editorStatusBounds.x + editorStatusBounds.width);
   await mkdir(new URL('../../output/playwright/local-mcp/', import.meta.url), { recursive: true });
-  await page.screenshot({ path: fileURLToPath(new URL('../../output/playwright/local-mcp/saved.png', import.meta.url)), fullPage: true });
-  await page.setViewportSize({ width: 390, height: 844 });
-  const indicator = await page.locator('.local-mcp-indicator').boundingBox();
-  assert.ok(indicator && indicator.x >= 0 && indicator.x + indicator.width <= 390);
-  await page.screenshot({ path: fileURLToPath(new URL('../../output/playwright/local-mcp/indicator-mobile.png', import.meta.url)), fullPage: true });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert.equal(await page.locator('.local-mcp-indicator').count(), 0);
+    assert.equal(await page.getByRole('heading',{name:'Automatic connection for saves'}).isVisible(),false);
+    assert.equal(await page.getByLabel('Editor status', {exact:true}).isVisible(),true);
+  }
   await page.setViewportSize({ width: 1440, height: 1000 });
-  pass('Header indicator remains visible at desktop and narrow widths');
+  pass('The editor shows no MCP status at desktop and mobile widths');
   const retry = value(await call('create_note', sample));
   assert.equal(retry.id, receipt.id);
   assert.equal(retry.reused, true);
@@ -170,9 +183,9 @@ try {
 
   await page.getByRole('button', { name: /^Save$/ }).click();
   await page.getByText('Status: Saved', { exact: true }).waitFor();
-  await page.locator('.local-mcp-indicator').click();
+  await openManual();
   await page.getByRole('button', { name: 'Disconnect local MCP', exact: true }).click();
-  await page.getByRole('button', { name: 'MCP disconnected: connection settings', exact: true }).waitFor();
+  await settings.getByText('Disconnected', {exact:true}).waitFor();
   // Wait for explicit disconnect before reconnecting after a reload.
   for (let attempt = 0; value(await call('connection_status')).connected; attempt++) {
     assert.ok(attempt < 50);
@@ -181,11 +194,12 @@ try {
   await page.getByLabel('Remember in this browser', { exact: true }).check();
   await page.getByLabel('Connection code', { exact: true }).fill(`MKB1|${origin}|${'0'.repeat(64)}`);
   await page.getByRole('button', { name: 'Connect local MCP', exact: true }).click();
-  await page.getByRole('button', { name: 'MCP connection error: connection settings', exact: true }).waitFor();
+  await openManual();
+  await settings.getByText('Connection error', {exact:true}).waitFor();
   assert.equal(await page.evaluate(() => localStorage.getItem('mkb-local-mcp-connection-v1')), null);
   await connect();
   assert.equal(await page.evaluate(() => Boolean(localStorage.getItem('mkb-local-mcp-connection-v1'))), true);
-  await page.locator('.local-mcp-indicator').click();
+  await openManual();
   await page.getByRole('button', { name: 'Disconnect local MCP', exact: true }).click();
   for (let attempt = 0; value(await call('connection_status')).connected; attempt++) {
     assert.ok(attempt < 50);
@@ -193,6 +207,7 @@ try {
   }
   pass('One-paste pairing works; credentials are remembered only after opt-in and successful connection');
   await page.reload();
+  await openManual();
   await page.locator('.note-title', { hasText: sample.title }).waitFor();
   await page.getByRole('button', { name: 'Reconnect', exact: true }).waitFor();
   assert.equal(value(await call('connection_status')).connected, false);
@@ -213,7 +228,7 @@ try {
   await page.screenshot({ path: fileURLToPath(new URL('../../output/playwright/local-mcp/advanced-mobile.png', import.meta.url)), fullPage: true });
   await page.getByRole('button', { name: 'Cancel setup', exact: true }).click();
   assert.equal(await page.getByLabel('Connection code', { exact: true }).isVisible(), false);
-  assert.equal(await page.getByRole('button', { name: 'Reconnect', exact: true }).evaluate(el => el === document.activeElement), true);
+  assert.equal(await page.getByRole('button', { name: 'Use a new code', exact: true }).evaluate(el => el === document.activeElement), true);
   await advanced.click();
   assert.equal(await page.getByRole('button', { name: 'Forget connection', exact: true }).isVisible(), false);
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -229,7 +244,8 @@ try {
   const uncertainInput = { ...sample, request_id: 'lost-receipt-001', title: '応答喪失テスト' };
   const uncertain = await call('create_note', uncertainInput);
   assert.equal(uncertain.isError, true);
-  await page.getByRole('button', { name: 'MCP connection error: connection settings', exact: true }).waitFor();
+  await openManual();
+  await settings.getByText('Connection error', {exact:true}).waitFor();
   assert.equal((await notes(page)).length, 3);
   await page.unroute('**/__local_mcp/ack');
   await connect();
@@ -239,8 +255,8 @@ try {
   pass('Lost save receipt is not reported as success; retry does not duplicate');
 
   assert.equal(value(await call('search_notes', {})).error.code, 'ACCESS_DISABLED');
-  await page.locator('.local-mcp-indicator').click();
-  await page.getByRole('button', { name: 'Advanced settings', exact: true }).click();
+  await openManual();
+  await expand('Note access');
   await page.getByLabel('Allow reading and updating notes', { exact: true }).check();
   await page.keyboard.press('Escape');
   for (let attempt = 0; !value(await call('connection_status')).capabilities.includes('get_note'); attempt++) {
@@ -315,6 +331,7 @@ try {
   assert.equal(lostReceipt?.status, 'updated', JSON.stringify(lostReceipt));
   await page.unroute('**/__local_mcp/ack');
   await page.reload();
+  await openManual();
   await connect();
   assert.ok(value(await call('connection_status')).capabilities.includes('get_note'));
   assert.equal(value(await call('update_note', lostUpdate)).reused, true);
@@ -331,6 +348,7 @@ try {
     assert.equal(committed?.status, 'updated');
     await page.unroute('**/__local_mcp/ack');
     await page.reload();
+  await openManual();
     await connect();
     assert.deepEqual(value(await call(operation, input)), { ...committed, reused: true });
     assert.equal(value(await call('get_note', { note_id: receipt.id })).body, operation === 'append_note' ? current.body + '\nEcho Echo' : current.body.replaceAll('Echo', 'Done'));
@@ -380,7 +398,8 @@ try {
   assert.equal((await metadataApply(lostMetadataPlan, 'metadata-lost-001')).error.code, 'OUTCOME_UNKNOWN');
   assert.equal(committedMetadata?.status, 'applied');
   await page.unroute('**/__local_mcp/ack');
-  await page.reload(); await connect();
+  await page.reload();
+  await openManual(); await connect();
   assert.deepEqual(await metadataApply(lostMetadataPlan, 'metadata-lost-001'), { ...committedMetadata, reused: true });
   assert.equal((await metadataApply(lostMetadataPlan, 'metadata-newid-001')).error.code, 'PLAN_NOT_FOUND');
   pass('Metadata receipt survives lost ACK and PWA reload; a new request cannot reuse the lost session plan');
@@ -435,7 +454,8 @@ try {
   assert.equal((await metadataApply(finalRemoval, 'remove-lost-001')).error.code, 'OUTCOME_UNKNOWN');
   assert.equal(removalReceipt?.removed_fields, 2);
   await page.unroute('**/__local_mcp/ack');
-  await page.reload(); await connect();
+  await page.reload();
+  await openManual(); await connect();
   assert.deepEqual(await metadataApply(finalRemoval, 'remove-lost-001'), { ...removalReceipt, reused: true });
   for (const id of [receipt.id, recovered.id]) assert.deepEqual((await notes(page)).find(n => n.id === id).customMetadata, []);
   pass('Removal is all-or-none on conflict; removing the last fields and lost ACK/reload replay preserve the original count');
@@ -459,8 +479,8 @@ try {
 
   const revokedMetadataPlan = await metadataPreview([{ action: 'upsert', key: 'review_status', value: 'revoked' }]);
 
-  await page.locator('.local-mcp-indicator').click();
-  await page.getByRole('button', { name: 'Advanced settings', exact: true }).click();
+  await openManual();
+  await expand('Note access');
   await page.getByLabel('Allow reading and updating notes', { exact: true }).uncheck();
   await page.keyboard.press('Escape');
   for (let attempt = 0; value(await call('connection_status')).capabilities.includes('get_note'); attempt++) {
@@ -468,10 +488,8 @@ try {
   }
   assert.equal(value(await call('get_note', { note_id: receipt.id })).error.code, 'ACCESS_DISABLED');
   assert.equal((await metadataApply(revokedMetadataPlan, 'metadata-revoke-001')).error.code, 'ACCESS_DISABLED');
-  await page.locator('.local-mcp-indicator').click();
-  if (await page.getByRole('button', { name: 'Advanced settings', exact: true }).getAttribute('aria-expanded') !== 'true') {
-    await page.getByRole('button', { name: 'Advanced settings', exact: true }).click();
-  }
+  await openManual();
+  await expand('Note access');
   await page.getByLabel('Allow reading and updating notes', { exact: true }).check();
   await page.keyboard.press('Escape');
   for (let attempt = 0; !value(await call('connection_status')).capabilities.includes('apply_custom_metadata_changes'); attempt++) {
@@ -480,7 +498,7 @@ try {
   assert.equal((await metadataApply(revokedMetadataPlan, 'metadata-revoke-001')).error.code, 'PLAN_NOT_FOUND');
   pass('Access can be revoked while create-only connection remains active');
 
-  await page.locator('.local-mcp-indicator').click();
+  await openManual();
   await page.getByRole('button', { name: 'Disconnect local MCP', exact: true }).click();
   for (let attempt = 0; value(await call('connection_status')).connected; attempt++) {
     assert.ok(attempt < 50);
@@ -490,8 +508,9 @@ try {
   await page.evaluate(origin => localStorage.setItem('mkb-local-mcp-connection-v1',
     JSON.stringify({ origin, token: '0'.repeat(64) })), origin);
   await page.reload();
+  await openManual();
   await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
-  await page.getByText('Reconnect failed. Start Codex and close other connected tabs, then retry.', { exact: true }).waitFor();
+  await page.getByText('Reconnect failed. Start your MCP client and close other connected tabs, then retry.', { exact: true }).waitFor();
   assert.equal(value(await call('connection_status')).connected, false);
   await page.getByLabel('Connection code', { exact: true }).fill(pairingCode);
   await page.getByRole('button', { name: 'Connect local MCP', exact: true }).click();
@@ -499,7 +518,7 @@ try {
   assert.equal(value(await call('connection_status')).connected, true);
   pass('Expired remembered credentials show recovery input; one new code reconnects');
 
-  await page.locator('.local-mcp-indicator').click();
+  await openManual();
   assert.equal(await advanced.getAttribute('aria-expanded'), 'false');
   assert.equal(await page.getByRole('button', { name: 'Forget connection', exact: true }).isVisible(), false);
   await page.screenshot({ path: fileURLToPath(new URL('../../output/playwright/local-mcp/connected.png', import.meta.url)), fullPage: true });
@@ -513,6 +532,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   await page.reload();
+  await openManual();
   await page.getByLabel('Connection code', { exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Reconnect', exact: true }).isVisible(), false);
   pass('Forget removes remembered credentials across reload without interrupting the active session');

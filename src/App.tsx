@@ -4247,7 +4247,7 @@ function App() {
               <span>{editorStatus.label}</span>
             </span>
           </div>
-          <LocalMcpLauncher />
+          <LocalMcpLauncher onReturnFocus={() => appMenuButtonRef.current?.focus()} />
         </div>
         <div className="editor-actions">
           <button

@@ -1,15 +1,19 @@
 # ローカルMCPからPWAのノートを操作する
 
-## 標準手順：ローカルリポジトリからCodexへ直接登録する
+## 標準手順：ローカルリポジトリからMCPクライアントへ直接登録する
 
-Node.js 24以上とCodex CLIを用意し、このPCに置いたMKBリポジトリのルートでPowerShellを開きます。Codexはここにあるサーバーを起動するため、登録後もこのフォルダーを同じ場所に置いてください。
+Node.js 24以上を用意し、このPCのMKBリポジトリで次のコマンドを実行します。
+`npm ci --prefix tools/local-mcp --omit=dev --ignore-scripts`
+
+利用するMCPクライアントにstdioサーバーとして登録します。起動コマンドにはNode.js実行ファイルの絶対パス、引数にはこのリポジトリの `tools/local-mcp/server.mjs` の絶対パスを指定してください。登録後もこのフォルダーを同じ場所に置きます。
+
+### Codex CLIでの登録例（PowerShell）
 
 すでにMKBを使っている場合は、先に `codex mcp get mkb_local_prototype` で登録先を確認します。同じサーバーを登録済みなら初回登録は完了です。ZIP版など別の登録先を引き続き使う場合も、以下の登録操作は不要です。
 
 新規登録は次の手順です。
 
 ```powershell
-npm ci --prefix tools/local-mcp --omit=dev --ignore-scripts
 $nodeExe = (Get-Command node.exe).Source
 $mkbServer = (Resolve-Path tools/local-mcp/server.mjs).Path
 codex mcp add mkb_local_prototype -- $nodeExe $mkbServer
@@ -25,10 +29,10 @@ Codexを再起動し、新しいチャットで「MKBの初回接続コードを
 対応するPWAとローカルランタイムの両方を更新します。既存brokerが動作中なら、MCPクライアントをすべて閉じ、35秒後に起動します。以前のペアリング設定はそのまま使用できます。
 
 1. 保存先に使うChromeまたはEdgeでMKBを開き、アプリメニューの **Local MCP** を選びます。
-2. 初回はCodexに「MKBの初回接続コードを表示してください」と依頼し、取得したコードを入力して、**Remember in this browser** と **Open this profile automatically for save requests** を選びます。登録済みなら **Reconnect** の後、**Advanced settings** で **Enable automatic opening** を選べます。
-3. 使用中のブラウザと、Chromeの `chrome://version` またはEdgeの `edge://version` の **Profile Path** の末尾（例：`Default`、`Profile 1`）を指定して登録します。標準のWindowsユーザーデータフォルダーが対象です。
+2. **Set up automatic connection** を選びます。初回はローカルエージェントに「MKBの初回接続コードを表示してください」と依頼し、コードを入力します。接続情報を記憶済みなら、そのまま保存先を指定できます。
+3. 使用中のブラウザと、Chromeの `chrome://version` またはEdgeの `edge://version` の **Profile Path** の末尾（例：`Default`、`Profile 1`）を指定し、**Register save destination** を押します。設定画面で **Enabled** と保存先を確認してください。標準のWindowsユーザーデータフォルダーが対象です。
 4. MKBを閉じても、次の明示的な保存依頼でこのプロファイルを開きます。ブラウザ側に記憶した識別情報とOriginを確認してから本文を送ります。通常の状態照会では起動しません。別プロファイルや起動失敗は保存前に停止します。
-5. **Disconnect local MCP** で自動起動を休止し、同じプロファイルで **Reconnect** すると再開します。保存先を変更するときは、元のプロファイルで **Forget connection** を実行してから新しい保存先を登録します。
+5. **Pause automatic connection** で自動起動を休止し、同じプロファイルで **Resume automatic connection** すると再開します。保存先を変更するときは、元のプロファイルで **Forget connection** を実行してから新しい保存先を登録します。
 
 エージェントは明示的な保存依頼の際、`ensure_connection` で準備した後に接続先を確認できます。`create_note` も必要に応じて起動を待ちます。保存応答が失われた場合は、従来どおり同一の保存先・引数・要求IDで照合してください。
 
@@ -40,14 +44,14 @@ Codexを再起動し、新しいチャットで「MKBの初回接続コードを
 
 `preview_custom_metadata_changes`で条件に合うノートと差分を確認し、`apply_custom_metadata_changes`で確認済みplanを一括保存する。Addは欠落キーのみ追加、Updateは既存キーのみ更新、Upsertはキーがなければ追加・あれば更新。Removeは指定キーと値を削除し、キー欠落は正常なskipとする。Removeにvalueは指定しない。同値は変更しない。本文・タイトル・タグ等は保持する。
 
-既存の読み取り・更新許可を使う。最大50ノート、planは10分有効。1件でも競合・編集中・保存失敗なら全件取り消し。再送には同じplan_idとrequest_idを使う。Removeの結果にはremoved_fieldsを返し、再送では後から再追加されたキーを削除しない。[要求・応答JSONと制限](../../docs/local-mcp-custom-metadata-spec.md)を参照。Setup 1.4.0へ更新し、Codexを再起動、PWAを更新してReconnectする。接続コードは継続利用できる。
+既存の読み取り・更新許可を使う。最大50ノート、planは10分有効。1件でも競合・編集中・保存失敗なら全件取り消し。再送には同じplan_idとrequest_idを使う。Removeの結果にはremoved_fieldsを返し、再送では後から再追加されたキーを削除しない。[要求・応答JSONと制限](../../docs/local-mcp-custom-metadata-spec.md)を参照。Setup 1.4.0へ更新し、MCPクライアントを再起動、PWAを更新してReconnectする。接続コードは継続利用できる。
 
 
 ## 既存ノートへのアクセス（runtime 0.5.0 / Windows Setup 1.2.0）
 
-`search_notes`、`get_note`、`update_note`を追加。既存の接続コードを使い、MKBの **Local MCP → Advanced settings → Allow reading and updating notes** を一度オンにする。Remember in this browserで接続を保存していれば許可も保持し、以後はReconnectだけで利用できる。初期値はオフ。Forget connectionや異なるコードへの変更では許可を引き継がない。
+`search_notes`、`get_note`、`update_note`を追加。既存の接続コードを使い、MKBの **Local MCP → Note access → Allow reading and updating notes** を一度オンにする。Remember in this browserで接続を保存していれば許可も保持し、以後はReconnectだけで利用できる。初期値はオフ。Forget connectionや異なるコードへの変更では許可を引き継がない。
 
-検索・取得した内容はCodexへ渡され、チャット処理の入力になる。同じPCのこのMCPを利用するCodexチャットが対象で、ノート別・チャット別の権限分離はない。オフへ戻すと検索・取得・更新を止めるが、新規作成は継続できる。未保存draftは取得しない。
+検索・取得した内容は利用中のエージェントへ渡され、チャット処理の入力になる。同じPCのこのMCPを利用するMCPクライアントが対象で、ノート別・チャット別の権限分離はない。オフへ戻すと検索・取得・更新を止めるが、新規作成は継続できる。未保存draftは取得しない。
 
 - `search_notes`: title/bodyの部分一致、完全一致のANDタグ、最大50件のページ。query省略は一覧。ページ間のsnapshot固定はしない。
 - `get_note`: ID指定で本文・metadata・revisionを取得。本文128 KiB UTF-8まで。大きい本文は切り詰めずエラー。
@@ -59,7 +63,7 @@ Codexを再起動し、新しいチャットで「MKBの初回接続コードを
 
 例: 「MKBのMCP連携の説明ノートを検索して、Windows導入手順を追記してください」。候補が複数で対象が不明なら確認し、タイトル一致だけで更新先を決めない。
 
-更新時は新版セットアップを実行してCodexを再起動し、MKBも最新版へ再読み込みする。旧brokerが残る場合は全Codexクライアント終了後35秒待つ。DB移行を他のMKB画面が妨げる場合は、未保存内容を保存してからそれらを閉じる。ペアリングは保持される。
+更新時は新版セットアップを実行してMCPクライアントを再起動し、MKBも最新版へ再読み込みする。旧brokerが残る場合は全MCPクライアント終了後35秒待つ。DB移行を他のMKB画面が妨げる場合は、未保存内容を保存してからそれらを閉じる。ペアリングは保持される。
 
 要求・応答の定義、全7ツールのJSON例、エラー形式、再送・容量制限は[Local MCP API設計書（確定版）](../../docs/local-mcp-note-access-spec.md)を参照。隔離Chromiumの実MCP通し試験は`node tools/local-mcp/verify.mjs`。別PCや本番PWAの実動作確認とは区別する。
 
@@ -78,9 +82,9 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 
 ### 任意のデスクトップ補助ツール（標準ZIPの対象外）
 
-デスクトップの **MKB Connection Setup** を開き、**Copy connection code** で初回設定用コードをコピーできる。Codexへの質問は不要。**Open MKB** はインストール済みPWAのショートカットを起動するため、同じChromeプロファイル・ローカルノートを利用する。表示は英語の3ボタンと短い状態表示だけ。
+デスクトップの **MKB Connection Setup** を開き、**Copy connection code** で初回設定用コードをコピーできる。**Open MKB** はインストール済みPWAのショートカットを起動するため、同じChromeプロファイル・ローカルノートを利用する。表示は英語の3ボタンと短い状態表示だけ。
 
-セットアップツールは既存のPC側ペアリングを読み取り、未作成の場合だけ共通の`identity.mjs`で初期設定を作る。既存のトークンを再発行しない。コードは画面・ログ・URLへ出さず、Copyを押したときだけクリップボードへ置く。MCPサービスの起動・ノート保存には従来どおりCodexを起動する。
+セットアップツールは既存のPC側ペアリングを読み取り、未作成の場合だけ共通の`identity.mjs`で初期設定を作る。既存のトークンを再発行しない。コードは画面・ログ・URLへ出さず、Copyを押したときだけクリップボードへ置く。MCPサービスの起動・ノート保存には登録したMCPクライアントを起動する。
 
 インストールはWindows PowerShellで`tools/local-mcp/install-connection-setup.ps1`を実行する。PWAのショートカットが自動検出できない場合は`-MkbShortcut`で指定する。`ConnectionSetup.cs`を小さなWindows GUI実行ファイルへビルドし、共通のコード取得処理とともに`%LOCALAPPDATA%/MarkdownKnowledgeBoard/ConnectionSetup`へ配置する。通常の起動ではPowerShellを経由せず、リポジトリのブランチ切り替えにも依存しない。更新時はツールを閉じて同じインストーラを再実行する。デスクトップのショートカットには秘密情報を含めない。PowerShellの実行ポリシーは変更しない。
 
@@ -101,20 +105,12 @@ node tools/local-mcp/windows/verify-kit.mjs
 
 ### PWAとの接続
 
-以下はヘッダの接続インジケータを使用する手順。メニューは「Data & Backup」と「AI Integration」に分け、Local MCPは「AI Integration」に配置する。メニュー・接続表示は英語で統一し、説明は必要時のみ表示する。上記の本番検証記録は大きな接続パネルを表示する旧UIで行った結果。
-隔離Chromiumの通し試験は、接続成功時のパネル自動非表示、再表示・Esc後の接続維持とフォーカス復帰、非表示中の実保存、390px幅の表示、明示切断・通信エラー・再接続を含む。接続コード、記憶への同意、再読み込み後のボタン再接続、古い情報からの復帰、記憶の削除、ストレージ保存失敗も検証する。表示証跡は`output/playwright/local-mcp/`の`saved.png`、`indicator-mobile.png`、`reconnect.png`。
+手動で使う場合も、接続状態はアプリメニューの **Local MCP** で確認します。
 
-`Codex専用MCPツール → STDIOクライアント → このPCの共有受信サービス → 本番PWA → IndexedDB → 保存結果`
-
-1. 冒頭の手順でMCPをCodexに登録し、Codexを再起動する。
-2. 初回はCodexに「MKBの初回接続コードを表示してください」と依頼し、専用MCPの`connection_status`が返す`pairingCode`を使う。コードは当該利用者の接続設定専用で、共有・公開しない。ペアリングはPC単位で保持し、同じOSユーザーで起動した複数のCodexチャットが、同じペアリング済みPWAを利用する。
-3. 保存先のPWAでアプリメニュー → **Local MCP** を開き、**Connection code**へ1回貼り付け、**Connect local MCP**。従来の個別入力は **Enter address and token** から利用できる。ChromeがこのPCへの接続許可を求めた場合は利用者が許可する。
-   初回の許可待ちは最大60秒。許可前にタイムアウトした場合は、許可後にもう一度 **Connect local MCP** を押す。
-   個人用端末では **Remember in this browser** でペアリングを記憶できる。手動接続を選んだ場合、次回はメニュー → Local MCP → **Reconnect**。自動起動を有効にした場合は冒頭の手順に従う。
-4. `connection_status`の`browserOrigin`が意図した本番サイトであることを確認してから`create_note`を呼ぶ。
-5. 接続成功時にパネルは自動で隠れ、ヘッダに緑の「MCP connected」を表示する。インジケータまたはアプリメニューからパネルを開き直せる。「Close」・Escでは接続を維持する。
-6. 明示的な **Disconnect local MCP**、PWA再読み込み・終了、共有サービスの終了で接続が終了する。Codex/MCPやPCの再起動後も、Codexを起動してPWAの **Reconnect** を押すだけでよい。コードは変わらない。Codexを短時間で再起動し共有サービスが動き続けている場合は、既存の接続も維持する。
-   **Forget connection**と**Use a new code**は**Advanced settings**内に配置する。Use a new codeは未接続時に接続情報を入れ直す操作で、コードの生成ではない。接続に失敗した場合はCodexの起動と他の接続中タブを確認し、Reconnectを再試行する。ヘッダのMCP表示はNo note / Savedなどの保存状態の右側に表示する。
+1. **Manual connection** を開き、初回接続コードを入力して **Connect local MCP** を選びます。アドレスとトークンを個別に入力する場合は、先に **Advanced settings → Enter address and token** を選びます。
+2. **Remember in this browser** を選ぶと、次回から **Manual connection → Reconnect** で再接続できます。
+3. **Close** または Esc でパネルを閉じても接続は続きます。保存先を確認するにはMCPクライアントの `connection_status` を使います。
+4. **Advanced settings** では接続コードの入れ直し（**Use a new code**）や登録解除（**Forget connection**）ができます。
 
 ```json
 {
@@ -125,10 +121,10 @@ node tools/local-mcp/windows/verify-kit.mjs
 }
 ```
 
-- 本番用はViteを起動しない。OSユーザーごとに1つの共有サービスが保存済みのポートで待ち受け、複数のMCPプロセスはそのサービスへ接続する。インターネットやLAN向けには待ち受けない。Codexクライアントがすべて終了すると、最後の操作から約30〜35秒で共有サービスも終了する。次回のMCP起動時に同じ設定で自動起動する。
+- 本番用はViteを起動しない。OSユーザーごとに1つの共有サービスが保存済みのポートで待ち受け、複数のMCPプロセスはそのサービスへ接続する。インターネットやLAN向けには待ち受けない。MCPクライアントがすべて終了すると、最後の操作から約30〜35秒で共有サービスも終了する。次回のMCP起動時に同じ設定で自動起動する。
 - PC側の設定はWindowsでは`%LOCALAPPDATA%/MarkdownKnowledgeBoard/mcp/identity.json`、他OSでは`~/.local/state/markdown-knowledge-board/mcp/identity.json`（`MKB_MCP_STATE_DIR`で分離可能）に保存する。初回のポート既定値は47831で、`MKB_MCP_PORT`は初回作成時だけ使用する。既存のペアリングを移行する場合は`loadIdentity({ seed: { port, browserToken } })`で既存値を引き継ぎ、返された値が一致することを確認する。移行後は旧MCPプロセスを終了して新実装を起動する。トークンをリポジトリへ保存・公開しない。
 - 設定ファイルは完成した内容を原子的に配置し、同時起動時も同じ設定を共有する。ディレクトリは0700、ファイルは0600で作成し、WindowsではユーザープロファイルのACLも適用される。破損やポート競合で設定を自動再生成・変更しない。ファイルが破損した場合はバックアップから復旧する。意図的に再作成した場合のみPWA側の再ペアリングが必要になる。
-- PWA用トークンとCodex制御用トークンは別々に保持する。制御APIは正確なHost、制御用トークン、JSON POSTを要求し、Origin付きリクエストを拒否する。PWA用トークンだけでは保存指示を発行できない。共有サービス障害時に保存指示を自動再送せず、結果不明として同じrequest_idでの明示再試行を案内する。
+- PWA用トークンとMCPクライアント制御用トークンは別々に保持する。制御APIは正確なHost、制御用トークン、JSON POSTを要求し、Origin付きリクエストを拒否する。PWA用トークンだけでは保存指示を発行できない。共有サービス障害時に保存指示を自動再送せず、結果不明として同じrequest_idでの明示再試行を案内する。
 - 許可Originは`https://mkb.bamboosato.com`と`https://markdown-knowledge-board.vercel.app`だけ。正確なHost、Origin、Bearerトークン、JSON POSTを検証する。接続したOriginとタブに配送を限定する。
 - 接続情報は通常PWAのメモリだけに保持。Rememberを選んだ場合のみ、成功したアドレス・トークンを同じOriginのlocalStorage（`mkb-local-mcp-connection-v1`）に保存する。クラウドバックアップには含めず、共有端末では記憶しない。保存できない場合も接続を維持し、パネルで通知する。読み出した情報も接続前にループバックURLとトークン形式を再検証する。
 - 本文・トークン・接続コードをサーバーログへ記録しない。診断ファイル`output/local-mcp/startup-<PID>.json`には起動時刻・PID・段階・失敗理由だけを残す。
