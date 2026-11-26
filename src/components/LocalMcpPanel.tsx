@@ -204,6 +204,7 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
     if (connecting) return;
     setConnecting(true);
     setConnectionError(false);
+    setStatus('');
     try {
       const credentials = saved ? validateLocalMcpConnection(saved.origin, saved.token)
         : manual ? validateLocalMcpConnection(address, token) : parseLocalMcpCode(code);
@@ -219,12 +220,18 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
         protocolVersion: 2, supportedOperations, supportedMetadataActions, noteAccess: allowed, profileKey: bound?.key,
       }, AbortSignal.timeout(60000));
       const connected = await openSession().catch(async error => {
-        if (!enroll || !(error instanceof LocalMcpRequestError) || error.status !== 409) throw error;
+        if ((!enroll && !automatic) || !(error instanceof LocalMcpRequestError) || error.status !== 409) throw error;
         // A recently closed tab keeps its broker lease for up to five seconds.
         await new Promise(resolve => setTimeout(resolve, 5100));
         if (!mountedRef.current) throw error;
+        if (automatic) {
+          const current = readLocalMcpConnection();
+          if (!current?.auto || current.auto.paused || current.auto.key !== bound?.key ||
+              current.origin !== next.origin || current.token !== next.token) return;
+        }
         return openSession();
       });
+      if (!connected) return;
       setAutoAvailable(connected.autoAvailable===true);
       if (!mountedRef.current) {
         await request(next, 'disconnect').catch(() => {});
@@ -265,6 +272,18 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
       setSetupAuto(false);
       if (remembered && !automatic && !enroll && !bound) onClose();
     } catch (error) {
+      if (automatic) {
+        const anotherTab = error instanceof LocalMcpRequestError && error.status === 409;
+        setConnectionError(!anotherTab);
+        if (anotherTab) {
+          setStatus('Another MKB tab was connected. To use this tab, close the other one and reload this page.');
+        } else if (error instanceof LocalMcpRequestError) {
+          setStatus(error.message);
+        } else {
+          setStatus('Could not reach the local MCP service. Check that your MCP client is running and the browser allows local connections, then reload MKB.');
+        }
+        return;
+      }
       setConnectionError(true);
       if (saved && !automatic && !enroll && !saved.auto) { setSetupAuto(false); setShowSetup(true); setAdvancedOpen(true); }
       setStatus(enroll && error instanceof LocalMcpRequestError ? error.message : saved ? 'Reconnect failed. Start your MCP client and close other connected tabs, then retry.'
@@ -394,7 +413,7 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
     <div className="local-mcp-advanced">
       <button type="button" className="local-mcp-disclosure" aria-expanded={advancedOpen} aria-controls="local-mcp-advanced-content"
         onClick={() => { setAdvancedOpen(!advancedOpen); setShowSetup(false); }}>
-        <span aria-hidden="true">{advancedOpen ? '▾' : '▸'}</span> Advanced settings
+        Advanced settings
       </button>
       <div id="local-mcp-advanced-content" hidden={!advancedOpen}>
         {(savedConnection || session) && <p>Server: {savedConnection?.origin ?? session?.origin}</p>}

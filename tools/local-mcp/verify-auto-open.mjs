@@ -142,12 +142,50 @@ try {
   const setUp = page.getByRole('button', {name:'Set up automatic connection'});
   const register = page.getByRole('button', {name:'Register save destination'});
   await page.locator('summary').filter({hasText:'Manual connection'}).waitFor();
+  const headings = page.locator('#local-mcp-panel summary, #local-mcp-panel .local-mcp-disclosure');
+  for (const width of [320, 1280]) {
+    await page.setViewportSize({width, height:800});
+    const metrics = await headings.evaluateAll(elements => elements.map(element => {
+      const range = document.createRange();
+      range.selectNodeContents(element.firstChild);
+      const style = getComputedStyle(element);
+      return [range.getBoundingClientRect().left, style.fontSize, style.fontWeight];
+    }));
+    assert.equal(metrics.length, 3);
+    for (const heading of metrics) assert.deepEqual(heading, metrics[0]);
+    console.log('PASS: accordion title alignment at', width, 'px', metrics[0]);
+  }
   await setUp.click();
   await page.getByLabel('Connection code', {exact:true}).fill(setup.pairingCode);
   await register.click();
   await page.getByText('Enabled', {exact:true}).waitFor();
   assert.equal(await page.locator('summary').filter({hasText:'Manual connection'}).count(), 0);
   assert.equal((await call('connection_status')).automatic,'enabled');
+
+  // Reload while this document still owns the broker lease.
+  let connectAttempts = 0;
+  page.on('request', req => {
+    if (new URL(req.url()).pathname === '/__local_mcp/connect' && req.method() === 'POST') connectAttempts++;
+  });
+  await page.reload();
+  await panel();
+  await page.getByText('Connection: Connected', {exact:true}).waitFor();
+  assert.ok(connectAttempts >= 1 && connectAttempts <= 2);
+
+  const otherTab = await browser.newPage();
+  await otherTab.goto(origin);
+  await otherTab.getByRole('button',{name:'Open application menu'}).click();
+  await otherTab.getByRole('menuitem',{name:'Local MCP',exact:true}).click();
+  await otherTab.getByText('Another MKB tab was connected.', {exact:false}).waitFor();
+  assert.equal((await call('connection_status')).connected,true);
+  await otherTab.route('**/__local_mcp/connect', route => route.abort('connectionrefused'));
+  await otherTab.reload();
+  await otherTab.getByRole('button',{name:'Open application menu'}).click();
+  await otherTab.getByRole('menuitem',{name:'Local MCP',exact:true}).click();
+  await otherTab.getByText('Could not reach the local MCP service.', {exact:false}).waitFor();
+  await otherTab.getByText('Connection: Connection error', {exact:true}).waitFor();
+  await otherTab.close();
+  console.log('PASS: automatic reconnect after reload, busy-tab guidance and unreachable-service guidance.');
 
   // A profile paired before automatic opening can enroll while disconnected.
   await page.getByRole('button',{name:'Advanced settings'}).click();
