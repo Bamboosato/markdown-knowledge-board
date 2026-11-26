@@ -1,6 +1,6 @@
 # MKB Windows Setup
 
-WindowsにMKBのローカルMCP本体を導入し、Codexに登録するためのセットです。
+このZIPは、MKBリポジトリを用意しないWindows PCにMCP本体を導入するためのものです。リポジトリがあるPCでは、標準手順として、その中の `tools/local-mcp/server.mjs` をCodexに直接登録します。
 このZIPにはアプリのソース・インストーラー・依存のロックファイルだけを含み、接続コード、PC固有の設定、ノート、Codexの認証情報は含みません。管理者権限は不要です。
 
 ## セットアップ一式の入手

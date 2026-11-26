@@ -1,5 +1,25 @@
 # ローカルMCPからPWAのノートを操作する
 
+## 標準手順：ローカルリポジトリからCodexへ直接登録する
+
+Node.js 24以上とCodex CLIを用意し、このPCに置いたMKBリポジトリのルートでPowerShellを開きます。Codexはここにあるサーバーを起動するため、登録後もこのフォルダーを同じ場所に置いてください。
+
+すでにMKBを使っている場合は、先に `codex mcp get mkb_local_prototype` で登録先を確認します。同じサーバーを登録済みなら初回登録は完了です。ZIP版など別の登録先を引き続き使う場合も、以下の登録操作は不要です。
+
+新規登録は次の手順です。
+
+```powershell
+npm ci --prefix tools/local-mcp --omit=dev --ignore-scripts
+$nodeExe = (Get-Command node.exe).Source
+$mkbServer = (Resolve-Path tools/local-mcp/server.mjs).Path
+codex mcp add mkb_local_prototype -- $nodeExe $mkbServer
+codex mcp get mkb_local_prototype
+```
+
+Codexを再起動し、新しいチャットで「MKBの初回接続コードを表示してください」と依頼します。下記の手順で保存先をペアリングします。登録はWindowsユーザー単位で一度です。
+
+リポジトリを用意しないPCでは、[任意のWindowsセットアップZIP](windows/README.md)で同じMCPを登録できます。
+
 ## WindowsでMKBを自動で開く（runtime 0.8.0）
 
 対応するPWAとローカルランタイムの両方を更新します。既存brokerが動作中なら、MCPクライアントをすべて閉じ、35秒後に起動します。以前のペアリング設定はそのまま使用できます。
@@ -64,7 +84,7 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 
 インストールはWindows PowerShellで`tools/local-mcp/install-connection-setup.ps1`を実行する。PWAのショートカットが自動検出できない場合は`-MkbShortcut`で指定する。`ConnectionSetup.cs`を小さなWindows GUI実行ファイルへビルドし、共通のコード取得処理とともに`%LOCALAPPDATA%/MarkdownKnowledgeBoard/ConnectionSetup`へ配置する。通常の起動ではPowerShellを経由せず、リポジトリのブランチ切り替えにも依存しない。更新時はツールを閉じて同じインストーラを再実行する。デスクトップのショートカットには秘密情報を含めない。PowerShellの実行ポリシーは変更しない。
 
-### 他のWindows PCへ配布する
+### リポジトリを用意しないPC向けのZIP配布
 
 旧キットの配布先は[GitHub Releases：MKB Windows Setup v1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip)と[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip.sha256)を取得でき、Releaseの添付ファイルは30日で自動失効しない。
 
@@ -86,26 +106,14 @@ node tools/local-mcp/windows/verify-kit.mjs
 
 `Codex専用MCPツール → STDIOクライアント → このPCの共有受信サービス → 本番PWA → IndexedDB → 保存結果`
 
-1. `npm ci --prefix tools/local-mcp --ignore-scripts`で専用依存を準備する。本体の依存・DBスキーマは変更しない。
-2. Codexのユーザー設定へ次のMCPを登録する。このPCでは登録済み。
-
-```toml
-[mcp_servers.mkb_local_prototype]
-command = "C:/Program Files/nodejs/node.exe"
-args = ["D:/work_codex/markdown-knowledge-board/tools/local-mcp/server.mjs"]
-cwd = "D:/work_codex/markdown-knowledge-board"
-startup_timeout_sec = 60
-tool_timeout_sec = 30
-enabled = true
-```
-
-3. 初回はCodexに「MKBの初回接続コードを表示してください」と依頼し、専用MCPの`connection_status`が返す`pairingCode`を使う。コードは当該利用者の接続設定専用で、共有・公開しない。ペアリングはPC単位で保持し、同じOSユーザーで起動した複数のCodexチャットが、同じペアリング済みPWAを利用する。
-4. 保存先のPWAでアプリメニュー → **Local MCP** を開き、**Connection code**へ1回貼り付け、**Connect local MCP**。従来の個別入力は **Enter address and token** から利用できる。ChromeがこのPCへの接続許可を求めた場合は利用者が許可する。
+1. 冒頭の手順でMCPをCodexに登録し、Codexを再起動する。
+2. 初回はCodexに「MKBの初回接続コードを表示してください」と依頼し、専用MCPの`connection_status`が返す`pairingCode`を使う。コードは当該利用者の接続設定専用で、共有・公開しない。ペアリングはPC単位で保持し、同じOSユーザーで起動した複数のCodexチャットが、同じペアリング済みPWAを利用する。
+3. 保存先のPWAでアプリメニュー → **Local MCP** を開き、**Connection code**へ1回貼り付け、**Connect local MCP**。従来の個別入力は **Enter address and token** から利用できる。ChromeがこのPCへの接続許可を求めた場合は利用者が許可する。
    初回の許可待ちは最大60秒。許可前にタイムアウトした場合は、許可後にもう一度 **Connect local MCP** を押す。
    個人用端末では **Remember in this browser** でペアリングを記憶できる。手動接続を選んだ場合、次回はメニュー → Local MCP → **Reconnect**。自動起動を有効にした場合は冒頭の手順に従う。
-5. `connection_status`の`browserOrigin`が意図した本番サイトであることを確認してから`create_note`を呼ぶ。
-6. 接続成功時にパネルは自動で隠れ、ヘッダに緑の「MCP connected」を表示する。インジケータまたはアプリメニューからパネルを開き直せる。「Close」・Escでは接続を維持する。
-7. 明示的な **Disconnect local MCP**、PWA再読み込み・終了、共有サービスの終了で接続が終了する。Codex/MCPやPCの再起動後も、Codexを起動してPWAの **Reconnect** を押すだけでよい。コードは変わらない。Codexを短時間で再起動し共有サービスが動き続けている場合は、既存の接続も維持する。
+4. `connection_status`の`browserOrigin`が意図した本番サイトであることを確認してから`create_note`を呼ぶ。
+5. 接続成功時にパネルは自動で隠れ、ヘッダに緑の「MCP connected」を表示する。インジケータまたはアプリメニューからパネルを開き直せる。「Close」・Escでは接続を維持する。
+6. 明示的な **Disconnect local MCP**、PWA再読み込み・終了、共有サービスの終了で接続が終了する。Codex/MCPやPCの再起動後も、Codexを起動してPWAの **Reconnect** を押すだけでよい。コードは変わらない。Codexを短時間で再起動し共有サービスが動き続けている場合は、既存の接続も維持する。
    **Forget connection**と**Use a new code**は**Advanced settings**内に配置する。Use a new codeは未接続時に接続情報を入れ直す操作で、コードの生成ではない。接続に失敗した場合はCodexの起動と他の接続中タブを確認し、Reconnectを再試行する。ヘッダのMCP表示はNo note / Savedなどの保存状態の右側に表示する。
 
 ```json
