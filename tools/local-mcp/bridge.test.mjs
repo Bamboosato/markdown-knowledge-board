@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { createBridge } from './bridge.mjs';
+import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { autoOpen, windowsProfiles } from './auto-open.mjs';
 import { accessSchemas, accessResults } from './note-schema.mjs';
 
 const origin = 'http://127.0.0.1:5186';
@@ -32,6 +36,45 @@ test('requires token, exact Origin and Host, and JSON POST', async () => {
     { host: 'rebound.example:5186' }, { 'content-type': 'text/plain' },
   ]) assert.equal((await request(bridge, 'connect', {}, headers)).status, 403);
   assert.equal(bridge.status().connected, false);
+});
+
+test('destination verification cannot replace an active write or a newer registration',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'mkb-destination-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const root=join(directory,'Google','Chrome','User Data');
+  for (const name of ['Default','Profile 5','Profile 2','Guest Profile','Profile 7']) {
+    const dir=join(root,name);
+    await mkdir(dir,{recursive:true});
+    if (name!=='Profile 7') await writeFile(join(dir,name==='Profile 5'?'History':'Preferences'),'');
+  }
+  assert.deepEqual(windowsProfiles('chrome',directory),['Default','Profile 2','Profile 5']);
+  assert.deepEqual(windowsProfiles('edge',directory),[]);
+  let proof;
+  const auto=autoOpen({directory,origins:[origin],listProfiles:browser=>windowsProfiles(browser,directory),
+    launch:async (_target,fragment)=>{proof=fragment.split('.')[1];}});
+  const bridge=createBridge(origin,{auto});
+  const destination=body=>request(bridge,'destination',body);
+  const options=()=>destination({action:'options',browser:'chrome'});
+  const revision=(await options()).value.revision;
+  const enroll={action:'verify',revision,browser:'chrome',profile:'Profile 5',key:'a'.repeat(64)};
+  assert.equal((await destination(enroll)).status,200);
+  await request(bridge,'connect');
+  const save=bridge.create(input);
+  assert.equal((await destination({action:'commit',proof})).status,409);
+  assert.equal((await options()).value.destination,null);
+  const {job}=(await request(bridge,'poll')).value;
+  await request(bridge,'ack',{deliveryId:job.deliveryId,result:{id:'mcp-old',title:input.title,reused:false}});
+  assert.equal((await save).status,'saved');
+  const committed=await destination({action:'commit',proof});
+  assert.equal(committed.status,200,JSON.stringify(committed.value));
+  assert.equal((await destination({action:'commit',proof})).status,409);
+  assert.equal((await destination({...enroll,profile:'Default'})).status,409);
+  assert.equal((await options()).value.destination.profile,'Profile 5');
+  const revision2=(await options()).value.revision;
+  await destination({...enroll,revision:revision2,profile:'Default',key:'b'.repeat(64)});
+  await request(bridge,'auto',{action:'pause',key:enroll.key});
+  assert.equal((await destination({action:'commit',proof})).status,409);
+  assert.equal((await options()).value.destination.paused,true);
 });
 
 test('does not accept another tab while connected or a second pending write', async () => {

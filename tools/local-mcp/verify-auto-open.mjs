@@ -27,8 +27,11 @@ const identity=await loadIdentity({directory:work,seed:{port:free.address().port
 await new Promise(resolve=>free.close(resolve));
 const client=new Client({name:'mkb-auto-test',version:'1'});
 let browser,page,broker,nativeBrowser,nativeChild,launches=0,mode='registered';
+let previousProfile;
 const edge=process.argv.includes('--native-edge');
 const native=edge || process.argv.includes('--native-chrome');
+const switchBrowser=process.argv.includes('--switch-browser');
+const alternateRoot=join(work,'alternate',edge?'Google':'Microsoft',edge?'Chrome':'Edge','User Data');
 // Keep Playwright's environment intact when setting up the test profile.
 const profileRoot=name=>join(work,name,edge?'Microsoft':'Google',edge?'Edge':'Chrome','User Data');
 async function closeBrowser() {
@@ -42,7 +45,8 @@ async function closeBrowser() {
   browser=undefined;
 }
 async function openProfile(name) {
-  browser=await chromium.launchPersistentContext(profileRoot(name),{headless:true,channel:edge?'msedge':native?'chrome':undefined,serviceWorkers:'block'});
+  browser=await chromium.launchPersistentContext(profileRoot(name),{headless:!native,channel:edge?'msedge':native?'chrome':undefined,
+    args:['--profile-directory='+(name==='other'?'Profile 1':'Default')],serviceWorkers:'block'});
   page=browser.pages()[0];
   await page.goto(origin,{waitUntil:'domcontentloaded'});
 }
@@ -50,12 +54,12 @@ async function launch(target) {
   ++launches;
   assert.equal(target.origin,origin);
   assert.equal(target.browser,edge?'edge':'chrome');
-  assert.equal(target.profile,'Default');
-  if (!native || mode==='wrong') {
+  const owner=target.profile==='Profile 1'?'other':'registered';
+  if (!native || (mode==='wrong' && owner==='registered')) {
     if (mode==='missing') throw Error('Missing browser');
-    return openProfile(mode==='wrong'?'other':'registered');
+    return openProfile(mode==='wrong'?'other':owner);
   }
-  const local=join(work,mode==='missing'?'absent':'registered');
+  const local=join(work,mode==='missing'?'absent':owner);
   const savedProgramFiles=process.env['ProgramFiles(x86)'];
   let command;
   try {
@@ -65,7 +69,7 @@ async function launch(target) {
     if (savedProgramFiles) process.env['ProgramFiles(x86)']=savedProgramFiles;
   }
   const {exe,args}=command;
-  const root=profileRoot('registered');
+  const root=profileRoot(owner);
   // Only this test adds headless mode, an isolated data directory and a private
   // loopback debugging port so it can inspect and close its own browser.
   await rm(join(root,'DevToolsActivePort'),{force:true});
@@ -95,13 +99,29 @@ async function launch(target) {
 
 }
 async function start() {
-  const checkedLaunch=async target=>{
+  const checkedLaunch=async (target,verification)=>{
+    if (verification) {
+      if (native) {
+        const alternate=target.browser!==(edge?'edge':'chrome');
+        const owner=alternate?'alternate':target.profile==='Profile 1'?'other':'registered';
+        const {exe,args}=windowsLaunchTarget(target,join(work,owner),verification);
+        const child=spawn(exe,[...args,'--user-data-dir='+(alternate?alternateRoot:profileRoot(owner)),'--no-first-run'],{stdio:'ignore',windowsHide:true});
+        await once(child,'spawn');
+        child.unref();
+        return;
+      }
+      const context=mode==='wrong' && target.profile==='Default' ? previousProfile : browser;
+      const proofPage=await context.newPage();
+      await proofPage.goto(origin+'/#mkb-verify='+verification,{waitUntil:'commit'});
+      return;
+    }
     try {await launch(target);} catch(error) {
       if(mode!=='missing') console.error('Isolated launch failed',error.name,String(error.message).split('\n')[0],{launches,tabs:browser?.pages().length});
       throw error;
     }
   };
-  broker=startBroker(identity,[origin],autoOpen({directory:work,origins:[origin],launch:checkedLaunch,timeout:12500}));
+  broker=startBroker(identity,[origin],autoOpen({directory:work,origins:[origin],launch:checkedLaunch,
+    listProfiles:brand=>mode==='wrong' && brand===(edge?'edge':'chrome')?['Default','Profile 1']:['Default'],timeout:12500}));
   await once(broker.http,'listening');
 }
 async function stop() {
@@ -139,7 +159,7 @@ try {
   assert.equal(launches,0);
   await openProfile('registered');
   await panel();
-  const setUp = page.getByRole('button', {name:'Set up automatic connection'});
+  const setUp = page.getByRole('button', {name:'Use this profile for saves'});
   const register = page.getByRole('button', {name:'Register save destination'});
   await page.locator('summary').filter({hasText:'Manual connection'}).waitFor();
   const headings = page.locator('#local-mcp-panel summary, #local-mcp-panel .local-mcp-disclosure');
@@ -157,6 +177,8 @@ try {
   }
   await setUp.click();
   await page.getByLabel('Connection code', {exact:true}).fill(setup.pairingCode);
+  await page.getByRole('button',{name:'Find profiles'}).click();
+  assert.equal(await page.getByLabel('Profile directory').inputValue(),'Default');
   await register.click();
   await page.getByText('Enabled', {exact:true}).waitFor();
   assert.equal(await page.locator('summary').filter({hasText:'Manual connection'}).count(), 0);
@@ -200,8 +222,9 @@ try {
   await openProfile('registered');
   await panel();
   assert.equal((await call('connection_status')).automatic,'off');
-  await page.getByRole('button',{name:'Set up automatic connection'}).click();
+  await page.getByRole('button',{name:'Use this profile for saves'}).click();
   assert.equal(await page.getByLabel('Connection code',{exact:true}).isVisible(),false);
+  await page.getByRole('button',{name:'Find profiles'}).click();
   await page.getByRole('button',{name:'Register save destination'}).click();
   await page.getByText('Enabled',{exact:true}).waitFor();
   assert.equal((await call('connection_status')).automatic,'enabled');
@@ -263,7 +286,66 @@ try {
   assert.equal(await stored(wrongId),null);
   assert.equal((await call('connection_status')).connected,false);
   console.log('PASS: explicit pause, manual resume, launch failure and second profile rejection.');
+
+  previousProfile=await chromium.launchPersistentContext(profileRoot('registered'),{headless:true,channel:edge?'msedge':native?'chrome':undefined,serviceWorkers:'block'});
+  const previousPage=previousProfile.pages()[0];
+  await previousPage.goto(origin);
+  await previousPage.getByRole('button',{name:'Open application menu'}).click();
+  await previousPage.getByRole('menuitem',{name:'Local MCP',exact:true}).click();
+  await previousPage.getByText('Connection: Connected',{exact:true}).waitFor();
+  assert.equal((await call('connection_status')).pairingCode,undefined);
+  assert.equal((await call('connection_status',{include_pairing_code:true})).pairingCode,setup.pairingCode);
+  await page.getByRole('button',{name:'Use this profile for saves'}).click();
+  const findProfiles=page.getByRole('button',{name:'Find profiles'});
+  await findProfiles.click();
+  await page.getByText(/Current destination:.*Default/).waitFor();
+  const choose=page.getByLabel('Profile directory');
+  assert.equal(await choose.inputValue(),'');
+  const change=page.getByRole('button',{name:'Change save destination'});
+  await choose.selectOption('Profile 1');
+  await page.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.getByRole('button',{name:'Use this profile for saves'}).click();
+  await findProfiles.click();
+  await choose.selectOption('Default');
+  await change.click();
+  await page.getByText(/Could not verify this profile/).waitFor();
+  assert.equal((await call('connection_status')).connected,true);
+  await findProfiles.click();
+  await choose.selectOption('Profile 1');
+  await change.click();
+  await page.getByText('Connection: Connected',{exact:true}).waitFor();
+  await previousPage.getByText(/Current destination:.*Profile 1/).waitFor();
+  assert.equal(await previousPage.getByRole('button',{name:'Pause automatic connection'}).count(),0);
+  await closeBrowser();
+  const moved=await call('create_note',{...note,request_id:'test-after-profile-change'});
+  assert.equal(moved.status,'saved',JSON.stringify(moved));
+  assert.equal(await stored(moved.id),note.markdown);
+  assert.equal(await stored(saved.id),null);
+  console.log('PASS: cancel and mismatched candidate preserve the live destination; verified replacement saves in the new profile after closing it.');
+  if (native && switchBrowser) {
+    await closeBrowser();
+    browser=await chromium.launchPersistentContext(alternateRoot,{headless:false,channel:edge?'chrome':'msedge',serviceWorkers:'block'});
+    page=browser.pages()[0];
+    await page.goto(origin);
+    await panel();
+    await page.getByRole('button',{name:'Use this profile for saves'}).click();
+    await page.getByLabel('Connection code',{exact:true}).fill(setup.pairingCode);
+    await page.getByRole('button',{name:'Find profiles'}).click();
+    await page.getByText(/Current destination:.*Profile 1/).waitFor();
+    assert.equal(await page.getByLabel('Profile directory').inputValue(),'Default');
+    await page.getByRole('button',{name:'Change save destination'}).click();
+    await page.getByText('Connection: Connected',{exact:true}).waitFor();
+    const cross=await call('create_note',{...note,request_id:'test-after-browser-change'});
+    assert.equal(cross.status,'saved',JSON.stringify(cross));
+    assert.equal(await stored(cross.id),note.markdown);
+    assert.equal(await stored(moved.id),null);
+    console.log('PASS: change to a different browser with a single candidate; verified note body in the new destination.');
+  }
+} catch (error) {
+  if (page && !page.isClosed()) console.error('Destination panel diagnostics:',await page.locator('#local-mcp-panel [role="alert"], #local-mcp-panel [role="status"]').allTextContents());
+  throw error;
 } finally {
+  await previousProfile?.close();
   await client.close();
   await closeBrowser();
   if (nativeChild && nativeChild.exitCode===null) nativeChild.kill();

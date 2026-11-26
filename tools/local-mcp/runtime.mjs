@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
 import { createBridge } from './bridge.mjs';
 import { connectBroker } from './broker-client.mjs';
 import { noteShape, accessSchemas } from './note-schema.mjs';
@@ -28,12 +29,12 @@ if (dev) {
   origin = bridge.origin;
   closeHttp = async () => {};
 }
-const mcp = new McpServer({ name: 'mkb-local-prototype', version: '0.8.0' });
+const mcp = new McpServer({ name: 'mkb-local-prototype', version: '0.9.0' });
 const result = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }], isError: Boolean(value.error) });
 mcp.registerTool('connection_status', {
-  description: 'Read the shared MKB connection without opening a browser. For an explicit save, ensure_connection can open the registered profile. A paused destination needs manual Reconnect. If disconnected this tool also returns private pairing credentials for initial setup. Check browserOrigin before saving.',
-  inputSchema: {}, annotations: { readOnlyHint: true },
-}, async () => { const status = await bridge.status(); return result({ ...status, ...(!status.connected ? {
+  description: 'Read the shared MKB connection without opening a browser. When disconnected this includes private pairing credentials. Set include_pairing_code only when the user explicitly asks for a connection code to pair a new profile, including while another profile is connected.',
+  inputSchema: {include_pairing_code:z.boolean().optional()}, annotations: { readOnlyHint: true },
+}, async ({include_pairing_code}) => { const status = await bridge.status(); return result({ ...status, ...(!status.connected || include_pairing_code ? {
   pairingToken: bridge.token, pairingCode: `MKB1|${origin}|${bridge.token}`,
 } : {}) }); });
 mcp.registerTool('ensure_connection', {

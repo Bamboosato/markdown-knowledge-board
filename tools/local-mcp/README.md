@@ -24,21 +24,19 @@ Codexを再起動し、新しいチャットで「MKBの初回接続コードを
 
 リポジトリを用意しないPCでは、[任意のWindowsセットアップZIP](windows/README.md)で同じMCPを登録できます。
 
-## WindowsでMKBを自動で開く（runtime 0.8.0）
+## WindowsでMKBを自動で開く（runtime 0.9.0）
 
 対応するPWAとローカルランタイムの両方を更新します。既存brokerが動作中なら、MCPクライアントをすべて閉じ、35秒後に起動します。以前のペアリング設定はそのまま使用できます。
 
 1. 保存先に使うChromeまたはEdgeでMKBを開き、アプリメニューの **Local MCP** を選びます。
-2. **Set up automatic connection** を選びます。初回はローカルエージェントに「MKBの初回接続コードを表示してください」と依頼し、コードを入力します。接続情報を記憶済みなら、そのまま保存先を指定できます。
-3. 使用中のブラウザと、Chromeの `chrome://version` またはEdgeの `edge://version` の **Profile Path** の末尾（例：`Default`、`Profile 1`）を指定し、**Register save destination** を押します。設定画面で **Enabled** と保存先を確認してください。標準のWindowsユーザーデータフォルダーが対象です。
+2. **Use this profile for saves** を選びます。初回はローカルエージェントに「MKBの初回接続コードを表示してください」と依頼し、コードを入力します。接続情報を記憶済みなら、そのまま保存先を指定できます。
+3. **Find profiles** を押します。使用中のChromeまたはEdgeの標準Windowsプロファイルが1件なら自動選択、複数なら現在のウィンドウの候補を選びます。**Register save destination** で確認用ウィンドウを開き、同じプロファイルで照合できたときに登録します。候補が分からない場合は `chrome://version` または `edge://version` の **Profile Path** の末尾を確認します。
 4. MKBを閉じても、次の明示的な保存依頼でこのプロファイルを開きます。ブラウザ側に記憶した識別情報とOriginを確認してから本文を送ります。通常の状態照会では起動しません。別プロファイルや起動失敗は保存前に停止します。
-5. **Pause automatic connection** で自動起動を休止し、同じプロファイルで **Resume automatic connection** すると再開します。保存先を変更するときは、元のプロファイルで **Forget connection** を実行してから新しい保存先を登録します。
+5. **Pause automatic connection** で自動起動を休止し、同じプロファイルで **Resume automatic connection** すると再開します。保存先を変える場合は、新しいプロファイルで同じ手順を開き、現在の保存先と変更先を確認して **Change save destination** を押します。接続コードが必要なときは、元のプロファイルが接続中でもエージェントに表示を依頼できます。変更の確定までは元の登録が有効です。既存ノートは元のプロファイルに残ります。
 
 エージェントは明示的な保存依頼の際、`ensure_connection` で準備した後に接続先を確認できます。`create_note` も必要に応じて起動を待ちます。保存応答が失われた場合は、従来どおり同一の保存先・引数・要求IDで照合してください。
 
-登録したプロファイル自体を削除して **Forget connection** ができなくなった場合は、全MCPクライアントを閉じて35秒待ち、brokerの設定フォルダー（標準は `%LOCALAPPDATA%\MarkdownKnowledgeBoard\mcp`）で `auto-open.json` をバックアップ名に変更します。次にMCPクライアントを起動し、保存先を確認して登録し直します。ペアリング情報は別ファイル `identity.json` にあります。
-
-自動起動の回帰試験は `npm run build` の後、`node tools/local-mcp/verify-auto-open.mjs` を実行します。Windowsに標準インストールしたブラウザの起動も確認する場合は `--native-chrome` または `--native-edge` を付けます。試験は一時プロファイルで合成ノートを使います。
+自動起動の回帰試験は `npm run build` の後、`node tools/local-mcp/verify-auto-open.mjs` を実行します。Windowsの確認用ウィンドウと保存時の実際の起動は `--native-chrome` または `--native-edge`、両ブラウザ間の変更はさらに `--switch-browser` を付けて確認できます。試験は一時プロファイルで合成ノートを使います。
 
 ## Custom metadata操作（runtime 0.7.0 / Windows Setup 1.4.0）
 

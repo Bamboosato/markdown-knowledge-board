@@ -5,36 +5,16 @@ import { executeNoteAccess } from '../lib/localMcpAccess';
 import { createMetadataSession } from '../lib/localMcpMetadata';
 import { NoteAccessError } from '../lib/noteRevision';
 import { LOCAL_MCP_CONNECTION_KEY, parseLocalMcpCode, readLocalMcpConnection, validateLocalMcpConnection } from '../lib/localMcpConnection';
-import type { AutoProfile, LocalMcpConnection } from '../lib/localMcpConnection';
+import type { LocalMcpConnection } from '../lib/localMcpConnection';
 import './LocalMcpPanel.css';
 
-type Session = { token: string; clientId: string; origin: string; brokerMetadataActions?: string[] };
+import { LocalMcpRequestError, request, type Session } from '../lib/localMcpRequest';
+import { ProfileDestinationForm } from './ProfileDestinationForm';
+import { currentBrowser, destinationLabel, type ProfileOptions } from '../lib/localMcpProfileProof';
 const metadataOperations = ['preview_custom_metadata_changes', 'apply_custom_metadata_changes'];
 const supportedMetadataActions = ['add', 'update', 'upsert', 'remove'];
 const brokerActions = (value: unknown): string[] => Array.isArray(value) ? supportedMetadataActions.filter(action => value.includes(action)) : [];
 const supportedOperations = ['create_note', 'search_notes', 'get_note', 'update_note', 'append_note', 'replace_note_text', ...metadataOperations];
-
-class LocalMcpRequestError extends Error {
-  readonly status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
-
-async function request(session: Session, operation: string, value = {}, signal?: AbortSignal) {
-  const response = await fetch(`${session.origin}/__local_mcp/${operation}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
-    body: JSON.stringify({ clientId: session.clientId, ...value }),
-    signal: signal ?? AbortSignal.timeout(10000),
-    credentials: 'omit', cache: 'no-store', redirect: 'error',
-  });
-  const result = await response.json();
-  if (!response.ok) throw new LocalMcpRequestError(response.status, result.error ?? 'Local MCP connection failed.');
-  return result;
-}
 
 type Props = {
   open: boolean;
@@ -57,11 +37,8 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [remember, setRemember] = useState(Boolean(savedConnection));
   const [setupAuto, setSetupAuto] = useState(false);
-  const [browser,setBrowser]=useState<'chrome'|'edge'>(()=>navigator.userAgent.includes('Edg/')?'edge':'chrome');
-  const [profile,setProfile]=useState('Default');
-  const [autoAvailable,setAutoAvailable]=useState(false);
   const attemptedAuto=useRef(false);
-  const enrolling=useRef(false);
+  const [otherDestination,setOtherDestination]=useState('');
   const [manual, setManual] = useState(false);
   const [storageWarning, setStorageWarning] = useState('');
   const [session, setSession] = useState<Session | null>(null);
@@ -147,24 +124,27 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
     setSavedConnection(value);
   }
 
-  async function registerAuto(active:Session,value:LocalMcpConnection) {
-    if (!/^(?:Default|Profile [1-9][0-9]{0,3})$/.test(profile)) throw Error('Enter Default or Profile followed by its number.');
-    const key=value.auto?.key ?? Array.from(crypto.getRandomValues(new Uint8Array(32)),n=>n.toString(16).padStart(2,'0')).join('');
-    const auto:AutoProfile={key,browser,profile,paused:false};
-    // Keep the proof locally before sending it, including if the reply is lost.
-    if (enrolling.current) return;
-    enrolling.current=true;
-    try {
-      rememberConnection({...value,auto:{...auto,paused:true}});
-      try {
-        await request(active, 'auto', {...auto, action:'enable'});
-      } catch (error) {
-        if (error instanceof LocalMcpRequestError && error.status < 500) rememberConnection(value);
-        throw error;
+  // Reconcile a registration changed by another profile, including while paused.
+  useEffect(()=>{
+    if (!open || !savedConnection || connecting || setupAuto) return;
+    let active=true;
+    const saved=savedConnection;
+    const refresh=()=>request({...saved,clientId:crypto.randomUUID()},'destination',
+      {action:'options',browser:currentBrowser(),key:saved.auto?.key}).then((info:ProfileOptions)=>{
+      if (!active || !Array.isArray(info.profiles)) return;
+      setOtherDestination(!info.owner && info.destination ? destinationLabel(info.destination) : '');
+      if (!saved.auto || readLocalMcpConnection()?.auto?.key!==saved.auto.key) return;
+      if (!info.owner) {
+        rememberConnection({origin:saved.origin,token:saved.token,noteAccess:saved.noteAccess});
+        setStatus('The save destination was changed.');setConnectionError(false);
+      } else if (info.destination && info.destination.paused!==saved.auto.paused) {
+        rememberConnection({...saved,auto:{...saved.auto,paused:info.destination.paused}});
       }
-      rememberConnection({...value,auto});
-    } finally {enrolling.current=false;}
-  }
+    }).catch(()=>{});
+    void refresh();
+    window.addEventListener('focus',refresh);
+    return ()=>{active=false;window.removeEventListener('focus',refresh);};
+  },[open,savedConnection,session,connecting,setupAuto]);
 
   async function disconnect() {
     if (savedConnection?.auto) {
@@ -200,7 +180,7 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
     }
   }
 
-  async function connect(saved?: LocalMcpConnection, automatic=false, enroll=false) {
+  async function connect(saved?: LocalMcpConnection, automatic=false) {
     if (connecting) return;
     setConnecting(true);
     setConnectionError(false);
@@ -220,19 +200,16 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
         protocolVersion: 2, supportedOperations, supportedMetadataActions, noteAccess: allowed, profileKey: bound?.key,
       }, AbortSignal.timeout(60000));
       const connected = await openSession().catch(async error => {
-        if ((!enroll && !automatic) || !(error instanceof LocalMcpRequestError) || error.status !== 409) throw error;
+        if (!automatic || !(error instanceof LocalMcpRequestError) || error.status !== 409) throw error;
         // A recently closed tab keeps its broker lease for up to five seconds.
         await new Promise(resolve => setTimeout(resolve, 5100));
         if (!mountedRef.current) throw error;
-        if (automatic) {
-          const current = readLocalMcpConnection();
-          if (!current?.auto || current.auto.paused || current.auto.key !== bound?.key ||
-              current.origin !== next.origin || current.token !== next.token) return;
-        }
+        const current = readLocalMcpConnection();
+        if (!current?.auto || current.auto.paused || current.auto.key !== bound?.key ||
+            current.origin !== next.origin || current.token !== next.token) return;
         return openSession();
       });
       if (!connected) return;
-      setAutoAvailable(connected.autoAvailable===true);
       if (!mountedRef.current) {
         await request(next, 'disconnect').catch(() => {});
         return;
@@ -242,7 +219,7 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
       setCode('');
       let remembered = true;
       try {
-        if (saved || remember || enroll) {
+        if (saved || remember) {
           const rememberedConnection = { ...credentials, noteAccess: allowed, ...(bound && {auto:{...bound,paused:false}}) };
           localStorage.setItem(LOCAL_MCP_CONNECTION_KEY, JSON.stringify(rememberedConnection));
           setSavedConnection(rememberedConnection);
@@ -256,21 +233,10 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
         remembered = false;
         setStorageWarning('Connected, but could not remember settings. Keep your connection code.');
       }
-      if (enroll && !remembered) return;
-      if (enroll && !bound) {
-        setRemember(true);
-        try {
-          if (!connected.autoAvailable) throw Error('Update the local Windows MCP runtime to enable automatic opening.');
-          await registerAuto(next,{...credentials,noteAccess:allowed});
-        } catch (error) {
-          setStorageWarning(error instanceof Error?error.message:'Automatic opening could not be confirmed.');
-          return;
-        }
-      }
       setStatus('Ready to receive notes.');
       setAdvancedOpen(false);
       setSetupAuto(false);
-      if (remembered && !automatic && !enroll && !bound) onClose();
+      if (remembered && !automatic && !bound) onClose();
     } catch (error) {
       if (automatic) {
         const anotherTab = error instanceof LocalMcpRequestError && error.status === 409;
@@ -285,8 +251,8 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
         return;
       }
       setConnectionError(true);
-      if (saved && !automatic && !enroll && !saved.auto) { setSetupAuto(false); setShowSetup(true); setAdvancedOpen(true); }
-      setStatus(enroll && error instanceof LocalMcpRequestError ? error.message : saved ? 'Reconnect failed. Start your MCP client and close other connected tabs, then retry.'
+      if (saved && !saved.auto) { setSetupAuto(false); setShowSetup(true); setAdvancedOpen(true); }
+      setStatus(saved ? 'Reconnect failed. Start your MCP client and close other connected tabs, then retry.'
         : error instanceof TypeError ? 'Cannot connect. Check your MCP client and browser permissions.' : error instanceof Error ? error.message : 'Connection failed.');
     } finally {
       setConnecting(false);
@@ -317,11 +283,6 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
     if (session) void request(session, 'permissions', { noteAccess: allowed }).catch(() => {});
   }
 
-  const profileFields=<>
-    <label>Browser <select value={browser} onChange={event=>setBrowser(event.target.value as 'chrome'|'edge')}><option value="chrome">Chrome</option><option value="edge">Edge</option></select></label>
-    <label>Profile directory <input value={profile} maxLength={12} onChange={event=>setProfile(event.target.value)} /></label>
-    <small>Use the last folder in Profile Path at {browser==='edge'?'edge://version':'chrome://version'}, for example Default or Profile 1.</small>
-  </>;
   const auto = savedConnection?.auto;
   const needsCredentials = !session && !savedConnection;
   const missingCredentials = manual ? !token.trim() || !address.trim() : !code.trim();
@@ -348,25 +309,6 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
     <button type="submit" disabled={connecting || missingCredentials}>Connect local MCP</button>
   </form>;
 
-  async function enableAuto() {
-    if (!session) {
-      await connect(savedConnection ?? undefined, false, true);
-      return;
-    }
-    setConnecting(true);
-    try {
-      if (!autoAvailable) throw Error('Update the local Windows MCP runtime to enable automatic opening.');
-      await registerAuto(session, savedConnection ?? {origin: session.origin, token: session.token, noteAccess});
-      setRemember(true);
-      setSetupAuto(false);
-      setStorageWarning('');
-    } catch (error) {
-      setStorageWarning(error instanceof Error ? error.message : 'Automatic opening could not be confirmed.');
-    } finally {
-      setConnecting(false);
-    }
-  }
-
   // Keep polling even when the settings panel is closed.
   return createPortal(<aside id="local-mcp-panel" hidden={!open} className="local-mcp-panel" aria-label="Local MCP" onKeyDown={event => {
     if (event.key === 'Escape') { event.stopPropagation(); onClose(); }
@@ -381,19 +323,22 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
         <span>{auto ? auto.paused ? 'Paused' : 'Enabled' : 'Not set up'}</span>
       </div>
       <p className="local-mcp-destination">Save to: {location.origin}{auto && ` · ${auto.browser === 'edge' ? 'Edge' : 'Chrome'} / ${auto.profile}`}</p>
+      {auto && <p>This profile is the save destination.</p>}
       {auto && <p>Connection: {connectionState}</p>}
-      {auto && savedConnection ? <button type="button" disabled={connecting} onClick={() => auto.paused ? void connect(savedConnection) : void disconnect()}>
+      {setupAuto && open ? <ProfileDestinationForm credentials={() => session ?? savedConnection ?? (manual ? validateLocalMcpConnection(address,token) : parseLocalMcpCode(code))}
+        credentialsFields={needsCredentials ? credentialsFields : null} missingCredentials={needsCredentials && missingCredentials}
+        noteAccess={noteAccess} onCancel={()=>setSetupAuto(false)}
+        onRegistered={async value=>{
+          rememberConnection(value);
+          setOtherDestination('');setSetupAuto(false);setCode('');setToken('');setSession(null);
+          await connect(value,true);
+        }} /> : auto && savedConnection ? <button type="button" disabled={connecting} onClick={() => auto.paused ? void connect(savedConnection) : void disconnect()}>
         {auto.paused ? 'Resume automatic connection' : 'Pause automatic connection'}
-      </button> : setupAuto ? <form onSubmit={event => { event.preventDefault(); void enableAuto(); }}>
-        {needsCredentials && credentialsFields}
-        {profileFields}
-        <button className="local-mcp-primary" type="submit" disabled={connecting || (needsCredentials && missingCredentials)}>Register save destination</button>
-        <button type="button" disabled={connecting} onClick={() => setSetupAuto(false)}>Cancel</button>
-      </form> : <>
-        <p>Open this browser profile when your local agent saves a note.</p>
+      </button> : <>
+        {otherDestination && <p>Current destination: {otherDestination}</p>}
         <button className="local-mcp-primary" type="button" disabled={connecting} onClick={() => {
-          setSetupAuto(true); setShowSetup(false);
-        }}>Set up automatic connection</button>
+          setSetupAuto(true);setShowSetup(false);setStorageWarning('');
+        }}>Use this profile for saves</button>
       </>}
     </section>
     {!auto && <details>
