@@ -172,7 +172,7 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
       try {
         rememberConnection(saved);
         await request(session ?? { ...savedConnection, clientId: crypto.randomUUID() },'auto',{action:'pause',key:saved.auto.key});
-      } catch {setStorageWarning('Pause could not be confirmed. Reconnect and try again.');}
+      } catch {setStorageWarning('Pause could not be confirmed. Start your MCP client, then resume and try again.');}
     }
     setSession(null);setConnectionError(false);setStatus('Disconnected.');
   }
@@ -362,6 +362,7 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
         <span>{auto ? auto.paused ? 'Paused' : 'Enabled' : 'Not set up'}</span>
       </div>
       <p className="local-mcp-destination">Save to: {location.origin}{auto && ` · ${auto.browser === 'edge' ? 'Edge' : 'Chrome'} / ${auto.profile}`}</p>
+      {auto && <p>Connection: {connectionState}</p>}
       {auto && savedConnection ? <button type="button" disabled={connecting} onClick={() => auto.paused ? void connect(savedConnection) : void disconnect()}>
         {auto.paused ? 'Resume automatic connection' : 'Pause automatic connection'}
       </button> : setupAuto ? <form onSubmit={event => { event.preventDefault(); void enableAuto(); }}>
@@ -376,14 +377,14 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
         }}>Set up automatic connection</button>
       </>}
     </section>
-    <details>
+    {!auto && <details>
       <summary>Manual connection <span>{connectionState}</span></summary>
       {session ? <button type="button" disabled={connecting} onClick={() => void disconnect()}>
-        {auto ? 'Disconnect and pause automatic connection' : 'Disconnect local MCP'}
+        Disconnect local MCP
       </button> : savedConnection ? <button type="button" disabled={connecting} onClick={() => void connect(savedConnection)}>
-        {auto?.paused ? 'Reconnect and resume' : 'Reconnect'}
+        Reconnect
       </button> : !setupAuto && manualForm}
-    </details>
+    </details>}
     <details>
       <summary>Note access</summary>
       <label className="local-mcp-remember"><input type="checkbox" checked={noteAccess} disabled={connecting || (!session && !savedConnection)}
@@ -397,15 +398,15 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
       </button>
       <div id="local-mcp-advanced-content" hidden={!advancedOpen}>
         {(savedConnection || session) && <p>Server: {savedConnection?.origin ?? session?.origin}</p>}
-        {!session && <label className="local-mcp-remember"><input type="checkbox" checked={manual}
+        {!auto && !session && <label className="local-mcp-remember"><input type="checkbox" checked={manual}
           onChange={event => setManual(event.target.checked)} />Enter address and token</label>}
         <div className="local-mcp-settings-actions">
-          {!session && savedConnection && <button type="button" disabled={connecting} onClick={() => {
+          {!auto && !session && savedConnection && <button type="button" disabled={connecting} onClick={() => {
             setShowSetup(!showSetup); setSetupAuto(false);
           }}>{showSetup ? 'Cancel setup' : 'Use a new code'}</button>}
           {savedConnection && <button type="button" disabled={connecting} onClick={() => void forgetConnection()}>Forget connection</button>}
         </div>
-        {!session && savedConnection && showSetup && manualForm}
+        {!auto && !session && savedConnection && showSetup && manualForm}
       </div>
     </div>
     {storageWarning && <p role="alert">{storageWarning}</p>}

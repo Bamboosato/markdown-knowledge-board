@@ -53,7 +53,7 @@ Codexを手動設定する場合は、`%LOCALAPPDATA%\MarkdownKnowledgeBoard\cod
 1. 保存先に使うブラウザでMKBを開き、**Local MCP → Set up automatic connection** を選びます。
 2. 初回はローカルエージェントに「MKBの初回接続コードを表示してください」と依頼し、`connection_status` が返すコードを入力します。記憶済みなら再入力は不要です。
 3. ChromeまたはEdgeを選び、`chrome://version` または `edge://version` の **Profile Path** の末尾（例 `Default`）を入力し、**Register save destination** を選びます。
-4. ブラウザがこのPCへの接続許可を求めたら許可し、設定画面で **Enabled** と保存先を確認します。手動で接続する場合は **Manual connection** を開きます。
+4. ブラウザがこのPCへの接続許可を求めたら許可し、設定画面で **Enabled** と保存先を確認します。**Manual connection** は自動接続が未設定のときに表示します。登録後は自動接続欄で接続状態を確認し、一時停止・再開できます。
 
 ローカルエージェントに「MKBにタイトル『接続確認』、本文『このPCからの保存確認です。』の新規ノートを作成してください」と依頼し、意図したPWAの一覧と本文に表示されることを確認してください。
 

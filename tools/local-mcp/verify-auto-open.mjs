@@ -141,10 +141,12 @@ try {
   await panel();
   const setUp = page.getByRole('button', {name:'Set up automatic connection'});
   const register = page.getByRole('button', {name:'Register save destination'});
+  await page.locator('summary').filter({hasText:'Manual connection'}).waitFor();
   await setUp.click();
   await page.getByLabel('Connection code', {exact:true}).fill(setup.pairingCode);
   await register.click();
   await page.getByText('Enabled', {exact:true}).waitFor();
+  assert.equal(await page.locator('summary').filter({hasText:'Manual connection'}).count(), 0);
   assert.equal((await call('connection_status')).automatic,'enabled');
 
   // A profile paired before automatic opening can enroll while disconnected.
@@ -191,11 +193,15 @@ try {
   await panel();
   await page.getByRole('button',{name:'Pause automatic connection'}).click();
   await page.getByRole('button',{name:'Resume automatic connection',exact:true}).waitFor();
+  await page.getByText('Connection: Disconnected',{exact:true}).waitFor();
+  assert.equal(await page.locator('summary').filter({hasText:'Manual connection'}).count(), 0);
   assert.equal((await call('create_note',note)).error,'AUTO_PAUSED');
   assert.equal(launches,2);
   await page.getByRole('button',{name:'Resume automatic connection',exact:true}).click();
   await page.getByText('Enabled',{exact:true}).waitFor();
   assert.equal((await call('ensure_connection')).connected,true);
+  await page.getByText('Connection: Connected',{exact:true}).waitFor();
+  assert.equal(await page.locator('summary').filter({hasText:'Manual connection'}).count(), 0);
   await closeBrowser();
   await stop();
   await start();
