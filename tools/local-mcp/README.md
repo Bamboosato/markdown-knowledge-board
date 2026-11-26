@@ -1,5 +1,41 @@
 # ローカルMCPからPWAのノートを操作する
 
+## 標準手順：ローカルリポジトリからCodexへ直接登録する
+
+Node.js 24以上とCodex CLIを用意し、このPCに置いたMKBリポジトリのルートでPowerShellを開きます。Codexはここにあるサーバーを起動するため、登録後もこのフォルダーを同じ場所に置いてください。
+
+すでにMKBを使っている場合は、先に `codex mcp get mkb_local_prototype` で登録先を確認します。同じサーバーを登録済みなら初回登録は完了です。ZIP版など別の登録先を引き続き使う場合も、以下の登録操作は不要です。
+
+新規登録は次の手順です。
+
+```powershell
+npm ci --prefix tools/local-mcp --omit=dev --ignore-scripts
+$nodeExe = (Get-Command node.exe).Source
+$mkbServer = (Resolve-Path tools/local-mcp/server.mjs).Path
+codex mcp add mkb_local_prototype -- $nodeExe $mkbServer
+codex mcp get mkb_local_prototype
+```
+
+Codexを再起動し、新しいチャットで「MKBの初回接続コードを表示してください」と依頼します。下記の手順で保存先をペアリングします。登録はWindowsユーザー単位で一度です。
+
+リポジトリを用意しないPCでは、[任意のWindowsセットアップZIP](windows/README.md)で同じMCPを登録できます。
+
+## WindowsでMKBを自動で開く（runtime 0.8.0）
+
+対応するPWAとローカルランタイムの両方を更新します。既存brokerが動作中なら、MCPクライアントをすべて閉じ、35秒後に起動します。以前のペアリング設定はそのまま使用できます。
+
+1. 保存先に使うChromeまたはEdgeでMKBを開き、アプリメニューの **Local MCP** を選びます。
+2. 初回はCodexに「MKBの初回接続コードを表示してください」と依頼し、取得したコードを入力して、**Remember in this browser** と **Open this profile automatically for save requests** を選びます。登録済みなら **Reconnect** の後、**Advanced settings** で **Enable automatic opening** を選べます。
+3. 使用中のブラウザと、Chromeの `chrome://version` またはEdgeの `edge://version` の **Profile Path** の末尾（例：`Default`、`Profile 1`）を指定して登録します。標準のWindowsユーザーデータフォルダーが対象です。
+4. MKBを閉じても、次の明示的な保存依頼でこのプロファイルを開きます。ブラウザ側に記憶した識別情報とOriginを確認してから本文を送ります。通常の状態照会では起動しません。別プロファイルや起動失敗は保存前に停止します。
+5. **Disconnect local MCP** で自動起動を休止し、同じプロファイルで **Reconnect** すると再開します。保存先を変更するときは、元のプロファイルで **Forget connection** を実行してから新しい保存先を登録します。
+
+エージェントは明示的な保存依頼の際、`ensure_connection` で準備した後に接続先を確認できます。`create_note` も必要に応じて起動を待ちます。保存応答が失われた場合は、従来どおり同一の保存先・引数・要求IDで照合してください。
+
+登録したプロファイル自体を削除して **Forget connection** ができなくなった場合は、全MCPクライアントを閉じて35秒待ち、brokerの設定フォルダー（標準は `%LOCALAPPDATA%\MarkdownKnowledgeBoard\mcp`）で `auto-open.json` をバックアップ名に変更します。次にMCPクライアントを起動し、保存先を確認して登録し直します。ペアリング情報は別ファイル `identity.json` にあります。
+
+自動起動の回帰試験は `npm run build` の後、`node tools/local-mcp/verify-auto-open.mjs` を実行します。Windowsに標準インストールしたブラウザの起動も確認する場合は `--native-chrome` または `--native-edge` を付けます。試験は一時プロファイルで合成ノートを使います。
+
 ## Custom metadata操作（runtime 0.7.0 / Windows Setup 1.4.0）
 
 `preview_custom_metadata_changes`で条件に合うノートと差分を確認し、`apply_custom_metadata_changes`で確認済みplanを一括保存する。Addは欠落キーのみ追加、Updateは既存キーのみ更新、Upsertはキーがなければ追加・あれば更新。Removeは指定キーと値を削除し、キー欠落は正常なskipとする。Removeにvalueは指定しない。同値は変更しない。本文・タイトル・タグ等は保持する。
@@ -40,7 +76,7 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 
 ## 構成と使い方
 
-### MKB Connection Setup（Windows）
+### 任意のデスクトップ補助ツール（標準ZIPの対象外）
 
 デスクトップの **MKB Connection Setup** を開き、**Copy connection code** で初回設定用コードをコピーできる。Codexへの質問は不要。**Open MKB** はインストール済みPWAのショートカットを起動するため、同じChromeプロファイル・ローカルノートを利用する。表示は英語の3ボタンと短い状態表示だけ。
 
@@ -48,20 +84,20 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 
 インストールはWindows PowerShellで`tools/local-mcp/install-connection-setup.ps1`を実行する。PWAのショートカットが自動検出できない場合は`-MkbShortcut`で指定する。`ConnectionSetup.cs`を小さなWindows GUI実行ファイルへビルドし、共通のコード取得処理とともに`%LOCALAPPDATA%/MarkdownKnowledgeBoard/ConnectionSetup`へ配置する。通常の起動ではPowerShellを経由せず、リポジトリのブランチ切り替えにも依存しない。更新時はツールを閉じて同じインストーラを再実行する。デスクトップのショートカットには秘密情報を含めない。PowerShellの実行ポリシーは変更しない。
 
-### 他のWindows PCへ配布する
+### リポジトリを用意しないPC向けのZIP配布
 
-通常の配布先は[GitHub Releases：MKB Windows Setup v1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip)と[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip.sha256)を取得でき、Releaseの添付ファイルは30日で自動失効しない。
+旧キットの配布先は[GitHub Releases：MKB Windows Setup v1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip)と[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip.sha256)を取得でき、Releaseの添付ファイルは30日で自動失効しない。
 
-導入先の利用者向け手順は [Windowsセットアップ手順](windows/README.md)。Node.js 24以上、Codex、ChromeのMKB PWAを準備し、ダウンロードしたZIPをすべて展開して`Setup.cmd`を実行する。依存の取得、MCPの配置・登録、設定ツールの作成を行い、同名の別MCP登録は自動で上書きしない。自動登録にはCodex CLIが必要。CLIを使わない登録と既存環境の移行にも対応する。
+導入先の利用者向け手順は [Windowsセットアップ手順](windows/README.md)。Node.js 24以上とCodexを準備し、ダウンロードしたZIPをすべて展開して`Setup.cmd`を実行する。依存の取得、MCP本体の配置とCodexへの登録を行い、同名の別MCP登録は自動で上書きしない。自動登録にはCodex CLIが必要。CLIを使わない登録と既存環境の移行にも対応する。
 
-開発者はWindowsで次を実行すると、`output/windows-setup/build-*/`に配布ZIPとSHA-256ファイルを作成できる。明示した17ファイルとハッシュ一覧だけを収録するため、作業フォルダー内のノート・トークン・設定・依存の実体は入らない。依存は導入先でロックファイルから取得する。
+開発者はWindowsで次を実行すると、`output/windows-setup/build-*/`に配布ZIPとSHA-256ファイルを作成できる。本体と導入に必要なファイルとハッシュ一覧だけを収録するため、作業フォルダー内のノート・トークン・設定・依存の実体は入らない。依存は導入先でロックファイルから取得する。
 
 ```powershell
 node tools/local-mcp/windows/build-kit.mjs
 node tools/local-mcp/windows/verify-kit.mjs
 ```
 
-検証には開発用のMCP依存とCodex CLIも必要。隔離した導入先・デスクトップ・Codex設定・ペアリングを使い、ZIP展開、新規登録、実MCP起動、設定ツールとのペアリング共有、再インストール、改変パッケージの停止、既存登録の衝突を確認する。PWAショートカットは模擬で、別PCでの実PWA保存試験ではない。証跡は`output/windows-setup/test-*/PC セットアップ/result.json`。Windows MCP setupワークフローも同じ試験を実行し、検証用ZIPを30日間のActions artifactとして保存する。この保持期間は、通常の配布先であるGitHub Releasesの添付ファイルには適用されない。
+検証には開発用のMCP依存とCodex CLIも必要。隔離した導入先・Codex設定・ペアリングを使い、ZIP展開、新規登録、実MCP起動、Codex登録先からの初回接続コード取得、再インストール、改変パッケージの停止、既存登録の衝突を確認する。証跡は`output/windows-setup/test-*/PC セットアップ/result.json`。Windows MCP setupワークフローも同じ試験を実行し、検証用ZIPを30日間のActions artifactとして保存する。この保持期間は、通常の配布先であるGitHub Releasesの添付ファイルには適用されない。
 
 ### PWAとの接続
 
@@ -70,26 +106,14 @@ node tools/local-mcp/windows/verify-kit.mjs
 
 `Codex専用MCPツール → STDIOクライアント → このPCの共有受信サービス → 本番PWA → IndexedDB → 保存結果`
 
-1. `npm ci --prefix tools/local-mcp --ignore-scripts`で専用依存を準備する。本体の依存・DBスキーマは変更しない。
-2. Codexのユーザー設定へ次のMCPを登録する。このPCでは登録済み。
-
-```toml
-[mcp_servers.mkb_local_prototype]
-command = "C:/Program Files/nodejs/node.exe"
-args = ["D:/work_codex/markdown-knowledge-board/tools/local-mcp/server.mjs"]
-cwd = "D:/work_codex/markdown-knowledge-board"
-startup_timeout_sec = 60
-tool_timeout_sec = 30
-enabled = true
-```
-
-3. 初回だけMKB Connection Setupの**Copy connection code**でコードを取得する。専用MCPの`connection_status`が返す`pairingCode`も使える。コードは当該利用者の接続設定専用で、共有・公開しない。ペアリングはPC単位で保持し、同じOSユーザーで起動した複数のCodexチャットが、同じペアリング済みPWAを利用する。
-4. 保存先のPWAでアプリメニュー → **Local MCP** を開き、**Connection code**へ1回貼り付け、**Connect local MCP**。従来の個別入力は **Enter address and token** から利用できる。ChromeがこのPCへの接続許可を求めた場合は利用者が許可する。
+1. 冒頭の手順でMCPをCodexに登録し、Codexを再起動する。
+2. 初回はCodexに「MKBの初回接続コードを表示してください」と依頼し、専用MCPの`connection_status`が返す`pairingCode`を使う。コードは当該利用者の接続設定専用で、共有・公開しない。ペアリングはPC単位で保持し、同じOSユーザーで起動した複数のCodexチャットが、同じペアリング済みPWAを利用する。
+3. 保存先のPWAでアプリメニュー → **Local MCP** を開き、**Connection code**へ1回貼り付け、**Connect local MCP**。従来の個別入力は **Enter address and token** から利用できる。ChromeがこのPCへの接続許可を求めた場合は利用者が許可する。
    初回の許可待ちは最大60秒。許可前にタイムアウトした場合は、許可後にもう一度 **Connect local MCP** を押す。
-   個人用端末では **Remember in this browser** を選ぶと、成功した接続情報だけをこのブラウザに記憶する。次回はメニュー → Local MCP → **Reconnect**。自動接続はせず、通常のDisconnectでは記憶を残す。**Forget connection** は記憶だけを削除し、現在の接続は維持する。
-5. `connection_status`の`browserOrigin`が意図した本番サイトであることを確認してから`create_note`を呼ぶ。
-6. 接続成功時にパネルは自動で隠れ、ヘッダに緑の「MCP connected」を表示する。インジケータまたはアプリメニューからパネルを開き直せる。「Close」・Escでは接続を維持する。
-7. 明示的な **Disconnect local MCP**、PWA再読み込み・終了、共有サービスの終了で接続が終了する。Codex/MCPやPCの再起動後も、Codexを起動してPWAの **Reconnect** を押すだけでよい。コードは変わらない。Codexを短時間で再起動し共有サービスが動き続けている場合は、既存の接続も維持する。
+   個人用端末では **Remember in this browser** でペアリングを記憶できる。手動接続を選んだ場合、次回はメニュー → Local MCP → **Reconnect**。自動起動を有効にした場合は冒頭の手順に従う。
+4. `connection_status`の`browserOrigin`が意図した本番サイトであることを確認してから`create_note`を呼ぶ。
+5. 接続成功時にパネルは自動で隠れ、ヘッダに緑の「MCP connected」を表示する。インジケータまたはアプリメニューからパネルを開き直せる。「Close」・Escでは接続を維持する。
+6. 明示的な **Disconnect local MCP**、PWA再読み込み・終了、共有サービスの終了で接続が終了する。Codex/MCPやPCの再起動後も、Codexを起動してPWAの **Reconnect** を押すだけでよい。コードは変わらない。Codexを短時間で再起動し共有サービスが動き続けている場合は、既存の接続も維持する。
    **Forget connection**と**Use a new code**は**Advanced settings**内に配置する。Use a new codeは未接続時に接続情報を入れ直す操作で、コードの生成ではない。接続に失敗した場合はCodexの起動と他の接続中タブを確認し、Reconnectを再試行する。ヘッダのMCP表示はNo note / Savedなどの保存状態の右側に表示する。
 
 ```json

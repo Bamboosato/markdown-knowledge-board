@@ -1,11 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import './LocalMcpPanel.css';
+import {readLocalMcpConnection} from '../lib/localMcpConnection';
 
 const LocalMcpPanel = lazy(() => import('./LocalMcpPanel'));
 
 export default function LocalMcpLauncher() {
   const [open, setOpen] = useState(import.meta.env.DEV && import.meta.env.MODE === 'local-mcp');
-  const [activated, setActivated] = useState(open);
+  const [activated, setActivated] = useState(()=>{const auto=readLocalMcpConnection()?.auto; return open || Boolean(auto && !auto.paused);});
   const [connection, setConnection] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const indicatorRef = useRef<HTMLButtonElement>(null);
   const hidePanel = useCallback(() => {

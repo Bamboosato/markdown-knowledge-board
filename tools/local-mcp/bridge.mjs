@@ -15,11 +15,14 @@ function supportedMetadataActions(body, operations) {
 }
 
 // One paired tab, one in-flight write; no note body or token is logged.
-export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [origin], token = randomBytes(32).toString('hex') } = {}) {
+export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [origin], token = randomBytes(32).toString('hex'), auto } = {}) {
   if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('Invalid pairing credential.');
   let client = null;
   let job = null;
   const fresh = () => client && Date.now() - client.seen < 5000;
+  let polls=0;
+  const probe=()=>({connected:Boolean(fresh()),poll:polls,key:client?.key,origin:client?.origin});
+  const ensureConnection=()=>auto ? auto.ready(probe) : Promise.resolve(fresh()?null:'NOT_CONNECTED');
   const finish = (result) => {
     if (!job) return;
     if (job.operation !== 'create_note' && typeof result.error === 'string') result = { error: { code: 'OUTCOME_UNKNOWN', message: result.error } };
@@ -65,14 +68,29 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
       if (typeof body.clientId !== 'string' || !/^[a-f0-9-]{36}$/.test(body.clientId)) {
         return send(400, fail('Invalid client.'));
       }
+      if (req.url === '/__local_mcp/auto') {
+        if (!auto) return send(400,fail('Automatic opening is unavailable.'));
+        const ownsSession=client?.id===body.clientId && client.origin===req.headers.origin && fresh();
+        if (auto.state==='off' && body.action==='forget') return send(200,{automatic:'off'});
+        if (auto.state==='off' && (!ownsSession || body.action!=='enable')) return send(403,fail('Connect this tab first.'));
+        try {auto.configure(req.headers.origin,body);} catch {return send(403,fail('Automatic connection settings rejected. Check the registered profile.'));}
+        if (body.action==='enable' && ownsSession) client.key=body.key;
+        if (body.action==='pause' || body.action==='forget') {
+          finish(fail('Disconnected. Check the receipt before retrying.'));
+          client=null;
+        }
+        return send(200,{automatic: auto.state});
+      }
       if (req.url === '/__local_mcp/connect') {
+        if (auto && !auto.accept(req.headers.origin,body.profileKey)) return send(403,fail('Use the registered profile or resume automatic connection.'));
         if ((fresh() || job) && client?.id !== body.clientId) {
           return send(409, fail('Another tab is connected. Disconnect it first.'));
         }
         const operations = supportedOperations(body);
         client = { id: body.clientId, origin: req.headers.origin, seen: Date.now(), protocolVersion: body.protocolVersion === 2 ? 2 : 1, noteAccess: body.noteAccess === true, supportedOperations: operations,
           metadataActions: supportedMetadataActions(body, operations) };
-        return send(200, { connected: true, protocolVersion: 2, brokerMetadataActions });
+        client.key=body.profileKey;
+        return send(200, { connected: true, protocolVersion: 2, brokerMetadataActions, autoAvailable:Boolean(auto) });
       }
       if (client?.id !== body.clientId || client.origin !== req.headers.origin) return send(409, fail('Connect this tab first.'));
       client.seen = Date.now();
@@ -81,6 +99,7 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
         return send(200, { updated: true });
       }
       if (req.url === '/__local_mcp/poll') {
+        polls++;
         const supported = supportedOperations(body);
         const actions = supportedMetadataActions(body, supported);
         if (body.protocolVersion === 2) { client.protocolVersion = 2; client.noteAccess = body.noteAccess === true; client.supportedOperations = supported; client.metadataActions = actions; }
@@ -120,9 +139,9 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
 
   return {
     token,
-    middleware,
+    middleware, ensureConnection,
     status: () => ({ connected: Boolean(fresh()), busy: Boolean(job), origin, browserOrigin: fresh() ? client.origin : null,
-      protocolVersion: 2, brokerCapabilities, brokerMetadataActions,
+      automatic: auto?.state ?? 'off', protocolVersion: 2, brokerCapabilities, brokerMetadataActions,
       metadataActions: fresh() && client.protocolVersion === 2 && client.noteAccess ? client.metadataActions : [],
       capabilities: fresh() ? client.supportedOperations.filter(name => name === 'create_note' || client.protocolVersion === 2 && client.noteAccess) : [] }),
     execute: (operation, input) => {
@@ -139,7 +158,11 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
           timer: setTimeout(() => finish({ error: { code: 'OUTCOME_UNKNOWN', message: 'Receipt timed out. Retry exactly the same input and request_id for an update.' } }), timeoutMs) };
       });
     },
-    create: (input) => {
+    create: async (input) => {
+      if (auto && auto.state!=='off') {
+        const error=await ensureConnection();
+        if (error || !auto.accept(client?.origin,client?.key)) return fail(error || 'AUTO_PROFILE_MISMATCH');
+      }
       if (!fresh()) return Promise.resolve(fail('No connected browser. Open the local app and connect first.'));
       if (!client.supportedOperations.includes('create_note')) return Promise.resolve(fail('Update the MKB PWA to create notes.'));
       if (job) return Promise.resolve(fail('Another save is in progress. Retry later with the same request_id.'));

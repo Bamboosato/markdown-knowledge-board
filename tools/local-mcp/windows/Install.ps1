@@ -1,7 +1,8 @@
 param(
+    # Accept shortcut arguments from older setup scripts for compatibility.
     [string]$MkbShortcut,
     [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA 'MarkdownKnowledgeBoard'),
-    [string]$DesktopDirectory = [Environment]::GetFolderPath('DesktopDirectory'),
+    [string]$DesktopDirectory,
     [switch]$SkipMcpRegistration
 )
 $ErrorActionPreference = 'Stop'
@@ -14,9 +15,7 @@ $npmPath = Join-Path (Split-Path $nodePath) 'npm.cmd'
 if (-not (Test-Path -LiteralPath $npmPath)) { throw 'Install Node.js with npm, then reopen this window.' }
 $nodeMajor = & $nodePath -p 'process.versions.node.match(/^[0-9]+/)[0]'
 if ($LASTEXITCODE -ne 0 -or [int]$nodeMajor -lt 24) { throw 'Node.js 24 or newer is required.' }
-if (-not (Test-Path -LiteralPath $DesktopDirectory -PathType Container)) { throw 'Desktop folder was not found.' }
-
-# Check the packaged files before loading the shortcut helper or installing anything.
+# Check the packaged files before installation.
 $manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'manifest.json') -Raw | ConvertFrom-Json
 foreach ($entry in $manifest.files) {
     $file = Join-Path $PSScriptRoot $entry.path
@@ -27,14 +26,6 @@ foreach ($entry in $manifest.files) {
 }
 
 # Validate all prerequisites before installing or changing the Codex registration.
-Add-Type -Path (Join-Path $source 'WindowsShortcut.cs')
-if (-not $MkbShortcut) {
-    $candidates = @(Get-ChildItem -LiteralPath ([Environment]::GetFolderPath('StartMenu')) -Recurse -Filter 'Markdown Knowledge Board.lnk' -ErrorAction SilentlyContinue)
-    if ($candidates.Count -ne 1) { throw 'Install the MKB PWA, or specify its shortcut with -MkbShortcut.' }
-    $MkbShortcut = $candidates[0].FullName
-}
-$MkbShortcut = (Resolve-Path -LiteralPath $MkbShortcut).Path
-if (-not (Test-Path -LiteralPath ([MkbWindowsShortcut]::Read($MkbShortcut).TargetPath) -PathType Leaf)) { throw 'MKB PWA launcher was not found.' }
 $launcher = Join-Path $InstallRoot 'start-mcp.mjs'
 $codex = $null
 $existing = $null
@@ -69,8 +60,6 @@ foreach ($entry in $manifest.files | Where-Object { $_.path.StartsWith('tools/lo
 & $npmPath ci --prefix $runtime --omit=dev --ignore-scripts --no-audit --no-fund
 if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed. Existing registration and pairing were not changed. Check network access and rerun setup.' }
 
-& (Join-Path $runtime 'install-connection-setup.ps1') -MkbShortcut $MkbShortcut -InstallDirectory (Join-Path $InstallRoot 'ConnectionSetup') -DesktopDirectory $DesktopDirectory -NodePath $nodePath -StateDirectory $stateDirectory
-
 $serverUri = ([Uri](Join-Path $runtime 'server.mjs')).AbsoluteUri | ConvertTo-Json -Compress
 $stateJson = $stateDirectory | ConvertTo-Json -Compress
 $launcherText = "process.env.MKB_MCP_DEV = '0';`nprocess.env.MKB_MCP_STATE_DIR = $stateJson;`nawait import($serverUri);`n"
@@ -90,4 +79,4 @@ if (-not $SkipMcpRegistration -and -not $existing) {
 }
 Write-Output 'Setup complete.'
 if ($SkipMcpRegistration) { Write-Output ('Register MCP using: ' + (Join-Path $InstallRoot 'codex-mcp.toml')) }
-Write-Output 'Restart Codex. Open MKB Connection Setup from your desktop.'
+Write-Output 'Restart Codex. For first-time pairing, ask Codex for the MKB connection code.'

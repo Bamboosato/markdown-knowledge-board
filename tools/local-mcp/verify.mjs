@@ -52,7 +52,7 @@ try {
   const pairingCode = setup.pairingCode;
   assert.equal(pairingCode, `MKB1|${origin}|${token}`);
   assert.ok(token, 'Server must return setup instructions through the MCP tool');
-  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['append_note', 'apply_custom_metadata_changes', 'connection_status', 'create_note', 'get_note', 'preview_custom_metadata_changes', 'replace_note_text', 'search_notes', 'update_note']);
+  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['append_note', 'apply_custom_metadata_changes', 'connection_status', 'create_note', 'ensure_connection', 'get_note', 'preview_custom_metadata_changes', 'replace_note_text', 'search_notes', 'update_note']);
   pass('MCP initialize and tools/list');
   assert.equal((await call('create_note', sample)).isError, true);
   assert.equal(value(await call('connection_status')).connected, false);

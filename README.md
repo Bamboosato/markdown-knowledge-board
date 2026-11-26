@@ -2,16 +2,13 @@
 
 Local-only Markdown knowledge board built with React + Vite + TypeScript.
 
-## Windows向けローカルMCPセットアップ
+## WindowsでCodexからMKBを使う
 
-CodexからMKB PWAへノートを作成・検索・更新するセットアップ一式は、[GitHub Releases：MKB Windows Setup v1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)から入手できます。Custom metadataの条件付きAdd / Update / Upsert / Removeにも対応します。Releaseの添付ファイルは30日で自動失効しません。
+標準の導入方法は、PCに置いたMKBリポジトリの `tools/local-mcp/server.mjs` をCodexに一度登録する方法です。初回はCodexから接続コードを取得し、ノートを保存したいChromeまたはEdgeのプロファイルでMKBに入力します。[直接登録と初回接続の手順](./tools/local-mcp/README.md)
 
-- [セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip)
-- [SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip.sha256)
-- [導入手順書](./tools/local-mcp/windows/README.md)
-- [Local MCP API設計書（要求・応答定義とJSON例）](./docs/local-mcp-note-access-spec.md)
+ローカルにリポジトリを用意しない場合は、Windows用ZIPを展開し、`Setup.cmd` でMCP本体を導入・登録できます。ZIP版も同じブラウザ側の初回設定を使います。[ZIP版の導入手順と対応バージョン](./tools/local-mcp/windows/README.md)
 
-導入先でNode.js 24以上、Codex、ChromeのMKB PWAを準備し、ZIPをすべて展開して`Setup.cmd`を実行します。自動MCP登録にはCodex CLIも必要です。手動登録・初回接続・保存確認は導入手順書を参照してください。
+[Local MCP API設計書（要求・応答定義とJSON例）](./docs/local-mcp-note-access-spec.md)
 
 ## 起動方法
 

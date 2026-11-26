@@ -5,7 +5,7 @@ import { executeNoteAccess } from '../lib/localMcpAccess';
 import { createMetadataSession } from '../lib/localMcpMetadata';
 import { NoteAccessError } from '../lib/noteRevision';
 import { LOCAL_MCP_CONNECTION_KEY, parseLocalMcpCode, readLocalMcpConnection, validateLocalMcpConnection } from '../lib/localMcpConnection';
-import type { LocalMcpConnection } from '../lib/localMcpConnection';
+import type { AutoProfile, LocalMcpConnection } from '../lib/localMcpConnection';
 import './LocalMcpPanel.css';
 
 type Session = { token: string; clientId: string; origin: string; brokerMetadataActions?: string[] };
@@ -50,6 +50,12 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
   const [showSetup, setShowSetup] = useState(!savedConnection);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [remember, setRemember] = useState(Boolean(savedConnection));
+  const [enableOnPair,setEnableOnPair]=useState(false);
+  const [browser,setBrowser]=useState<'chrome'|'edge'>(()=>navigator.userAgent.includes('Edg/')?'edge':'chrome');
+  const [profile,setProfile]=useState('Default');
+  const [autoAvailable,setAutoAvailable]=useState(false);
+  const attemptedAuto=useRef(false);
+  const enrolling=useRef(false);
   const [manual, setManual] = useState(false);
   const [storageWarning, setStorageWarning] = useState('');
   const [session, setSession] = useState<Session | null>(null);
@@ -130,7 +136,43 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
     };
   }, [session]);
 
-  function forgetConnection() {
+  function rememberConnection(value:LocalMcpConnection) {
+    localStorage.setItem(LOCAL_MCP_CONNECTION_KEY,JSON.stringify(value));
+    setSavedConnection(value);
+  }
+
+  async function registerAuto(active:Session,value:LocalMcpConnection) {
+    if (!/^(?:Default|Profile [1-9][0-9]{0,3})$/.test(profile)) throw Error('Enter Default or Profile followed by its number.');
+    const key=value.auto?.key ?? Array.from(crypto.getRandomValues(new Uint8Array(32)),n=>n.toString(16).padStart(2,'0')).join('');
+    const auto:AutoProfile={key,browser,profile,paused:false};
+    // Keep the proof locally before sending it, including if the reply is lost.
+    if (enrolling.current) return;
+    enrolling.current=true;
+    try {
+      rememberConnection({...value,auto:{...auto,paused:true}});
+      await request(active,'auto',{...auto,action:'enable'});
+      rememberConnection({...value,auto});
+    } finally {enrolling.current=false;}
+  }
+
+  async function disconnect() {
+    if (savedConnection?.auto) {
+      const saved={...savedConnection,auto:{...savedConnection.auto,paused:true}};
+      try {
+        rememberConnection(saved);
+        await request(session!,'auto',{action:'pause',key:saved.auto.key});
+      } catch {setStorageWarning('Pause could not be confirmed. Reconnect and try again.');}
+    }
+    setSession(null);setConnectionError(false);setStatus('Disconnected.');
+  }
+
+  async function forgetConnection() {
+    if (savedConnection?.auto) {
+      const active=session ?? {...savedConnection,clientId:crypto.randomUUID()};
+      try {await request(active,'auto',{action:'forget',key:savedConnection.auto.key});}
+      catch {setStorageWarning('Start the local broker and try Forget again.');return;}
+      setSession(null);
+    }
     try {
       localStorage.removeItem(LOCAL_MCP_CONNECTION_KEY);
       noteAccessRef.current = false;
@@ -146,7 +188,7 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
     }
   }
 
-  async function connect(saved?: LocalMcpConnection) {
+  async function connect(saved?: LocalMcpConnection, automatic=false) {
     if (connecting) return;
     setConnecting(true);
     setConnectionError(false);
@@ -158,7 +200,11 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
       const allowed = stored?.origin === next.origin && stored?.token === next.token && stored.noteAccess === true;
       noteAccessRef.current = allowed;
       setNoteAccess(allowed);
-      const connected = await request(next, 'connect', { protocolVersion: 2, supportedOperations, supportedMetadataActions, noteAccess: allowed }, AbortSignal.timeout(60000));
+      const bound=stored?.origin===next.origin && stored?.token===next.token ? stored.auto : undefined;
+      if (bound?.paused && automatic) return;
+      if (bound && !automatic) await request(next,'auto',{action:'resume',key:bound.key});
+      const connected = await request(next, 'connect', { protocolVersion: 2, supportedOperations, supportedMetadataActions, noteAccess: allowed,profileKey:bound?.key }, AbortSignal.timeout(60000));
+      setAutoAvailable(connected.autoAvailable===true);
       if (!mountedRef.current) {
         await request(next, 'disconnect').catch(() => {});
         return;
@@ -169,7 +215,7 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
       let remembered = true;
       try {
         if (remember) {
-          const rememberedConnection = { ...credentials, noteAccess: allowed };
+          const rememberedConnection = { ...credentials, noteAccess: allowed, ...(bound && {auto:{...bound,paused:false}}) };
           localStorage.setItem(LOCAL_MCP_CONNECTION_KEY, JSON.stringify(rememberedConnection));
           setSavedConnection(rememberedConnection);
           setShowSetup(false);
@@ -181,6 +227,16 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
       } catch {
         remembered = false;
         setStorageWarning('Connected, but could not remember settings. Keep your connection code.');
+      }
+      if (enableOnPair && !bound && remembered && remember) {
+        try {
+          if (!connected.autoAvailable) throw Error('Update the local Windows MCP runtime to enable automatic opening.');
+          await registerAuto(next,{...credentials,noteAccess:allowed});
+        } catch (error) {
+          setStorageWarning(error instanceof Error?error.message:'Automatic opening could not be confirmed.');
+          setAdvancedOpen(true);
+          return;
+        }
       }
       setStatus('Ready to receive notes.');
       setAdvancedOpen(false);
@@ -194,6 +250,15 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
       setConnecting(false);
     }
   }
+
+  useEffect(()=>{
+    const saved=readLocalMcpConnection();
+    if (attemptedAuto.current || !saved?.auto || saved.auto.paused) return;
+    attemptedAuto.current=true;
+    void connect(saved,true);
+    // Bootstrap once per mount; user actions control subsequent connections.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   function changeNoteAccess(allowed: boolean) {
     if (!allowed) metadataSessionRef.current?.clear();
@@ -210,6 +275,11 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
     if (session) void request(session, 'permissions', { noteAccess: allowed }).catch(() => {});
   }
 
+  const profileFields=<>
+    <label>Browser <select value={browser} onChange={event=>setBrowser(event.target.value as 'chrome'|'edge')}><option value="chrome">Chrome</option><option value="edge">Edge</option></select></label>
+    <label>Profile directory <input value={profile} maxLength={12} onChange={event=>setProfile(event.target.value)} /></label>
+    <small>Use the last folder in Profile Path at {browser==='edge'?'edge://version':'chrome://version'}, for example Default or Profile 1.</small>
+  </>;
   const setupForm = <form onSubmit={event => { event.preventDefault(); void connect(); }}>
         {!manual && <>
           <label htmlFor="local-mcp-code">Connection code</label>
@@ -229,7 +299,8 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
         <label className="local-mcp-remember"><input type="checkbox" checked={remember} disabled={connecting}
           onChange={event => { if (event.target.checked) setRemember(true); else forgetConnection(); }} />
           Remember in this browser</label>
-        <small>Private devices only. No automatic connection.</small>
+        <small>Use a private device.</small>
+        {remember && !savedConnection?.auto && <><label className="local-mcp-remember"><input type="checkbox" checked={enableOnPair} onChange={event=>setEnableOnPair(event.target.checked)} />Open this profile automatically for save requests</label>{enableOnPair && profileFields}</>}
         <button className="local-mcp-primary" type="submit" disabled={connecting || (manual ? !token.trim() || !address.trim() : !code.trim())}>{connecting ? 'Connecting…' : 'Connect local MCP'}</button>
       </form>;
 
@@ -246,11 +317,7 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
     <div className="local-mcp-main-actions">
       {!session && savedConnection && <button className="local-mcp-primary" ref={reconnectRef} type="button" disabled={connecting} onClick={() => void connect(savedConnection)}>{connecting ? 'Connecting…' : 'Reconnect'}</button>}
       {!session && !savedConnection && setupForm}
-      {session && <button ref={disconnectRef} type="button" onClick={() => {
-        setSession(null);
-        setConnectionError(false);
-        setStatus('Disconnected.');
-      }}>Disconnect local MCP</button>}
+      {session && <button ref={disconnectRef} type="button" onClick={()=>void disconnect()}>Disconnect local MCP</button>}
     </div>
     {(savedConnection || session) && <div className="local-mcp-advanced">
       <button type="button" className="local-mcp-disclosure" aria-expanded={advancedOpen} aria-controls="local-mcp-advanced-content"
@@ -259,6 +326,9 @@ export default function LocalMcpPanel({ open, onClose, onConnected, onConnection
       </button>
       <div id="local-mcp-advanced-content" hidden={!advancedOpen}>
         <p>Server: {savedConnection?.origin ?? session?.origin}</p>
+        {savedConnection?.auto && <p>Automatic opening {savedConnection.auto.paused?'paused':'enabled'} · {savedConnection.auto.browser} / {savedConnection.auto.profile}</p>}
+        {session && autoAvailable && savedConnection && !savedConnection.auto && <>{profileFields}
+          <button type="button" onClick={()=>void registerAuto(session,savedConnection).catch(error=>setStorageWarning(error.message))}>Enable automatic opening</button></>}
         <label className="local-mcp-remember"><input type="checkbox" checked={noteAccess} disabled={connecting}
           onChange={event => changeNoteAccess(event.target.checked)} />Allow reading and updating notes</label>
         <small>Applies to Codex chats on this PC.</small>

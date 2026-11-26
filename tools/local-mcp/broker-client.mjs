@@ -48,10 +48,16 @@ export async function connectBroker() {
       status.metadataActions ??= status.capabilities?.includes('preview_custom_metadata_changes') ? ['add', 'update', 'upsert'] : [];
       return { ...status, persistentPairing: true };
     },
+    async ensureConnection() {
+      await ensure();
+      const status=await rpc('status');
+      if (!Object.hasOwn(status,'automatic')) return status.connected ? null : 'UPGRADE_REQUIRED';
+      return (await rpc('ensure',{},22000)).error ?? null;
+    },
     async create(input) {
       try {
         await ensure();
-        return await rpc('create', input, 20000);
+        return await rpc('create', input, 38000);
       } catch {
         // Never replay a write automatically: it may have reached IndexedDB before the failure.
         return { error: 'Service unavailable. Save outcome may be unknown; reconnect and retry the same request_id.' };
