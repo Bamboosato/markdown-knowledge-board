@@ -2,11 +2,11 @@
 
 Local-only Markdown knowledge board built with React + Vite + TypeScript.
 
-## WindowsでCodexからMKBを使う
+## WindowsでローカルエージェントからMKBを使う
 
-標準の導入方法は、PCに置いたMKBリポジトリの `tools/local-mcp/server.mjs` をCodexに一度登録する方法です。初回はCodexから接続コードを取得し、ノートを保存したいChromeまたはEdgeのプロファイルでMKBに入力します。[直接登録と初回接続の手順](./tools/local-mcp/README.md)
+標準の導入方法は、PCに置いたMKBリポジトリの `tools/local-mcp/server.mjs` をローカルのMCPクライアントに一度登録する方法です。初回はそのクライアントから接続コードを取得し、ノートを保存したいChromeまたはEdgeのプロファイルでMKBに入力します。[直接登録と初回接続の手順](./tools/local-mcp/README.md)
 
-ローカルにリポジトリを用意しない場合は、Windows用ZIPを展開し、`Setup.cmd` でMCP本体を導入・登録できます。ZIP版も同じブラウザ側の初回設定を使います。[ZIP版の導入手順と対応バージョン](./tools/local-mcp/windows/README.md)
+ローカルにリポジトリを用意しない場合は、Windows用ZIPからMCP本体を導入できます。Codexでは `Setup.cmd` で自動登録できます。他のMCPクライアントでは、同梱のインストーラーで本体を導入した後、起動コマンドを登録します。ZIP版も同じブラウザ側の初回設定を使います。[ZIP版の導入手順と対応バージョン](./tools/local-mcp/windows/README.md)
 
 [Local MCP API設計書（要求・応答定義とJSON例）](./docs/local-mcp-note-access-spec.md)
 
@@ -70,7 +70,7 @@ npm run test:e2e:smoke
 - ブラウザの IndexedDB（DB名: `markdown-knowledge-board`）に保存します。
 - PWAをアンインストールした場合やブラウザのsite dataを消去した場合に、ローカルノートが保持されるかはOS／ブラウザに依存します。重要なノートは事前に`Backup All Notes`でJSONへ保存してください。
 
-既存ノートのMCP検索・取得・更新は、MKBの`Local MCP → Advanced settings → Allow reading and updating notes`を一度有効にして利用します。接続を記憶すると許可も保持され、次回はReconnectだけで接続できます。取得した本文はCodexへ渡されます。詳しくは[ローカルMCPの使い方](tools/local-mcp/README.md)を参照してください。
+既存ノートのMCP検索・取得・更新は、MKBの`Local MCP → Note access → Allow reading and updating notes`を一度有効にして利用します。接続を記憶すると許可も保持され、自動接続を設定すれば保存時に登録先を開きます。取得した本文は利用中のエージェントへ渡されます。詳しくは[ローカルMCPの使い方](tools/local-mcp/README.md)を参照してください。
 
 ## PWA・オフライン利用
 

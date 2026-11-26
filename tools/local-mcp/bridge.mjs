@@ -150,7 +150,7 @@ export function createBridge(origin, { timeoutMs = 15000, allowedOrigins = [orig
       if (!fresh()) return error('NOT_CONNECTED', 'Open MKB and reconnect.');
       if (client.protocolVersion !== 2) return error('UPGRADE_REQUIRED', 'Update the MKB PWA.');
       if (!client.supportedOperations.includes(operation)) return error('UPGRADE_REQUIRED', 'Update the MKB PWA to use this operation.');
-      if (!client.noteAccess) return error('ACCESS_DISABLED', 'Enable reading and updating notes in MKB Advanced settings.');
+      if (!client.noteAccess) return error('ACCESS_DISABLED', 'Enable reading and updating notes under Local MCP → Note access.');
       if (operation === 'preview_custom_metadata_changes' && input.changes.some(c => !client.metadataActions.includes(c.action))) return error('UPGRADE_REQUIRED', 'Update the MKB PWA to use this metadata action.');
       if (job) return error('BUSY', 'Another operation is in progress.');
       return new Promise(resolve => {

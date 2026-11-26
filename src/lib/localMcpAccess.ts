@@ -51,7 +51,7 @@ function replaceText(body: string, search: string, replacement: string, mode: st
   return { body: result, count };
 }
 export async function executeNoteAccess(operation: string, raw: unknown, allowed: () => boolean) {
-  const authorize = () => { if (!allowed()) throw new NoteAccessError('ACCESS_DISABLED', 'Enable reading and updating notes in MKB Advanced settings.'); };
+  const authorize = () => { if (!allowed()) throw new NoteAccessError('ACCESS_DISABLED', 'Enable reading and updating notes under Local MCP → Note access.'); };
   authorize();
   const input = object(raw);
   const db = await requireDb();

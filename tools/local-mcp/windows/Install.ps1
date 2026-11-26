@@ -79,4 +79,4 @@ if (-not $SkipMcpRegistration -and -not $existing) {
 }
 Write-Output 'Setup complete.'
 if ($SkipMcpRegistration) { Write-Output ('Register MCP using: ' + (Join-Path $InstallRoot 'codex-mcp.toml')) }
-Write-Output 'Restart Codex. For first-time pairing, ask Codex for the MKB connection code.'
+Write-Output 'Restart your MCP client. For first-time pairing, ask your local agent for the MKB connection code.'
