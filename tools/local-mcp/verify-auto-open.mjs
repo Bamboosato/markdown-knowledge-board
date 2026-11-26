@@ -162,19 +162,7 @@ try {
   const setUp = page.getByRole('button', {name:'Use this profile for saves'});
   const register = page.getByRole('button', {name:'Register save destination'});
   await page.locator('summary').filter({hasText:'Manual connection'}).waitFor();
-  const headings = page.locator('#local-mcp-panel summary, #local-mcp-panel .local-mcp-disclosure');
-  for (const width of [320, 1280]) {
-    await page.setViewportSize({width, height:800});
-    const metrics = await headings.evaluateAll(elements => elements.map(element => {
-      const range = document.createRange();
-      range.selectNodeContents(element.firstChild);
-      const style = getComputedStyle(element);
-      return [range.getBoundingClientRect().left, style.fontSize, style.fontWeight];
-    }));
-    assert.equal(metrics.length, 3);
-    for (const heading of metrics) assert.deepEqual(heading, metrics[0]);
-    console.log('PASS: accordion title alignment at', width, 'px', metrics[0]);
-  }
+  assert.equal(await page.getByRole('button',{name:'Advanced settings'}).count(), 0);
   await setUp.click();
   await page.getByLabel('Connection code', {exact:true}).fill(setup.pairingCode);
   await page.getByRole('button',{name:'Find profiles'}).click();
@@ -222,6 +210,20 @@ try {
   await openProfile('registered');
   await panel();
   assert.equal((await call('connection_status')).automatic,'off');
+  await page.getByRole('button',{name:'Advanced settings'}).waitFor();
+  const headings = page.locator('#local-mcp-panel summary, #local-mcp-panel .local-mcp-disclosure');
+  for (const width of [320, 1280]) {
+    await page.setViewportSize({width, height:800});
+    const metrics = await headings.evaluateAll(elements => elements.map(element => {
+      const range = document.createRange();
+      range.selectNodeContents(element.firstChild);
+      const style = getComputedStyle(element);
+      return [range.getBoundingClientRect().left, style.fontSize, style.fontWeight];
+    }));
+    assert.equal(metrics.length, 3);
+    for (const heading of metrics) assert.deepEqual(heading, metrics[0]);
+    console.log('PASS: accordion title alignment at', width, 'px', metrics[0]);
+  }
   await page.getByRole('button',{name:'Use this profile for saves'}).click();
   assert.equal(await page.getByLabel('Connection code',{exact:true}).isVisible(),false);
   await page.getByRole('button',{name:'Find profiles'}).click();

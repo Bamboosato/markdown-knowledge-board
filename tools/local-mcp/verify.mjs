@@ -124,10 +124,9 @@ try {
   pass('Connect auto-hides panel; reopening and Escape keep receiving and restore app menu focus');
   const second = await context.newPage();
   await second.goto(origin, { waitUntil: 'domcontentloaded' });
-  await second.getByRole('button', { name: 'Advanced settings', exact:true }).click();
-  await second.getByLabel('Enter address and token').check();
   await expand('Manual connection', second);
-  await second.getByLabel('Pairing token').fill(token);
+  assert.equal(await second.getByRole('button', { name: 'Advanced settings', exact:true }).count(), 0);
+  await second.getByLabel('Connection code', { exact:true }).fill(pairingCode);
   await second.getByRole('button', { name: 'Connect local MCP', exact: true }).click();
   await second.getByText('Another tab is connected. Disconnect it first.', { exact: true }).waitFor();
   await second.close();

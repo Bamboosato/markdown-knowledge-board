@@ -22,12 +22,9 @@ type Props = {
 };
 
 export default function LocalMcpPanel({ open, onClose }: Props) {
-  const [address, setAddress] = useState(import.meta.env.DEV && import.meta.env.MODE === 'local-mcp' ? location.origin : '');
-  const addressRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const mountedRef = useRef(false);
-  const [token, setToken] = useState('');
   const [code, setCode] = useState('');
   const [savedConnection, setSavedConnection] = useState(readLocalMcpConnection);
   const [noteAccess, setNoteAccess] = useState(() => readLocalMcpConnection()?.noteAccess === true);
@@ -39,7 +36,6 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
   const [setupAuto, setSetupAuto] = useState(false);
   const attemptedAuto=useRef(false);
   const [otherDestination,setOtherDestination]=useState('');
-  const [manual, setManual] = useState(false);
   const [storageWarning, setStorageWarning] = useState('');
   const [session, setSession] = useState<Session | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -56,8 +52,8 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
   }, [open]);
 
   useEffect(() => {
-    if (showSetup) (manual ? addressRef : codeRef).current?.focus();
-  }, [showSetup, manual]);
+    if (showSetup) codeRef.current?.focus();
+  }, [showSetup]);
 
   useEffect(() => {
     if (!session) return;
@@ -187,7 +183,7 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
     setStatus('');
     try {
       const credentials = saved ? validateLocalMcpConnection(saved.origin, saved.token)
-        : manual ? validateLocalMcpConnection(address, token) : parseLocalMcpCode(code);
+        : parseLocalMcpCode(code);
       const next = { ...credentials, clientId: crypto.randomUUID() };
       const stored = readLocalMcpConnection();
       const allowed = stored?.origin === next.origin && stored?.token === next.token && stored.noteAccess === true;
@@ -215,7 +211,6 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
         return;
       }
       setSession({ ...next, brokerMetadataActions: brokerActions(connected.brokerMetadataActions) });
-      setToken('');
       setCode('');
       let remembered = true;
       try {
@@ -285,22 +280,12 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
 
   const auto = savedConnection?.auto;
   const needsCredentials = !session && !savedConnection;
-  const missingCredentials = manual ? !token.trim() || !address.trim() : !code.trim();
+  const missingCredentials = !code.trim();
   const connectionState = session ? 'Connected' : connecting ? 'Connecting…' : connectionError ? 'Connection error' : 'Disconnected';
   const credentialsFields = <>
-        {!manual && <>
-          <label htmlFor="local-mcp-code">Connection code</label>
-          <input ref={codeRef} id="local-mcp-code" type="password" autoComplete="off" placeholder="Paste connection code"
-            value={code} onChange={event => setCode(event.target.value)} disabled={connecting} />
-        </>}
-        {manual && <>
-        <label htmlFor="local-mcp-address">Server address</label>
-        <input ref={addressRef} id="local-mcp-address" type="url" placeholder="http://127.0.0.1:port"
-          autoComplete="off" value={address} onChange={event => setAddress(event.target.value)} disabled={connecting} />
-        <label htmlFor="local-mcp-token">Pairing token</label>
-        <input id="local-mcp-token" type="password" autoComplete="off" value={token}
-          onChange={event => setToken(event.target.value)} disabled={connecting} />
-        </>}
+    <label htmlFor="local-mcp-code">Connection code</label>
+    <input ref={codeRef} id="local-mcp-code" type="password" autoComplete="off" placeholder="Paste connection code"
+      value={code} onChange={event => setCode(event.target.value)} disabled={connecting} />
   </>;
   const manualForm = <form onSubmit={event => { event.preventDefault(); void connect(); }}>
     {credentialsFields}
@@ -325,12 +310,12 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
       <p className="local-mcp-destination">Save to: {location.origin}{auto && ` · ${auto.browser === 'edge' ? 'Edge' : 'Chrome'} / ${auto.profile}`}</p>
       {auto && <p>This profile is the save destination.</p>}
       {auto && <p>Connection: {connectionState}</p>}
-      {setupAuto && open ? <ProfileDestinationForm credentials={() => session ?? savedConnection ?? (manual ? validateLocalMcpConnection(address,token) : parseLocalMcpCode(code))}
+      {setupAuto && open ? <ProfileDestinationForm credentials={() => session ?? savedConnection ?? parseLocalMcpCode(code)}
         credentialsFields={needsCredentials ? credentialsFields : null} missingCredentials={needsCredentials && missingCredentials}
         noteAccess={noteAccess} onCancel={()=>setSetupAuto(false)}
         onRegistered={async value=>{
           rememberConnection(value);
-          setOtherDestination('');setSetupAuto(false);setCode('');setToken('');setSession(null);
+          setOtherDestination('');setSetupAuto(false);setCode('');setSession(null);
           await connect(value,true);
         }} /> : auto && savedConnection ? <button type="button" disabled={connecting} onClick={() => auto.paused ? void connect(savedConnection) : void disconnect()}>
         {auto.paused ? 'Resume automatic connection' : 'Pause automatic connection'}
@@ -355,15 +340,13 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
         onChange={event => changeNoteAccess(event.target.checked)} />Allow reading and updating notes</label>
       <small>Optional for saving new notes.</small>
     </details>
-    <div className="local-mcp-advanced">
+    {(savedConnection || session) && <div className="local-mcp-advanced">
       <button type="button" className="local-mcp-disclosure" aria-expanded={advancedOpen} aria-controls="local-mcp-advanced-content"
         onClick={() => { setAdvancedOpen(!advancedOpen); setShowSetup(false); }}>
         Advanced settings
       </button>
       <div id="local-mcp-advanced-content" hidden={!advancedOpen}>
-        {(savedConnection || session) && <p>Server: {savedConnection?.origin ?? session?.origin}</p>}
-        {!auto && !session && <label className="local-mcp-remember"><input type="checkbox" checked={manual}
-          onChange={event => setManual(event.target.checked)} />Enter address and token</label>}
+        <p>Server: {savedConnection?.origin ?? session?.origin}</p>
         <div className="local-mcp-settings-actions">
           {!auto && !session && savedConnection && <button type="button" disabled={connecting} onClick={() => {
             setShowSetup(!showSetup); setSetupAuto(false);
@@ -372,7 +355,7 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
         </div>
         {!auto && !session && savedConnection && showSetup && manualForm}
       </div>
-    </div>
+    </div>}
     {storageWarning && <p role="alert">{storageWarning}</p>}
     {status && <p role="status">{status}</p>}
   </aside>, document.body);
