@@ -4,6 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { createBridge } from './bridge.mjs';
 import { connectBroker } from './broker-client.mjs';
+import {pairingOperations,supportsPairing} from './pairing.mjs';
 import { noteShape, accessSchemas } from './note-schema.mjs';
 
 // Production clients share one persistent identity and one authenticated loopback service.
@@ -29,14 +30,20 @@ if (dev) {
   origin = bridge.origin;
   closeHttp = async () => {};
 }
-const mcp = new McpServer({ name: 'mkb-local-prototype', version: '0.9.0' });
+const mcp = new McpServer({ name: 'mkb-local-prototype', version: '0.10.0' });
 const result = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }], isError: Boolean(value.error) });
 mcp.registerTool('connection_status', {
-  description: 'Read the shared MKB connection without opening a browser. When disconnected this includes private pairing credentials. Set include_pairing_code only when the user explicitly asks for a connection code to pair a new profile, including while another profile is connected.',
-  inputSchema: {include_pairing_code:z.boolean().optional()}, annotations: { readOnlyHint: true },
-}, async ({include_pairing_code}) => { const status = await bridge.status(); return result({ ...status, ...(!status.connected || include_pairing_code ? {
-  pairingToken: bridge.token, pairingCode: `MKB1|${origin}|${bridge.token}`,
-} : {}) }); });
+  description: 'Read the shared MKB connection without opening a browser. Pairing credentials are returned only after checking the running service. Set include_pairing_code when the user asks for a connection code, including while connected. For PAIRING_PREPARING, wait retryAfterMs and retry for the user. Only PAIRING_UPDATE_REQUIRED calls for updating the runtime.',
+  inputSchema: {include_pairing_code:z.boolean().optional()}, annotations: { readOnlyHint:false, destructiveHint:false },
+}, async ({include_pairing_code}) => {
+  const status = dev ? bridge.status() : await bridge.pairingStatus(include_pairing_code);
+  if (status.error) return result(status);
+  if (status.connected && !include_pairing_code) return result(status);
+  if (!supportsPairing(status.pairingOperations,pairingOperations(!dev && process.platform === 'win32'))) {
+    return result({error:{code:'PAIRING_RETRY',message:'Could not confirm the running service supports pairing. Request the code again.'}});
+  }
+  return result({...status,pairingToken:bridge.token,pairingCode:`MKB1|${origin}|${bridge.token}`});
+});
 mcp.registerTool('ensure_connection', {
   description: 'Only for an explicit save request: connect to the registered MKB destination, opening its browser profile when enabled. Returns connection status or an error, without sending note content.',
   inputSchema:{},annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false},

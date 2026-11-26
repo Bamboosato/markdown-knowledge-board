@@ -24,9 +24,9 @@ Codexを再起動し、新しいチャットで「MKBの初回接続コードを
 
 リポジトリを用意しないPCでは、[任意のWindowsセットアップZIP](windows/README.md)で同じMCPを登録できます。
 
-## WindowsでMKBを自動で開く（runtime 0.9.0）
+## WindowsでMKBを自動で開く
 
-対応するPWAとローカルランタイムの両方を更新します。既存brokerが動作中なら、MCPクライアントをすべて閉じ、35秒後に起動します。以前のペアリング設定はそのまま使用できます。
+ランタイム0.10.0以降では、初回接続コードの発行前に、実行中のサービスがプロファイルの検索・確認・登録に対応しているかを確認します。PCに対応版がある場合は既存のペアリングを使って切り替えます。旧サービスの自然終了を待つときは約40秒後に再確認します。保存中や接続中は先にその操作を終え、別の旧クライアントが起動を維持している場合だけ、それらを閉じて35秒後に再起動します。設定先に必要な機能がない場合はランタイムの更新が必要です。旧版のMCPクライアントプロセスにこの判定を読み込ませるには、導入後に一度クライアントを再起動します。
 
 1. 保存先に使うChromeまたはEdgeでMKBを開き、アプリメニューの **Local MCP** を選びます。
 2. **Use this profile for saves** を選びます。初回はローカルエージェントに「MKBの初回接続コードを表示してください」と依頼し、コードを入力します。接続情報を記憶済みなら、そのまま保存先を指定できます。
@@ -88,7 +88,7 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 
 ### リポジトリを用意しないPC向けのZIP配布
 
-旧キットの配布先は[GitHub Releases：MKB Windows Setup v1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip)と[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip.sha256)を取得でき、Releaseの添付ファイルは30日で自動失効しない。
+MKB Windows Setup 1.5.0にはruntime 0.10.0が含まれます。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.5.0/MKB-Windows-Setup.zip)・[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.5.0/MKB-Windows-Setup.zip.sha256)・[リリース情報](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.5.0)
 
 導入先の利用者向け手順は [Windowsセットアップ手順](windows/README.md)。Node.js 24以上とCodexを準備し、ダウンロードしたZIPをすべて展開して`Setup.cmd`を実行する。依存の取得、MCP本体の配置とCodexへの登録を行い、同名の別MCP登録は自動で上書きしない。自動登録にはCodex CLIが必要。CLIを使わない登録と既存環境の移行にも対応する。
 

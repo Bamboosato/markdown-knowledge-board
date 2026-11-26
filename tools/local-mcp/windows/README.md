@@ -5,7 +5,7 @@
 
 ## セットアップ一式の入手
 
-この手順はruntime 0.9.0の本体のみを含むZIPに対応します。以前の[公開版 v1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)は、デスクトップの設定アプリもインストールします。
+この手順はruntime 0.10.0の本体のみを含むZIPに対応します。初回コードの発行前に実行中のサービスの対応機能を確認し、必要なときに導入済みの対応版へ切り替えます。以前の[公開版 v1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)は、デスクトップの設定アプリもインストールします。
 
 ダウンロードしたセットアップZIPを一度「すべて展開」すると、`MKB-Windows-Setup`フォルダー内に`README.md`と`Setup.cmd`があります。以下の準備・インストール手順に進んでください。今後の更新版は[Releases一覧](https://github.com/Bamboosato/markdown-knowledge-board/releases)で **MKB Windows Setup** を確認します。セットアップ一式とMKB Webアプリのバージョンは別管理です。
 

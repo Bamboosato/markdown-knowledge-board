@@ -1,7 +1,7 @@
 // Production-process lifecycle probe. Synthetic browser receipts; no real user data.
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -21,23 +21,26 @@ const checks = [];
 const pass = label => { checks.push(label); console.log(`PASS ${label}`); };
 const unwrap = result => JSON.parse(result.content[0].text);
 const status = async client => unwrap(await client.callTool({ name: 'connection_status', arguments: {} }));
-async function start(stateDir = directory) {
+async function start(stateDir = directory, entry = fileURLToPath(new URL('./server.mjs', import.meta.url))) {
   const client = new Client({ name: 'persistent-pairing-probe', version: '1' });
   clients.push(client);
   const transport = new StdioClientTransport({ command: process.execPath,
-    args: [fileURLToPath(new URL('./server.mjs', import.meta.url))], stderr: 'pipe',
+    args: [entry], stderr: 'pipe',
     env: { ...process.env, MKB_MCP_STATE_DIR: stateDir, MKB_MCP_PORT: String(port), MKB_MCP_DEV: '0' } });
   await client.connect(transport);
   return client;
 }
 async function admin(identity, operation, input = {}, headers = {}) {
-  return fetch(`http://127.0.0.1:${port}/__local_mcp_admin/${operation}`, {
+  return fetch(`http://127.0.0.1:${identity.port}/__local_mcp_admin/${operation}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${identity.serverToken}`, ...headers },
     body: JSON.stringify(input), signal: AbortSignal.timeout(20000),
   });
 }
 async function pid(identity) {
-  const value = (await (await admin(identity, 'status')).json()).value;
+  const reply=await admin(identity,'status');
+  assert.equal(reply.status,200,'Test broker must accept status after a handoff');
+  const value = (await reply.json()).value;
+  assert.ok(Number.isInteger(value.brokerPid) && value.brokerPid > 0,'Expected the test broker PID');
   pids.add(value.brokerPid);
   return value.brokerPid;
 }
@@ -81,6 +84,9 @@ try {
     if (!job) await new Promise(resolve => setTimeout(resolve, 50));
   }
   assert.deepEqual(job.input, input);
+  const running=(await (await admin(identity,'status')).json()).value;
+  const retirement=await admin(identity,'retire-for-pairing',{instance:running.handoffInstance,required:['future-pairing']});
+  assert.deepEqual((await retirement.json()).value,{busy:true});
   await browser(first, 'ack', tab, { deliveryId: job.deliveryId,
     result: { id: 'mcp-synthetic-receipt', title: input.title, reused: false } });
   assert.equal(unwrap(await pending).status, 'saved');
@@ -156,10 +162,61 @@ try {
     assert.equal(unwrap(await legacyClient.callTool({ name: 'preview_custom_metadata_changes', arguments: existing })).status, 'no_matches');
     assert.equal(unsupportedDispatches, 1);
     pass('Runtime rejects remove against a 0.6 broker while preserving existing metadata actions');
+    const askCode=async client=>unwrap(await client.callTool({name:'connection_status',arguments:{include_pairing_code:true}}));
+    const inUse=await askCode(legacyClient);
+    assert.equal(inUse.error.code,'PAIRING_IN_USE');
+    assert.equal(inUse.pairingCode,undefined);
+    legacyStatus={...legacyStatus,connected:false,busy:false};
+
+    // The installed launcher selects a versioned runtime. A confirmed missing capability
+    // must not retire the running broker or disclose credentials.
+    const kit=legacyDirectory+'/kit';
+    const selected=kit+'/runtimes/test/tools/local-mcp';
+    await mkdir(selected,{recursive:true});
+    const launcher=kit+'/start-mcp.mjs';
+    await writeFile(launcher,'await import('+JSON.stringify(pathToFileURL(selected+'/server.mjs').href)+');');
+    await writeFile(selected+'/server.mjs','await import('+JSON.stringify(new URL('./server.mjs',import.meta.url).href)+');');
+    await writeFile(selected+'/broker.mjs','export const availablePairingOperations=[];');
+    const kitClient=await start(legacyDirectory,launcher);
+    const update=await askCode(kitClient);
+    assert.equal(update.error.code,'PAIRING_UPDATE_REQUIRED');
+    assert.equal(update.pairingToken,undefined);
+    await kitClient.close();
+    const peer=await start(legacyDirectory);
+    const before=await readFile(legacyDirectory+'/identity.json','utf8');
+    for (const reply of await Promise.all([askCode(peer),askCode(legacyClient)])) {
+      assert.equal(reply.error.code,'PAIRING_PREPARING');
+      assert.equal(reply.pairingCode,undefined);
+    }
+    assert.equal((await askCode(peer)).error.code,'PAIRING_PREPARING');
+    // Model a pre-handoff broker's existing idle shutdown; heartbeats or status rechecks
+    // during its quiet window would renew the old service and defeat the migration.
+    let renewals=0;
+    legacy.on('request',()=>{renewals++;});
+    await new Promise(resolve=>setTimeout(resolve,35000));
+    assert.equal(renewals,0);
+    legacy.closeAllConnections();
+    await new Promise(resolve=>legacy.close(resolve));
+    await new Promise(resolve=>setTimeout(resolve,4000));
+    const [left,right]=await Promise.all([askCode(peer),askCode(legacyClient)]);
+    assert.ok(left.pairingCode && left.pairingCode===right.pairingCode);
+    assert.equal(left.pairingToken,JSON.parse(before).browserToken);
+    assert.equal(await readFile(legacyDirectory+'/identity.json','utf8'),before);
+    const recoveredIdentity=JSON.parse(before);
+    const previousPid=await pid(recoveredIdentity);
+    const live=(await (await admin(recoveredIdentity,'status')).json()).value;
+    const retirement=await admin(recoveredIdentity,'retire-for-pairing',{instance:live.handoffInstance,required:['future-pairing']});
+    assert.equal(retirement.status,200,'Idle broker must confirm retirement');
+    assert.deepEqual((await retirement.json()).value,{retired:true});
+    pids.delete(previousPid);
+    assert.equal((await askCode(peer)).pairingCode,left.pairingCode);
+    assert.notEqual(await pid(recoveredIdentity),previousPid);
+    await peer.close();
+    pass('Pairing checks distinguish missing runtime, active service and automatic idle migration across clients; pairing is preserved');
   } finally {
     await legacyClient?.close();
     legacy.closeAllConnections();
-    await new Promise(resolve => legacy.close(resolve));
+    if (legacy.listening) await new Promise(resolve => legacy.close(resolve));
   }
 
   const occupied = createHttpServer((_req, res) => { res.writeHead(403); res.end(); });

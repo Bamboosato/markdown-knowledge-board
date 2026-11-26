@@ -164,7 +164,18 @@ try {
   await page.locator('summary').filter({hasText:'Manual connection'}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Advanced settings'}).count(), 0);
   await setUp.click();
+  // An incomplete live capability report must be caught on paste, before profile discovery.
+  const destinationRoute='**/__local_mcp/destination';
+  await page.route(destinationRoute,async route=>{
+    if (route.request().postDataJSON()?.action==='capabilities') {
+      await route.fulfill({json:{pairingOperations:['destination.options','destination.verify']}});
+    } else await route.continue();
+  });
   await page.getByLabel('Connection code', {exact:true}).fill(setup.pairingCode);
+  await page.getByRole('alert').filter({hasText:'checked connection code'}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Find profiles'}).count(),0);
+  await page.unroute(destinationRoute);
+  await page.getByRole('button',{name:'Check again'}).click();
   await page.getByRole('button',{name:'Find profiles'}).click();
   assert.equal(await page.getByLabel('Profile directory').inputValue(),'Default');
   await register.click();

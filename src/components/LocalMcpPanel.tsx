@@ -311,6 +311,7 @@ export default function LocalMcpPanel({ open, onClose }: Props) {
       {auto && <p>This profile is the save destination.</p>}
       {auto && <p>Connection: {connectionState}</p>}
       {setupAuto && open ? <ProfileDestinationForm credentials={() => session ?? savedConnection ?? parseLocalMcpCode(code)}
+        initialCode={needsCredentials ? code : undefined}
         credentialsFields={needsCredentials ? credentialsFields : null} missingCredentials={needsCredentials && missingCredentials}
         noteAccess={noteAccess} onCancel={()=>setSetupAuto(false)}
         onRegistered={async value=>{

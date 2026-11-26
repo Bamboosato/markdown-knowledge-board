@@ -10,7 +10,7 @@ const output = join(root, 'output', 'windows-setup', `build-${Date.now()}`);
 const kit = join(output, 'MKB-Windows-Setup');
 const runtimeFiles = [
   'server.mjs', 'runtime.mjs', 'broker.mjs', 'broker-client.mjs', 'bridge.mjs',
-  'identity.mjs', 'auto-open.mjs', 'note-schema.mjs', 'metadata-schema.mjs', 'package.json', 'package-lock.json',
+  'identity.mjs', 'auto-open.mjs', 'pairing.mjs', 'note-schema.mjs', 'metadata-schema.mjs', 'package.json', 'package-lock.json',
 ];
 const files = [
   ...runtimeFiles.map(name => ({ source: `tools/local-mcp/${name}`, path: `tools/local-mcp/${name}` })),
