@@ -12,7 +12,7 @@ CodexからMKB PWAへノートを作成・検索・更新するセットアッ�
 - [runtime 0.8.0で保存時にMKBを自動起動する設定](./tools/local-mcp/README.md)
 - [Local MCP API設計書（要求・応答定義とJSON例）](./docs/local-mcp-note-access-spec.md)
 
-導入先でNode.js 24以上、Codex、ChromeのMKB PWAを準備し、ZIPをすべて展開して`Setup.cmd`を実行します。自動MCP登録にはCodex CLIも必要です。手動登録・初回接続・保存確認は導入手順書を参照してください。
+本体のみの新版キット（runtime 0.8.0）では、Node.js 24以上とCodexを準備し、ZIPを展開して`Setup.cmd`を実行します。初回接続コードはCodexに依頼し、保存先のChromeまたはEdgeでMKBに入力します。上記の公開版v1.4.0は設定アプリも同梱しています。自動MCP登録にはCodex CLIも必要です。手動登録・初回接続・保存確認は導入手順書を参照してください。
 
 ## 起動方法
 

@@ -5,7 +5,7 @@
 対応するPWAとローカルランタイムの両方を更新します。既存brokerが動作中なら、MCPクライアントをすべて閉じ、35秒後に起動します。以前のペアリング設定はそのまま使用できます。
 
 1. 保存先に使うChromeまたはEdgeでMKBを開き、アプリメニューの **Local MCP** を選びます。
-2. 初回は接続コードを入力し、**Remember in this browser** と **Open this profile automatically for save requests** を選びます。登録済みなら **Reconnect** の後、**Advanced settings** で **Enable automatic opening** を選べます。
+2. 初回はCodexに「MKBの初回接続コードを表示してください」と依頼し、取得したコードを入力して、**Remember in this browser** と **Open this profile automatically for save requests** を選びます。登録済みなら **Reconnect** の後、**Advanced settings** で **Enable automatic opening** を選べます。
 3. 使用中のブラウザと、Chromeの `chrome://version` またはEdgeの `edge://version` の **Profile Path** の末尾（例：`Default`、`Profile 1`）を指定して登録します。標準のWindowsユーザーデータフォルダーが対象です。
 4. MKBを閉じても、次の明示的な保存依頼でこのプロファイルを開きます。ブラウザ側に記憶した識別情報とOriginを確認してから本文を送ります。通常の状態照会では起動しません。別プロファイルや起動失敗は保存前に停止します。
 5. **Disconnect local MCP** で自動起動を休止し、同じプロファイルで **Reconnect** すると再開します。保存先を変更するときは、元のプロファイルで **Forget connection** を実行してから新しい保存先を登録します。
@@ -56,7 +56,7 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 
 ## 構成と使い方
 
-### MKB Connection Setup（Windows）
+### 任意のデスクトップ補助ツール（標準ZIPの対象外）
 
 デスクトップの **MKB Connection Setup** を開き、**Copy connection code** で初回設定用コードをコピーできる。Codexへの質問は不要。**Open MKB** はインストール済みPWAのショートカットを起動するため、同じChromeプロファイル・ローカルノートを利用する。表示は英語の3ボタンと短い状態表示だけ。
 
@@ -66,18 +66,18 @@ Codexの専用MCPツールから、このPCで起動している本番PWAへの�
 
 ### 他のWindows PCへ配布する
 
-通常の配布先は[GitHub Releases：MKB Windows Setup v1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip)と[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip.sha256)を取得でき、Releaseの添付ファイルは30日で自動失効しない。
+旧キットの配布先は[GitHub Releases：MKB Windows Setup v1.4.0](https://github.com/Bamboosato/markdown-knowledge-board/releases/tag/mkb-windows-setup-v1.4.0)。[セットアップZIP](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip)と[SHA-256チェックサム](https://github.com/Bamboosato/markdown-knowledge-board/releases/download/mkb-windows-setup-v1.4.0/MKB-Windows-Setup.zip.sha256)を取得でき、Releaseの添付ファイルは30日で自動失効しない。
 
-導入先の利用者向け手順は [Windowsセットアップ手順](windows/README.md)。Node.js 24以上、Codex、ChromeのMKB PWAを準備し、ダウンロードしたZIPをすべて展開して`Setup.cmd`を実行する。依存の取得、MCPの配置・登録、設定ツールの作成を行い、同名の別MCP登録は自動で上書きしない。自動登録にはCodex CLIが必要。CLIを使わない登録と既存環境の移行にも対応する。
+導入先の利用者向け手順は [Windowsセットアップ手順](windows/README.md)。Node.js 24以上とCodexを準備し、ダウンロードしたZIPをすべて展開して`Setup.cmd`を実行する。依存の取得、MCP本体の配置とCodexへの登録を行い、同名の別MCP登録は自動で上書きしない。自動登録にはCodex CLIが必要。CLIを使わない登録と既存環境の移行にも対応する。
 
-開発者はWindowsで次を実行すると、`output/windows-setup/build-*/`に配布ZIPとSHA-256ファイルを作成できる。明示した17ファイルとハッシュ一覧だけを収録するため、作業フォルダー内のノート・トークン・設定・依存の実体は入らない。依存は導入先でロックファイルから取得する。
+開発者はWindowsで次を実行すると、`output/windows-setup/build-*/`に配布ZIPとSHA-256ファイルを作成できる。本体と導入に必要なファイルとハッシュ一覧だけを収録するため、作業フォルダー内のノート・トークン・設定・依存の実体は入らない。依存は導入先でロックファイルから取得する。
 
 ```powershell
 node tools/local-mcp/windows/build-kit.mjs
 node tools/local-mcp/windows/verify-kit.mjs
 ```
 
-検証には開発用のMCP依存とCodex CLIも必要。隔離した導入先・デスクトップ・Codex設定・ペアリングを使い、ZIP展開、新規登録、実MCP起動、設定ツールとのペアリング共有、再インストール、改変パッケージの停止、既存登録の衝突を確認する。PWAショートカットは模擬で、別PCでの実PWA保存試験ではない。証跡は`output/windows-setup/test-*/PC セットアップ/result.json`。Windows MCP setupワークフローも同じ試験を実行し、検証用ZIPを30日間のActions artifactとして保存する。この保持期間は、通常の配布先であるGitHub Releasesの添付ファイルには適用されない。
+検証には開発用のMCP依存とCodex CLIも必要。隔離した導入先・Codex設定・ペアリングを使い、ZIP展開、新規登録、実MCP起動、Codex登録先からの初回接続コード取得、再インストール、改変パッケージの停止、既存登録の衝突を確認する。証跡は`output/windows-setup/test-*/PC セットアップ/result.json`。Windows MCP setupワークフローも同じ試験を実行し、検証用ZIPを30日間のActions artifactとして保存する。この保持期間は、通常の配布先であるGitHub Releasesの添付ファイルには適用されない。
 
 ### PWAとの接続
 
@@ -99,7 +99,7 @@ tool_timeout_sec = 30
 enabled = true
 ```
 
-3. 初回だけMKB Connection Setupの**Copy connection code**でコードを取得する。専用MCPの`connection_status`が返す`pairingCode`も使える。コードは当該利用者の接続設定専用で、共有・公開しない。ペアリングはPC単位で保持し、同じOSユーザーで起動した複数のCodexチャットが、同じペアリング済みPWAを利用する。
+3. 初回はCodexに「MKBの初回接続コードを表示してください」と依頼し、専用MCPの`connection_status`が返す`pairingCode`を使う。コードは当該利用者の接続設定専用で、共有・公開しない。ペアリングはPC単位で保持し、同じOSユーザーで起動した複数のCodexチャットが、同じペアリング済みPWAを利用する。
 4. 保存先のPWAでアプリメニュー → **Local MCP** を開き、**Connection code**へ1回貼り付け、**Connect local MCP**。従来の個別入力は **Enter address and token** から利用できる。ChromeがこのPCへの接続許可を求めた場合は利用者が許可する。
    初回の許可待ちは最大60秒。許可前にタイムアウトした場合は、許可後にもう一度 **Connect local MCP** を押す。
    個人用端末では **Remember in this browser** でペアリングを記憶できる。手動接続を選んだ場合、次回はメニュー → Local MCP → **Reconnect**。自動起動を有効にした場合は冒頭の手順に従う。
