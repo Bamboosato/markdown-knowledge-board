@@ -17,7 +17,7 @@ import {
   serializeEncryptedBackupEnvelope,
   validateNewBackupPassphrase,
 } from '../lib/cloudCrypto'
-import { getAllNotes } from '../lib/db'
+import { getBoard } from '../lib/db'
 import type { GitHubSessionState } from './useGitHubSession'
 
 export type CloudBackupDiscoveryState =
@@ -177,10 +177,9 @@ export function useCloudBackup(options: {
       setNotice(null)
       try {
         return await withExclusiveBackupLock(async () => {
-          const notes = (await getAllNotes()).sort((left, right) =>
-            left.id.localeCompare(right.id),
-          )
-          const document = createBackupDocument(notes, new Date().toISOString())
+          const { notes, order } = await getBoard()
+          notes.sort((a, b) => a.id.localeCompare(b.id))
+          const document = createBackupDocument(notes, new Date().toISOString(), order)
           const envelope = await encryptBackupDocument(
             document,
             normalizedPassphrase,

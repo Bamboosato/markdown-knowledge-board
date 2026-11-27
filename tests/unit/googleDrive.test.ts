@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { findBackupFolders, getOrCreateBackupFolder, listDriveFiles } from '../../src/lib/googleDrive'
 import { createGoogleBackup, exportNoteToDrive, getGoogleBackups } from '../../src/lib/googleDriveOperations'
 import type { Note } from '../../src/lib/types'
-import { getAllNotes } from '../../src/lib/db'
+import { getBoard } from '../../src/lib/db'
 
-vi.mock('../../src/lib/db', () => ({ getAllNotes: vi.fn(), applyNotesTransaction: vi.fn() }))
+vi.mock('../../src/lib/db', () => ({ getBoard: vi.fn(), applyNotesTransaction: vi.fn() }))
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -76,7 +76,7 @@ describe('Markdown export safeguards', () => {
 
 describe('encrypted Google Drive backup', () => {
   it('creates the fixed folder and sends encrypted content without plaintext notes', async () => {
-    vi.mocked(getAllNotes).mockResolvedValue([{ id: 'note-1', title: 'Private', body: 'confidential-content-marker', tags: [], updatedAt: 1 } as Note])
+    vi.mocked(getBoard).mockResolvedValue({ order: {}, notes: [{ id: 'note-1', title: 'Private', body: 'confidential-content-marker', tags: [], updatedAt: 1 } as Note] })
     const requests: Array<{ url: string; init?: RequestInit }> = []
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       requests.push({ url, init })

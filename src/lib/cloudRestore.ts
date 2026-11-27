@@ -1,5 +1,6 @@
 import type { BackupDocument, BackupNoteRecord } from "./backup";
 import { canonicalStringify } from "./canonicalJson";
+import { noteGroups, readBackupOrder, type NoteOrder } from "./noteOrder";
 import {
   assertFrontmatterExpansion,
   cloneCustomMetadata,
@@ -15,7 +16,7 @@ import {
   type Note,
 } from "./types";
 
-const ROOT_KEYS = new Set(["app", "version", "createdAt", "noteCount", "notes"]);
+const ROOT_KEYS = new Set(["app", "version", "createdAt", "noteCount", "notes", "noteOrder"]);
 const NOTE_KEYS = new Set([
   "id",
   "title",
@@ -265,14 +266,15 @@ export function validateBackupDocument(value: unknown): BackupDocument {
   }
 
   const ids = new Set<string>();
+  const notes = value.notes.map((note, index) => validateBackupNote(note, index, ids));
+  const noteOrder = readBackupOrder(value.noteOrder, notes);
   return {
     app: "markdown-knowledge-board",
     version: 1,
     createdAt: value.createdAt,
     noteCount: value.noteCount,
-    notes: value.notes.map((note, index) =>
-      validateBackupNote(note, index, ids)
-    ),
+    notes,
+    ...(noteOrder ? { noteOrder } : {}),
   };
 }
 
@@ -405,4 +407,15 @@ export async function buildRestorePlan(
 
 export function getNotesToApply(plan: RestorePlanItem[]): Note[] {
   return plan.flatMap((item) => (item.noteToApply ? [item.noteToApply] : []));
+}
+
+export function getOrderToRestore(document: BackupDocument, plan: RestorePlanItem[], expectedOrder: NoteOrder) {
+  if (!document.noteOrder) return undefined;
+  const conflicts = new Set(plan.filter(item => item.action === "conflicted").map(item => item.id));
+  const order: NoteOrder = {};
+  for (const group of noteGroups) {
+    const ids = document.noteOrder[group]?.filter(id => !conflicts.has(id));
+    if (ids?.length) order[group] = ids;
+  }
+  return { order, expectedOrder };
 }

@@ -128,9 +128,9 @@ export type Note = {
 | 項目 | 値 |
 | --- | --- |
 | DB 名 | `markdown-knowledge-board` |
-| DB version | `1` |
-| object store | `notes` |
-| keyPath | `id` |
+| DB version | `3` |
+| ノート・MCP操作記録 | `notes`（keyPath `id`）、`mcpReceipts`（keyPath `key`） |
+| 一覧の手動順 | `noteOrder` のキー `groups`。手動順を持つグループのノートID配列を保存する。 |
 
 ### 5.2 DB 操作
 
@@ -382,8 +382,8 @@ Previewはモノクロ基調を維持し、リンクとkeyboard focusだけに�
 
 ### 7.1 初期表示
 
-1. IndexedDB から全ノートを取得する。
-2. 固定済みノートを `pinnedAt` 降順、その後に未固定ノートを `updatedAt` 降順で `notes` に保持する。同値の場合は `updatedAt` 降順、`id` 昇順を使用して決定的に並べる。
+1. IndexedDB から全ノートと一覧の手動順を同じトランザクションで取得する。
+2. 固定済み、未固定の順にグループを表示する。各グループに手動順があればそれを使う。自動順は固定済みが `pinnedAt` 降順、未固定が `updatedAt` 降順で、同値の場合は `updatedAt` 降順、`id` 昇順で決める。[長押し操作・境界線・並び順の詳細設計](./ui-ux-improvement-spec.md#ノート一覧の長押し並べ替え)
 3. IndexedDB 初期化エラーがあれば `dbError` に反映する。
 4. `localStorage.lastBackupAt` を確認し、アプリメニューの `Backup All Notes` の下に `Last local backup` と分単位の日時を2段で表示する。未実施時は `No backups yet` と表示する。
 5. Backup項目のアイコンは複数行全体の中央ではなくタイトル行の上端へ揃え、メニュー項目間はコンパクトな余白を維持する。
@@ -414,8 +414,8 @@ Previewはモノクロ基調を維持し、リンクとkeyboard focusだけに�
 カードメニューの `Pin to top` / `Unpin` は、ノート本文の編集とは独立した一覧整理操作とする。
 
 1. `Pin to top` では対象ノートの `pinnedAt` に現在時刻を設定し、IndexedDBへ保存する。
-2. 保存成功後、対象を固定グループの先頭へ移動する。複数の固定カードは `pinnedAt` の降順とし、固定後に本文を保存しても固定グループ内の位置を変更しない。
-3. `Unpin` では `pinnedAt` を削除してIndexedDBへ保存し、未固定グループの `updatedAt` に基づく位置へ戻す。
+2. 保存成功後、対象を固定グループの先頭へ移動する。既存カードの相対順は保つ。
+3. `Unpin` では `pinnedAt` を削除する。未固定グループが手動順なら先頭へ、自動順なら `updatedAt` に基づく位置へ移す。
 4. Pin／Unpinだけでは `updatedAt`、editor draft、`isDirty`、選択状態、Filter条件を変更しない。
 5. Filter中は条件に一致する固定カードだけを結果の上部へ表示する。固定カードをFilter条件に関係なく強制表示しない。
 6. Pin／UnpinのDB保存中は同じカードメニューの操作を無効化する。失敗した場合は一覧と固定状態を変更せず、IndexedDBエラーを表示して再試行可能にする。
@@ -564,6 +564,7 @@ frontmatterはMetadata dialogと共通のcanonical order（`id`、`title`、`tag
 - `version`: `1`
 - `createdAt`: バックアップ作成日時
 - `noteCount`: ノート件数
+- `noteOrder`（任意）には、手動順があるグループだけを含める。例えば `{"other":["id-b","id-a"]}` は未固定メモの順序を表す。復元時は本文が同一でも手動順を適用できる。旧バックアップにこの項目がなければ既存の手動順を保持し、新しい環境では自動順を使う。
 - `notes[]`
   - `id`
   - `title`

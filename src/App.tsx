@@ -39,7 +39,6 @@ import {
   Menu,
   Minimize2,
   MoreHorizontal,
-  MoreVertical,
   Pin,
   PinOff,
   Quote,
@@ -116,11 +115,14 @@ import type {
   MarpTheme,
   Note,
 } from "./lib/types";
-import { dbInitError, deleteNote, getAllNotes, saveNote } from "./lib/db";
+import { NoteCardGroup } from "./components/NoteCardGroup";
+import { noteGroups, noteGroup, sortNotes, type NoteOrder } from "./lib/noteOrder";
+import { applyNotesTransaction, getBoard, moveNote, dbInitError, deleteNote, getAllNotes, saveNote } from "./lib/db";
 import { canonical } from './lib/noteRevision';
 import {
   createBackupDocument,
   parseImportFileContent,
+  parseLocalBackup,
   parseMarkdownBodyFileContent,
 } from "./lib/backup";
 import {
@@ -130,7 +132,7 @@ import {
   toMarkdownWithFrontmatter,
 } from "./lib/frontmatter";
 import { createId, getCurrentTimestamp, getPinnedAt } from "./lib/note";
-import { findNoteIndexById, replaceNoteBody } from "./lib/noteImport";
+import { replaceNoteBody } from "./lib/noteImport";
 import { getTagSuggestions, normalizeTag } from "./lib/tagSuggestions";
 import {
   insertCodeBlock,
@@ -359,32 +361,6 @@ function isNotePinned(note: Pick<Note, "pinnedAt">): boolean {
   return getPinnedAt(note) !== undefined;
 }
 
-function compareNotes(left: Note, right: Note): number {
-  const leftPinnedAt = getPinnedAt(left);
-  const rightPinnedAt = getPinnedAt(right);
-
-  if (leftPinnedAt !== undefined || rightPinnedAt !== undefined) {
-    if (leftPinnedAt === undefined) {
-      return 1;
-    }
-    if (rightPinnedAt === undefined) {
-      return -1;
-    }
-    if (leftPinnedAt !== rightPinnedAt) {
-      return rightPinnedAt - leftPinnedAt;
-    }
-  }
-
-  if (left.updatedAt !== right.updatedAt) {
-    return right.updatedAt - left.updatedAt;
-  }
-  return left.id.localeCompare(right.id);
-}
-
-function sortNotes(notes: readonly Note[]): Note[] {
-  return [...notes].sort(compareNotes);
-}
-
 function sanitizeDownloadName(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_");
 }
@@ -515,6 +491,8 @@ function App() {
     onReauthorizationRequired: githubSession.requireReauthorization,
   });
   const pwa = usePwaLifecycle();
+  const [order, setOrder] = useState<NoteOrder>({});
+  const movingNote = useRef(false);
   const [notes, setNotes] = useState<Note[]>([]);
   useEffect(() => {
     const onSaved = (event: Event) => {
@@ -646,7 +624,7 @@ function App() {
   );
   const bodyRef = useRef<MarkdownBodyEditorHandle | null>(null);
   const printSurfaceRef = useRef<HTMLDivElement | null>(null);
-  const noteListRef = useRef<HTMLUListElement | null>(null);
+  const noteListRef = useRef<HTMLDivElement | null>(null);
   const [pendingNoteListRevealId, setPendingNoteListRevealId] = useState<
     string | null
   >(null);
@@ -1339,21 +1317,6 @@ function App() {
   }, [isEditorExpanded]);
 
   useEffect(() => {
-    let active = true;
-    const load = async () => {
-      const stored = await getAllNotes();
-      if (active) {
-        setNotes(sortNotes(stored));
-        setDbError(dbInitError);
-      }
-    };
-    load();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!isDirtyRef.current) {
         return;
@@ -1499,7 +1462,7 @@ function App() {
   });
   const applyExternalNotes = useEffectEvent((latest: Note[]) => {
     if (dbInitError) { setDbError(dbInitError); return; }
-    setNotes(sortNotes(latest));
+    setNotes(sortNotes(latest.filter(note => note.id !== pendingDeleteRef.current?.note.id)));
     const current = latest.find(note => note.id === selectedId);
     if (!isDirtyRef.current && !tagInputRef.current.trim() && saveStatusRef.current !== 'saving' &&
         !isMetadataDialogOpen && !importRequestRef.current && current &&
@@ -1511,8 +1474,16 @@ function App() {
     const beforeUpdate = (event: Event) => beforeMcpUpdate(event);
     const changed = () => {
       const ticket = ++generation;
-      void getAllNotes().then(notes => { if (active && ticket === generation) applyExternalNotes(notes); });
+      void getBoard().then(board => {
+        if (active && ticket === generation) {
+          setOrder(board.order);
+          applyExternalNotes(board.notes);
+        }
+      }).catch(error => {
+        if (active && ticket === generation) setDbError(getErrorMessage(error, "Failed to refresh notes."));
+      });
     };
+    changed();
     const blocked = () => { setDbError(dbInitError); };
     const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('mkb-notes');
     if (channel) channel.onmessage = changed;
@@ -1910,61 +1881,40 @@ function App() {
 
       setIsImporting(true);
 
-      let workingNotes: Note[];
-      try {
-        workingNotes = sortNotes(await getAllNotes());
-      } catch (error) {
-        const message = getErrorMessage(error, "Failed to read saved notes.");
-        setDbError(message);
-        showImportResult(
-          {
-            kind: "import",
-            added: 0,
-            updated: 0,
-            skipped: 0,
-            failed: files.length,
-            failures: files.map((file) => ({ fileName: file.name, reason: message })),
-          },
-          resolvedReturnFocus
-        );
-        return;
-      }
-
       for (const file of files) {
         try {
           const content = await file.text();
-          const candidates = parseImportFileContent(
-            content,
-            file.name,
-            importKind
-          );
-
-          for (const candidate of candidates) {
-            const matchIndex =
-              importKind === "backup"
-                ? findNoteIndexById(workingNotes, candidate.id)
-                : -1;
-            if (importKind === "backup" && matchIndex >= 0) {
-              const existing = workingNotes[matchIndex];
-              if (areNotesEquivalent(existing, candidate)) {
-                skipped += 1;
-                continue;
-              }
-
-              await saveNote(candidate, existing);
-              importedNotes.set(candidate.id, candidate);
-              workingNotes = workingNotes.map((note, index) =>
-                index === matchIndex ? candidate : note
-              );
-              updated += 1;
-              continue;
+          if (importKind === "backup") {
+            const incoming = parseLocalBackup(content, file.name);
+            const board = await getBoard();
+            const byId = new Map(board.notes.map(note => [note.id, note]));
+            const changes = new Map<string, Note>();
+            let fileAdded = 0;
+            let fileUpdated = 0;
+            for (const candidate of incoming.notes) {
+              const existing = byId.get(candidate.id);
+              if (existing && areNotesEquivalent(existing, candidate)) continue;
+              changes.set(candidate.id, candidate);
+              byId.set(candidate.id, candidate);
+              if (existing) fileUpdated++;
+              else fileAdded++;
             }
-
-            await saveNote(candidate);
-            importedNotes.set(candidate.id, candidate);
-            firstAddedNote ??= candidate;
-            workingNotes = [candidate, ...workingNotes];
-            added += 1;
+            if (changes.size || incoming.order) {
+              await applyNotesTransaction([...changes.values()], board.notes, incoming.order
+                ? { order: incoming.order, expectedOrder: board.order } : undefined);
+            }
+            for (const note of changes.values()) importedNotes.set(note.id, note);
+            added += fileAdded;
+            updated += fileUpdated;
+            skipped += incoming.notes.length - fileAdded - fileUpdated;
+          } else {
+            const candidates = parseImportFileContent(content, file.name, importKind);
+            for (const candidate of candidates) {
+              await saveNote(candidate);
+              importedNotes.set(candidate.id, candidate);
+              firstAddedNote ??= candidate;
+              added++;
+            }
           }
         } catch (error) {
           failures.push({
@@ -1975,11 +1925,10 @@ function App() {
       }
 
       if (added > 0 || updated > 0) {
-        // Markdown creates fresh IDs. Merge only its successes to preserve saves
-        // made by the user while file reads were pending.
-        setNotes((current) => importKind === "markdown"
-          ? sortNotes([...importedNotes.values(), ...current])
-          : sortNotes(workingNotes));
+        // Merge only committed notes so that concurrent saves to other notes stay visible.
+        setNotes(current => sortNotes([
+          ...importedNotes.values(), ...current.filter(note => !importedNotes.has(note.id)),
+        ]));
       }
 
       if (canAutoSelect && firstAddedNote &&
@@ -3283,7 +3232,8 @@ function App() {
   const activeFilterCount =
     (searchQuery.trim().length > 0 ? 1 : 0) + activeTagFilterValues.length;
   const hasActiveFilters = activeFilterCount > 0;
-  const filteredNotes = filterNotes(notes, {
+  const orderedNotes = useMemo(() => sortNotes(notes, order), [notes, order]);
+  const filteredNotes = filterNotes(orderedNotes, {
     query: searchQuery,
     tags: activeTagFilterValues,
   });
@@ -3839,7 +3789,9 @@ function App() {
     try {
       const now = new Date();
       const nowIso = now.toISOString();
-      const backup = createBackupDocument(notes, nowIso);
+      const board = await getBoard();
+      const visibleNotes = board.notes.filter(note => note.id !== pendingDeleteRef.current?.note.id);
+      const backup = createBackupDocument(sortNotes(visibleNotes, board.order), nowIso, board.order);
       const fileName = `markdown-knowledge-board-backup-${formatTimestampForFilename(
         now
       )}.json`;
@@ -3858,7 +3810,7 @@ function App() {
         kind: "backup",
         status,
         fileName,
-        noteCount: notes.length,
+        noteCount: backup.noteCount,
         resolvedAt: now.toLocaleString(),
       });
     } catch (error) {
@@ -4458,9 +4410,9 @@ function App() {
               ) : null}
             </div>
           </div>
-          <ul ref={noteListRef} className="note-list">
+          <div ref={noteListRef} className="note-list">
             {filteredNotes.length === 0 ? (
-              <li className="note-item empty">
+              <div className="note-item empty">
                 <span>
                   {notes.length === 0
                     ? "No notes yet."
@@ -4475,89 +4427,36 @@ function App() {
                     Clear Filters
                   </button>
                 ) : null}
-              </li>
+              </div>
             ) : (
-              filteredNotes.map((note) => (
-                <li
-                  key={note.id}
-                  className={`note-item${
-                    note.id === selectedId ? " active" : ""
-                  }${isNotePinned(note) ? " pinned" : ""}${
-                    note.id === selectedId || isNotePinned(note)
-                      ? " has-card-action"
-                      : ""
-                  }`}
-                  data-pinned={isNotePinned(note) || undefined}
-                  data-menu-open={openNoteCardMenuId === note.id || undefined}
-                >
-                  <button
-                    className="note-card-select"
-                    type="button"
-                    data-note-id={note.id}
-                    aria-label={`Open note: ${note.title || "Untitled"}`}
-                    aria-current={note.id === selectedId ? "true" : undefined}
-                    onClick={() => void handleSelectNote(note)}
-                  >
-                    <span
-                      className="note-title"
-                      title={note.title || "Untitled"}
-                    >
-                      {note.title || "Untitled"}
-                    </span>
-                    {note.tags.length > 0 ? (
-                      <span className="note-tags">
-                        {note.tags.map((tag) => (
-                          <span className="note-tag" key={tag} title={tag}>
-                            {tag}
-                          </span>
-                        ))}
-                      </span>
-                    ) : null}
-                    <span className="note-meta">
-                      {formatDate(note.updatedAt)}
-                    </span>
-                  </button>
-                  {note.id === selectedId || isNotePinned(note) ? (
-                    <button
-                      className={`note-card-menu-trigger${
-                        isNotePinned(note) ? " is-pinned" : ""
-                      }`}
-                      type="button"
-                      aria-label={
-                        isNotePinned(note)
-                          ? `Pinned note actions: ${note.title || "Untitled"}`
-                          : "Selected note actions"
-                      }
-                      title={
-                        isNotePinned(note) ? "Pinned note actions" : "More actions"
-                      }
-                      aria-haspopup="menu"
-                      aria-expanded={openNoteCardMenuId === note.id}
-                      aria-controls={
-                        openNoteCardMenuId === note.id
-                          ? "note-card-actions-menu"
-                          : undefined
-                      }
-                      onClick={(event) => {
-                        noteCardMenuButtonRef.current = event.currentTarget;
-                        setIsActionsMenuOpen(false);
-                        setNoteCardMenuPosition(null);
-                        setOpenNoteCardMenuId((current) =>
-                          current === note.id ? null : note.id
-                        );
-                      }}
-                    >
-                      {isNotePinned(note) ? (
-                        <Pin aria-hidden="true" />
-                      ) : (
-                        <MoreVertical aria-hidden="true" />
-                      )}
-                    </button>
-                  ) : null}
-                </li>
-              ))
+              noteGroups.map(group => {
+                const members = filteredNotes.filter(note => noteGroup(note) === group);
+                if (!members.length) return null;
+                return <NoteCardGroup key={group} group={group} notes={members}
+                  selectedId={selectedId} menuId={openNoteCardMenuId}
+                  disabled={hasActiveFilters || !!pendingDelete || isImporting}
+                  onSelect={handleSelectNote} formatDate={formatDate}
+                  onMenu={(note, button) => {
+                    noteCardMenuButtonRef.current = button;
+                    setIsActionsMenuOpen(false);
+                    setNoteCardMenuPosition(null);
+                    setOpenNoteCardMenuId(current => current === note.id ? null : note.id);
+                  }}
+                  onMove={async (expected, id, target) => {
+                    if (movingNote.current) return;
+                    movingNote.current = true;
+                    try {
+                      setOrder(await moveNote(group, expected, id, target));
+                    } catch (error) {
+                      setDbError(getErrorMessage(error, "Failed to save the note order."));
+                    } finally {
+                      movingNote.current = false;
+                    }
+                  }}
+                />;
+              })
             )}
-          </ul>
+          </div>
         </div>
       </aside>
       <main className="editor">
