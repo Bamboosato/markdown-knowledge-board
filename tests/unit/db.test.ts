@@ -5,9 +5,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   applyNotesTransaction,
   getAllNotes,
+  getBoard,
+  moveNote,
   saveNote,
 } from "../../src/lib/db";
 import type { Note } from "../../src/lib/types";
+
+import { createBackupDocument, parseLocalBackup } from "../../src/lib/backup";
+import { validateBackupDocument } from "../../src/lib/cloudRestore";
 
 const DB_NAME = "markdown-knowledge-board";
 const STORE_NAME = "notes";
@@ -86,4 +91,27 @@ describe("applyNotesTransaction", () => {
 
     expect(await getAllNotes()).toEqual([createNote("existing")]);
   });
+});
+
+it("keeps manual order separate from edits, checks stale drops, and round-trips it in backups", async () => {
+  const [a, b, pinned] = [createNote("a"), createNote("b"), { ...createNote("p"), pinnedAt: 10 }];
+  await applyNotesTransaction([a, b, pinned]);
+  await moveNote("other", ["a", "b"], "a", "b");
+  await expect(moveNote("other", ["a", "b"], "a", "b")).rejects.toThrow("changed");
+  await saveNote({ ...a, body: "Edited", updatedAt: 200 }, a);
+  await saveNote(createNote("new"));
+  const board = await getBoard();
+  expect(board.order).toEqual({ other: ["new", "b", "a"] });
+  expect(board.notes.find(note => note.id === "b")).toEqual(b);
+
+  const doc = createBackupDocument(board.notes, new Date().toISOString(), board.order);
+  expect(validateBackupDocument(doc).noteOrder).toEqual(board.order);
+  const backup = parseLocalBackup(JSON.stringify(doc), "saved.json");
+  await saveNote({ ...pinned, pinnedAt: undefined }, pinned);
+  const changed = await getBoard();
+  expect(changed.order.other).toEqual(["p", "new", "b", "a"]);
+  await moveNote("other", changed.order.other!, "new", "a");
+  await expect(applyNotesTransaction([], [], { order: backup.order!, expectedOrder: changed.order })).rejects.toThrow("changed");
+  await applyNotesTransaction([], [], { order: backup.order!, expectedOrder: (await getBoard()).order });
+  expect((await getBoard()).order.other).toEqual(["p", "new", "b", "a"]);
 });

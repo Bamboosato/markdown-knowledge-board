@@ -7,8 +7,8 @@ import {
   validateNewBackupPassphrase,
   MAX_ENCRYPTED_BACKUP_BYTES,
 } from './cloudCrypto'
-import { buildRestorePlan, createNotesFromBackupDocument, getNotesToApply } from './cloudRestore'
-import { applyNotesTransaction, getAllNotes } from './db'
+import { buildRestorePlan, createNotesFromBackupDocument, getNotesToApply, getOrderToRestore } from './cloudRestore'
+import { applyNotesTransaction, getBoard } from './db'
 import {
   createDriveText,
   downloadDriveBytes,
@@ -29,8 +29,9 @@ import { canonical } from './noteRevision'
 export async function createGoogleBackup(token: string, accountId: string, passphrase: string, confirmation: string, preferredFolderId?: string) {
   const normalized = validateNewBackupPassphrase(passphrase, confirmation)
   if ((await getDriveAccount(token)).id !== accountId) throw new Error('The Google account changed. Connect again.')
-  const notes = (await getAllNotes()).sort((a, b) => a.id.localeCompare(b.id))
-  const document = createBackupDocument(notes, new Date().toISOString())
+  const { notes, order } = await getBoard()
+  notes.sort((a, b) => a.id.localeCompare(b.id))
+  const document = createBackupDocument(notes, new Date().toISOString(), order)
   const content = serializeEncryptedBackupEnvelope(await encryptBackupDocument(document, normalized))
   if (content.byteLength > MAX_ENCRYPTED_BACKUP_BYTES) {
     throw new Error('The encrypted backup exceeds the 4.5 MB application limit.')
@@ -75,21 +76,23 @@ export async function prepareGoogleRestore(token: string, folderId: string, file
   const envelope = parseEncryptedBackupEnvelope(content)
   const document = await decryptBackupEnvelope(envelope, passphrase)
   const cloudNotes = createNotesFromBackupDocument(document)
-  const localNotes = await getAllNotes()
+  const board = await getBoard()
+  const localNotes = board.notes
   const plan = await buildRestorePlan(localNotes, cloudNotes)
-  restoreSnapshots.set(plan, localNotes)
+  restoreSnapshots.set(plan, board)
   return { document, plan, file }
 }
 
-const restoreSnapshots = new WeakMap<object, Note[]>()
+const restoreSnapshots = new WeakMap<object, Awaited<ReturnType<typeof getBoard>>>()
 
 export async function applyGoogleRestore(document: Awaited<ReturnType<typeof prepareGoogleRestore>>['document'], expectedPlan: Awaited<ReturnType<typeof prepareGoogleRestore>>['plan']) {
-  const localNotes = await getAllNotes()
+  const board = await getBoard()
+  const localNotes = board.notes
   const expected = restoreSnapshots.get(expectedPlan)
   const latest = await buildRestorePlan(localNotes, createNotesFromBackupDocument(document))
   const writeIds = new Set(getNotesToApply(latest).map(note => note.id))
   const affected = (notes: Note[]) => canonical(notes.filter(note => writeIds.has(note.id)).sort((a,b) => a.id.localeCompare(b.id)))
-  if (!expected || affected(expected) !== affected(localNotes)) {
+  if (!expected || affected(expected.notes) !== affected(localNotes)) {
     throw new Error('Local notes changed. Review the restore preview again.')
   }
   const identity = (items: typeof latest) => items.map(item => [item.id, item.action, item.reason, item.localUpdatedAt, item.cloudUpdatedAt])
@@ -97,7 +100,8 @@ export async function applyGoogleRestore(document: Awaited<ReturnType<typeof pre
     throw new Error('Local notes changed. Review the restore preview again.')
   }
   const toApply = getNotesToApply(latest)
-  if (toApply.length) await applyNotesTransaction(toApply, localNotes)
+  const restore = getOrderToRestore(document, latest, expected.order)
+  if (toApply.length || restore) await applyNotesTransaction(toApply, localNotes, restore)
   return latest
 }
 

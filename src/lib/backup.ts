@@ -5,6 +5,7 @@ import {
 } from "./frontmatter";
 import { createId, createNoteFromMarkdown, getPinnedAt } from "./note";
 import type { CustomMetadataEntry, Note } from "./types";
+import { noteGroup, noteGroups, readBackupOrder, type NoteOrder } from "./noteOrder";
 
 export type BackupNoteRecord = {
   id: string;
@@ -22,6 +23,7 @@ export type BackupDocument = {
   createdAt: string;
   noteCount: number;
   notes: BackupNoteRecord[];
+  noteOrder?: NoteOrder;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,13 +38,22 @@ function assertMarkdownImportFileName(fileName: string): void {
 
 export function createBackupDocument(
   notes: Note[],
-  createdAt: string
+  createdAt: string,
+  order: NoteOrder = {}
 ): BackupDocument {
+  const noteOrder: NoteOrder = {};
+  for (const group of noteGroups) {
+    if (!order[group]) continue;
+    const members = new Set(notes.filter(note => noteGroup(note) === group).map(note => note.id));
+    const ids = order[group].filter(id => members.has(id));
+    if (ids.length) noteOrder[group] = ids;
+  }
   return {
     app: "markdown-knowledge-board",
     version: 1,
     createdAt,
     noteCount: notes.length,
+    ...(Object.keys(noteOrder).length ? { noteOrder } : {}),
     notes: notes.map((note) => {
       const pinnedAt = getPinnedAt(note);
       return {
@@ -59,6 +70,11 @@ export function createBackupDocument(
 }
 
 export function parseBackupNotes(content: string, fileName: string): Note[] {
+  return parseLocalBackup(content, fileName).notes;
+}
+
+export function parseLocalBackup(content: string, fileName: string) {
+  if (!/\.json$/i.test(fileName)) throw new Error("Only .json backup files can be imported here.");
   const parsed: unknown = JSON.parse(content);
   if (!isRecord(parsed)) {
     throw new Error("Backup file must be a JSON object.");
@@ -70,7 +86,7 @@ export function parseBackupNotes(content: string, fileName: string): Note[] {
     throw new Error("Backup file does not contain a notes array.");
   }
 
-  return parsed.notes.map((item, index) => {
+  const notes = parsed.notes.map((item, index) => {
     if (!isRecord(item)) {
       throw new Error(`Backup note ${index + 1} is invalid.`);
     }
@@ -107,6 +123,7 @@ export function parseBackupNotes(content: string, fileName: string): Note[] {
       customMetadata,
     });
   });
+  return { notes, order: readBackupOrder(parsed.noteOrder, notes) };
 }
 
 export function parseImportFileContent(
@@ -115,9 +132,6 @@ export function parseImportFileContent(
   importKind: "markdown" | "backup"
 ): Note[] {
   if (importKind === "backup") {
-    if (!/\.json$/i.test(fileName)) {
-      throw new Error("Only .json backup files can be imported here.");
-    }
     return parseBackupNotes(content, fileName);
   }
   assertMarkdownImportFileName(fileName);

@@ -351,6 +351,91 @@ test.describe("Phase 2 bulk operations and accessibility", () => {
     await expect(olderPinButton).toBeVisible();
   });
 
+  test("long press reorders within a group, preserves tap, and filters the divider", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const notes = ["Pin", "First", "Second", "Third"].map((title, i) => ({
+      id: title, title, tags: [], body: title, updatedAt: 100 - i,
+      ...(i === 0 ? { pinnedAt: 1 } : {}),
+    }));
+    await seedSavedNotes(page, notes);
+    const other = page.getByRole("list", { name: "Other notes" });
+    const titles = other.locator(".note-title");
+    const button = (name: string) => page.getByRole("button", { name: "Open note: " + name, exact: true });
+    await expect(other).toHaveCSS("border-top-width", "1px");
+    const hold = async (name: string) => {
+      await button(name).hover();
+      await page.mouse.down();
+      await expect(page.locator(".note-item[data-lifted=true]:not([inert])")).toBeVisible();
+    };
+    await hold("First");
+    await button("Third").hover({ force: true });
+    await page.mouse.up();
+    await expect(titles).toHaveText(["Second", "Third", "First"]);
+    await expect(button("First")).not.toHaveAttribute("aria-current", "true");
+    await page.reload();
+    await expect(titles).toHaveText(["Second", "Third", "First"]);
+
+    await hold("First");
+    await button("Pin").hover({ force: true });
+    await page.mouse.up();
+    await expect(titles).toHaveText(["Second", "Third", "First"]);
+    await button("First").focus();
+    await page.keyboard.press("Space");
+    await expect(page.locator(".note-item[data-lifted=true]:not([inert])")).toBeVisible();
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Space");
+    await expect(titles).toHaveText(["Second", "First", "Third"]);
+    await button("First").click();
+    await expect(button("First")).toHaveAttribute("aria-current", "true");
+
+    await page.getByRole("button", { name: /^Filter/ }).first().click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("searchbox", { name: "Search" }).fill("ir");
+    await dialog.getByRole("button", { name: "Apply Filters" }).click();
+    await expect(titles).toHaveText(["First", "Third"]);
+    await expect(other).toHaveCSS("border-top-width", "0px");
+    await button("Third").hover();
+    await page.mouse.down();
+    await page.waitForTimeout(400);
+    await expect(page.locator(".note-item[data-lifted=true]:not([inert])")).toHaveCount(0);
+    await page.mouse.up();
+  });
+
+  test("restores manual order from local backup even when the notes are identical", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await mockBackupSavePicker(page);
+    await seedSavedNotes(page, ["A", "B"].map((id, i) => ({
+      id, title: id, body: "# " + id, tags: [], updatedAt: i + 1,
+    })));
+    const titles = page.locator(".note-card-select .note-title");
+    const moveFirstDown = async () => {
+      await page.locator(".note-card-select").first().focus();
+      await page.keyboard.press("Space");
+      await expect(page.locator(".note-item[data-lifted=true]:not([inert])")).toBeVisible();
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Space");
+    };
+    await expect(titles).toHaveText(["B", "A"]);
+    await moveFirstDown();
+    await expect(titles).toHaveText(["A", "B"]);
+    await clickAppMenuItem(page, "Backup All Notes");
+    await expect(page.getByRole("dialog", { name: "Backup Complete" })).toBeVisible();
+    const content = await page.evaluate(() => window.__backupText!);
+    expect(JSON.parse(content).noteOrder).toEqual({ other: ["A", "B"] });
+    await page.getByRole("button", { name: "Close" }).click();
+    await moveFirstDown();
+    await expect(titles).toHaveText(["B", "A"]);
+    await page.setInputFiles("#import-backup", {
+      name: "order.json", mimeType: "application/json", buffer: Buffer.from(content),
+    });
+    const dialog = page.getByRole("dialog", { name: "Import Complete" });
+    await expectResultValue(dialog, "Skipped", "2");
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await expect(titles).toHaveText(["A", "B"]);
+    await page.reload();
+    await expect(titles).toHaveText(["A", "B"]);
+  });
+
   test("shows the latest backup information inside the application menu", async ({ page }) => {
     await page.goto("/");
 
